@@ -33,3 +33,40 @@ export async function sendVerificationEmail(email: string, token: string, pendin
 
   return { sent: true };
 }
+
+export async function sendInvoiceEmail(
+  email: string,
+  invoiceNumber: string,
+  amountPaid: string,
+  hostedInvoiceUrl?: string,
+  invoicePdfUrl?: string,
+) {
+  const { CONTACT_FROM_EMAIL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = env;
+
+  if (!CONTACT_FROM_EMAIL || !SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
+    return { sent: false, reason: "Email not configured" };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+
+  const lines = [
+    `Your Talexia subscription payment of $${amountPaid} has been received.`,
+    `Invoice: ${invoiceNumber}`,
+  ];
+  if (hostedInvoiceUrl) lines.push(`View invoice: ${hostedInvoiceUrl}`);
+  if (invoicePdfUrl) lines.push(`Download PDF: ${invoicePdfUrl}`);
+
+  await transporter.sendMail({
+    from: CONTACT_FROM_EMAIL,
+    to: email,
+    subject: `Talexia Invoice ${invoiceNumber} – Payment Confirmed`,
+    text: lines.join("\n"),
+  });
+
+  return { sent: true };
+}

@@ -70,6 +70,9 @@ router.post("/checkout", requireAuth, async (req, res) => {
   const schema = z.object({
     planCode: z.string(),
     billingCycle: z.enum(["monthly", "yearly"]).optional().default("monthly"),
+    termsAccepted: z.literal(true, { message: "Terms & Conditions must be accepted" }),
+    addonPlatformQty: z.number().int().min(0).max(10).optional().default(0),
+    videoAddonEnabled: z.boolean().optional().default(false),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -77,7 +80,8 @@ router.post("/checkout", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
-  const { planCode, billingCycle } = parsed.data;
+  const { planCode, billingCycle, addonPlatformQty, videoAddonEnabled } = parsed.data;
+  const normalizedPlanCode = planCode.trim().toUpperCase();
   const interval = billingCycle === "yearly" ? "year" : "month";
 
   // Find product in Stripe by code in metadata
@@ -85,18 +89,50 @@ router.post("/checkout", requireAuth, async (req, res) => {
     return res.status(503).json({ error: "Stripe not configured" });
   }
 
-  const products = await stripeClient.products.list({
-    active: true,
-    expand: ["data.default_price"],
-    limit: 100,
-  });
+  const planFromDb = await prisma.plan.findUnique({ where: { code: normalizedPlanCode } });
 
-  const product = products.data.find((p) => p.metadata.code === planCode);
+  let product: Stripe.Product | null = null;
+  let defaultPrice: Stripe.Price | null = null;
+
+  if (planFromDb?.stripePriceStandardId) {
+    try {
+      const dbPrice = await stripeClient.prices.retrieve(planFromDb.stripePriceStandardId, {
+        expand: ["product"],
+      });
+      defaultPrice = dbPrice;
+      product =
+        typeof dbPrice.product === "string"
+          ? await stripeClient.products.retrieve(dbPrice.product)
+          : (dbPrice.product as Stripe.Product | null);
+    } catch (error) {
+      logger.warn("Failed to resolve checkout plan from DB stripe price", {
+        planCode: normalizedPlanCode,
+        stripePriceStandardId: planFromDb.stripePriceStandardId,
+        error,
+      });
+    }
+  }
+
+  if (!product || !defaultPrice) {
+    const products = await stripeClient.products.list({
+      active: true,
+      expand: ["data.default_price"],
+      limit: 100,
+    });
+
+    const byMetadataCode = products.data.find((p) => (p.metadata.code || "").toUpperCase() === normalizedPlanCode);
+    const byName = planFromDb?.name
+      ? products.data.find((p) => p.name.trim().toLowerCase() === planFromDb.name.trim().toLowerCase())
+      : undefined;
+
+    product = byMetadataCode || byName || null;
+    defaultPrice = (product?.default_price as Stripe.Price | null) || null;
+  }
+
   if (!product) {
     return res.status(404).json({ error: "Plan not found" });
   }
 
-  const defaultPrice = product.default_price as Stripe.Price | null;
   if (!defaultPrice) {
     return res.status(400).json({ error: "Plan has no price configured" });
   }
@@ -156,7 +192,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
 
   // Ensure plan exists in local DB for FK (always use monthly/default price for plan record)
   const planPayload = {
-    code: planCode,
+    code: normalizedPlanCode,
     name: product.name,
     category: toPlanCategory(product.metadata.category),
     isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
@@ -173,14 +209,14 @@ router.post("/checkout", requireAuth, async (req, res) => {
   };
 
   await prisma.plan.upsert({
-    where: { code: planCode },
+    where: { code: normalizedPlanCode },
     update: planPayload,
     create: planPayload,
   });
 
   // Check if user has an active subscription to a different plan
   const activeSubscription = await getActiveSubscription(userId);
-  const isPlanSwitch = activeSubscription && activeSubscription.planCode !== planCode;
+  const isPlanSwitch = activeSubscription && activeSubscription.planCode !== normalizedPlanCode;
 
   // Handle plan switching: cancel old subscription in Stripe if switching plans
   // OR cancel default/free plan subscriptions (those without Stripe subscription ID)
@@ -217,7 +253,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
             ],
             metadata: {
               userId,
-              planCode,
+              planCode: normalizedPlanCode,
               priceType,
               switchedFrom: activeSubscription.planCode,
             },
@@ -225,15 +261,15 @@ router.post("/checkout", requireAuth, async (req, res) => {
           });
 
           logger.info(
-            `Updated Stripe subscription ${activeSubscription.stripeSubscriptionId} to plan ${planCode}`,
-            { userId, oldPlan: activeSubscription.planCode, newPlan: planCode }
+            `Updated Stripe subscription ${activeSubscription.stripeSubscriptionId} to plan ${normalizedPlanCode}`,
+            { userId, oldPlan: activeSubscription.planCode, newPlan: normalizedPlanCode }
           );
 
           // Update local subscription record
           await prisma.subscription.update({
             where: { id: activeSubscription.id },
             data: {
-              planCode,
+              planCode: normalizedPlanCode,
               priceType,
               status: SubscriptionStatus.ACTIVE,
               updatedAt: new Date(),
@@ -241,13 +277,13 @@ router.post("/checkout", requireAuth, async (req, res) => {
           });
 
           // Log plan change
-          await logPlanChange(userId, activeSubscription.planCode, planCode, "plan_switch_checkout");
+          await logPlanChange(userId, activeSubscription.planCode, normalizedPlanCode, "plan_switch_checkout");
 
           // Return success - no checkout needed since we updated the subscription
           return res.json({
             success: true,
             message: "Plan switched successfully",
-            planCode,
+            planCode: normalizedPlanCode,
             priceType,
             // Optionally redirect to billing page instead of checkout
             redirectUrl: `${env.FRONTEND_URL}/dashboard/billing`,
@@ -289,7 +325,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
   }
 
   // Guard: Prevent duplicate checkout for the same plan
-  if (activeSubscription && activeSubscription.planCode === planCode) {
+  if (activeSubscription && activeSubscription.planCode === normalizedPlanCode) {
     if (
       activeSubscription.status === SubscriptionStatus.ACTIVE ||
       activeSubscription.status === SubscriptionStatus.TRIALING
@@ -334,7 +370,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
     subscriptionRecord = await prisma.subscription.update({
       where: { id: existingSubscription.id },
       data: {
-        planCode,
+        planCode: normalizedPlanCode,
         priceType,
         status: SubscriptionStatus.INCOMPLETE,
         stripeCustomerId: stripeCustomerId || existingSubscription.stripeCustomerId,
@@ -346,7 +382,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
     subscriptionRecord = await prisma.subscription.create({
       data: {
         userId,
-        planCode,
+        planCode: normalizedPlanCode,
         priceType,
         status: SubscriptionStatus.INCOMPLETE,
         stripeCustomerId,
@@ -354,25 +390,40 @@ router.post("/checkout", requireAuth, async (req, res) => {
     });
   }
 
-  // Create Stripe checkout session
+  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+    { price: priceId, quantity: 1 },
+  ];
+
+  if (addonPlatformQty > 0 && env.STRIPE_PLATFORM_ADDON_PRICE_ID) {
+    lineItems.push({ price: env.STRIPE_PLATFORM_ADDON_PRICE_ID, quantity: addonPlatformQty });
+  }
+
   const session = await stripeClient.checkout.sessions.create({
     mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: lineItems,
     ...(stripeCustomerId ? { customer: stripeCustomerId } : {}),
+    ...(stripeCustomerId
+      ? { customer_update: { address: "auto", name: "auto" } }
+      : {}),
+    billing_address_collection: "required",
+    automatic_tax: { enabled: true },
+    allow_promotion_codes: true,
     success_url: `${env.FRONTEND_URL}/billing/success`,
     cancel_url: `${env.FRONTEND_URL}/billing/cancel`,
     subscription_data: {
       metadata: {
         userId,
-        planCode,
+        planCode: normalizedPlanCode,
         priceType,
         subscriptionId: subscriptionRecord.id,
+        addonPlatformQty: addonPlatformQty.toString(),
+        videoAddonEnabled: videoAddonEnabled.toString(),
         ...(isPlanSwitch ? { switchedFrom: activeSubscription?.planCode } : {}),
       },
     },
     metadata: {
       userId,
-      planCode,
+      planCode: normalizedPlanCode,
       priceType,
       subscriptionId: subscriptionRecord.id,
       ...(isPlanSwitch ? { switchedFrom: activeSubscription?.planCode } : {}),

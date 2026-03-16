@@ -15,6 +15,7 @@ import {
 import { creditVisualTopup } from "../submissions/quota-service";
 import { toPostLimitType, toSchedulerRole } from "./plan-metadata";
 import { extractStripePeriodBounds } from "./stripe-period";
+import { sendInvoiceEmail } from "../auth/email";
 
 type StripeEvent = Stripe.Event;
 
@@ -94,6 +95,9 @@ export async function billingWebhook(req: Request, res: Response) {
       case "customer.subscription.updated":
       case "customer.subscription.deleted":
         await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
+        break;
+      case "invoice.paid":
+        await handleInvoicePaid(event.data.object as Stripe.Invoice);
         break;
       default:
         break;
@@ -461,5 +465,34 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
       isPlanChange,
     }
   );
+}
+
+async function handleInvoicePaid(invoice: Stripe.Invoice) {
+  if (!invoice.customer) return;
+
+  const customerId = String(invoice.customer);
+  const subscription = await prisma.subscription.findFirst({
+    where: { stripeCustomerId: customerId },
+    include: { user: true },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  if (!subscription?.user?.email) return;
+
+  try {
+    await sendInvoiceEmail(
+      subscription.user.email,
+      invoice.number || invoice.id,
+      (invoice.amount_paid / 100).toFixed(2),
+      invoice.hosted_invoice_url ?? undefined,
+      (invoice as any).invoice_pdf ?? undefined,
+    );
+    logger.info(`Invoice email sent for customer ${customerId}`, {
+      invoiceId: invoice.id,
+      amountPaid: invoice.amount_paid,
+    });
+  } catch (err) {
+    logger.error(`Failed to send invoice email for customer ${customerId}`, err);
+  }
 }
 
