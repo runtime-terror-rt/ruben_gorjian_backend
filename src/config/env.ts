@@ -14,6 +14,8 @@ const envSchema = z.object({
   STRIPE_VISUAL_TOPUP_PRICE_ID: z.string().optional(),
   STRIPE_VISUAL_TOPUP_UNITS: z.coerce.number().optional(),
   STRIPE_PLATFORM_ADDON_PRICE_ID: z.string().optional(),
+  STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID: z.string().optional(),
+  STRIPE_NY_SALES_TAX_RATE_ID: z.string().optional(),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   META_APP_ID: z.string().optional(),

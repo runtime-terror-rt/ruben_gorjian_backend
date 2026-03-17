@@ -88,12 +88,15 @@ model Subscription {
   planCode             String
   status               SubscriptionStatus @default(INCOMPLETE)
   priceType            PriceType          @default(STANDARD)
+  billingCycle         BillingCycle       @default(MONTHLY)
   stripeCustomerId     String?
   stripeSubscriptionId String?
   currentPeriodStart   DateTime?
   currentPeriodEnd     DateTime?
+  termsAcceptedAt      DateTime?
   addonPlatformQty     Int                @default(0)
   videoAddonEnabled    Boolean            @default(false)
+  videoSessionHours    Int                @default(0)
   cancelAtPeriodEnd    Boolean            @default(false)
   canceledAt           DateTime?
   createdAt            DateTime           @default(now())
@@ -135,6 +138,11 @@ enum PostLimitType {
 enum SchedulerRole {
   CLIENT
   ADMIN
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
 }
 
 model Founder {

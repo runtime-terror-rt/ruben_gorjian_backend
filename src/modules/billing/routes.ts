@@ -1,6 +1,6 @@
 import express from "express";
 import Stripe from "stripe";
-import { PriceType, SubscriptionStatus } from "@prisma/client";
+import { BillingCycle, PriceType, SubscriptionStatus } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/requireAuth";
@@ -20,6 +20,9 @@ import { mapStripeStatus, toPlanCategory } from "./billing-utils";
 import { billingSyncRateLimiter } from "../../middleware/rateLimiter";
 
 const router = express.Router();
+const VIDEO_SESSION_HOURLY_RATE_CENTS = 49_500;
+const PLATFORM_ADDON_MONTHLY_CENTS = 500;
+const NY_SALES_TAX_BPS = 862.5;
 
 router.get("/plans", async (_req, res) => {
   // Serve from DB first (populated by startup sync — avoids a live Stripe call per request)
@@ -71,7 +74,9 @@ router.post("/checkout", requireAuth, async (req, res) => {
     planCode: z.string(),
     billingCycle: z.enum(["monthly", "yearly"]).optional().default("monthly"),
     termsAccepted: z.literal(true, { message: "Terms & Conditions must be accepted" }),
-    addonPlatformQty: z.number().int().min(0).max(10).optional().default(0),
+    addonPlatformQty: z.coerce.number().int().min(0).max(10).optional().default(0),
+    videoSessionHours: z.coerce.number().int().min(0).max(40).optional().default(0),
+    // Backward compatibility for older frontend payload.
     videoAddonEnabled: z.boolean().optional().default(false),
   });
 
@@ -80,9 +85,25 @@ router.post("/checkout", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
-  const { planCode, billingCycle, addonPlatformQty, videoAddonEnabled } = parsed.data;
+  const { planCode, billingCycle, addonPlatformQty } = parsed.data;
+  const videoSessionHours = parsed.data.videoSessionHours > 0
+    ? parsed.data.videoSessionHours
+    : parsed.data.videoAddonEnabled
+      ? 1
+      : 0;
+  const videoAddonEnabled = videoSessionHours > 0;
+  const termsAcceptedAt = new Date();
   const normalizedPlanCode = planCode.trim().toUpperCase();
   const interval = billingCycle === "yearly" ? "year" : "month";
+  const billingCycleEnum = billingCycle === "yearly" ? BillingCycle.YEARLY : BillingCycle.MONTHLY;
+  const nyTaxRateId = env.STRIPE_NY_SALES_TAX_RATE_ID;
+
+  if (!nyTaxRateId) {
+    return res.status(503).json({
+      error: "NY sales tax rate is not configured",
+      requiredEnv: "STRIPE_NY_SALES_TAX_RATE_ID",
+    });
+  }
 
   // Find product in Stripe by code in metadata
   if (!stripeClient) {
@@ -241,6 +262,13 @@ router.post("/checkout", requireAuth, async (req, res) => {
         );
 
       if (stripeSub.status === "active" || stripeSub.status === "trialing") {
+        const allowDirectPlanSwitch =
+          interval === "month" && addonPlatformQty === 0 && videoSessionHours === 0;
+
+        if (!allowDirectPlanSwitch) {
+          throw new Error("Direct plan switch skipped due to add-ons or non-monthly cycle");
+        }
+
         // Update existing subscription to new plan (Stripe handles proration)
         // This is the preferred method as it maintains billing continuity
         try {
@@ -255,6 +283,8 @@ router.post("/checkout", requireAuth, async (req, res) => {
               userId,
               planCode: normalizedPlanCode,
               priceType,
+              billingCycle,
+              termsAcceptedAt: termsAcceptedAt.toISOString(),
               switchedFrom: activeSubscription.planCode,
             },
             proration_behavior: "create_prorations",
@@ -372,8 +402,13 @@ router.post("/checkout", requireAuth, async (req, res) => {
       data: {
         planCode: normalizedPlanCode,
         priceType,
+        billingCycle: billingCycleEnum,
         status: SubscriptionStatus.INCOMPLETE,
         stripeCustomerId: stripeCustomerId || existingSubscription.stripeCustomerId,
+        termsAcceptedAt,
+          addonPlatformQty,
+          videoAddonEnabled,
+        videoSessionHours,
         updatedAt: new Date(),
       },
     });
@@ -384,19 +419,88 @@ router.post("/checkout", requireAuth, async (req, res) => {
         userId,
         planCode: normalizedPlanCode,
         priceType,
+        billingCycle: billingCycleEnum,
         status: SubscriptionStatus.INCOMPLETE,
         stripeCustomerId,
+        termsAcceptedAt,
+        addonPlatformQty,
+        videoAddonEnabled,
+        videoSessionHours,
       },
     });
   }
 
-  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
-    { price: priceId, quantity: 1 },
-  ];
+  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+  const taxLineConfig = { tax_rates: [nyTaxRateId] };
+  const cartSubtotalCentsParts: number[] = [];
+  const basePriceCents = price.unit_amount ?? 0;
 
-  if (addonPlatformQty > 0 && env.STRIPE_PLATFORM_ADDON_PRICE_ID) {
-    lineItems.push({ price: env.STRIPE_PLATFORM_ADDON_PRICE_ID, quantity: addonPlatformQty });
+  lineItems.push({
+    price: priceId,
+    quantity: 1,
+    ...taxLineConfig,
+  });
+  cartSubtotalCentsParts.push(basePriceCents);
+
+  if (addonPlatformQty > 0) {
+    if (interval === "year" && env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID) {
+      lineItems.push({
+        price: env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID,
+        quantity: addonPlatformQty,
+        ...taxLineConfig,
+      });
+      const yearlyUnitCents = PLATFORM_ADDON_MONTHLY_CENTS * 12;
+      cartSubtotalCentsParts.push(yearlyUnitCents * addonPlatformQty);
+    } else if (interval === "month" && env.STRIPE_PLATFORM_ADDON_PRICE_ID) {
+      lineItems.push({
+        price: env.STRIPE_PLATFORM_ADDON_PRICE_ID,
+        quantity: addonPlatformQty,
+        ...taxLineConfig,
+      });
+      cartSubtotalCentsParts.push(PLATFORM_ADDON_MONTHLY_CENTS * addonPlatformQty);
+    } else {
+      const addonUnitCents = interval === "year"
+        ? PLATFORM_ADDON_MONTHLY_CENTS * 12
+        : PLATFORM_ADDON_MONTHLY_CENTS;
+      lineItems.push({
+        price_data: {
+          currency: "usd",
+          recurring: { interval },
+          unit_amount: addonUnitCents,
+          product_data: {
+            name: "Additional Platform",
+            description:
+              interval === "year"
+                ? "$60/year per extra platform"
+                : "$5/month per extra platform",
+          },
+        },
+        quantity: addonPlatformQty,
+        ...taxLineConfig,
+      });
+      cartSubtotalCentsParts.push(addonUnitCents * addonPlatformQty);
+    }
   }
+
+  if (videoSessionHours > 0) {
+    lineItems.push({
+      price_data: {
+        currency: "usd",
+        unit_amount: VIDEO_SESSION_HOURLY_RATE_CENTS,
+        product_data: {
+          name: "Video Session",
+          description: "$495 per hour",
+        },
+      },
+      quantity: videoSessionHours,
+      ...taxLineConfig,
+    });
+    cartSubtotalCentsParts.push(VIDEO_SESSION_HOURLY_RATE_CENTS * videoSessionHours);
+  }
+
+  const subtotalCents = cartSubtotalCentsParts.reduce((sum, value) => sum + value, 0);
+  const estimatedTaxCents = Math.round((subtotalCents * NY_SALES_TAX_BPS) / 10_000);
+  const estimatedTotalCents = subtotalCents + estimatedTaxCents;
 
   const session = await stripeClient.checkout.sessions.create({
     mode: "subscription",
@@ -406,7 +510,6 @@ router.post("/checkout", requireAuth, async (req, res) => {
       ? { customer_update: { address: "auto", name: "auto" } }
       : {}),
     billing_address_collection: "required",
-    automatic_tax: { enabled: true },
     allow_promotion_codes: true,
     success_url: `${env.FRONTEND_URL}/billing/success`,
     cancel_url: `${env.FRONTEND_URL}/billing/cancel`,
@@ -416,8 +519,11 @@ router.post("/checkout", requireAuth, async (req, res) => {
         planCode: normalizedPlanCode,
         priceType,
         subscriptionId: subscriptionRecord.id,
+        billingCycle,
+        termsAcceptedAt: termsAcceptedAt.toISOString(),
         addonPlatformQty: addonPlatformQty.toString(),
         videoAddonEnabled: videoAddonEnabled.toString(),
+        videoSessionHours: videoSessionHours.toString(),
         ...(isPlanSwitch ? { switchedFrom: activeSubscription?.planCode } : {}),
       },
     },
@@ -426,11 +532,29 @@ router.post("/checkout", requireAuth, async (req, res) => {
       planCode: normalizedPlanCode,
       priceType,
       subscriptionId: subscriptionRecord.id,
+      billingCycle,
+      termsAcceptedAt: termsAcceptedAt.toISOString(),
+      addonPlatformQty: addonPlatformQty.toString(),
+      videoAddonEnabled: videoAddonEnabled.toString(),
+      videoSessionHours: videoSessionHours.toString(),
       ...(isPlanSwitch ? { switchedFrom: activeSubscription?.planCode } : {}),
     },
   });
 
-  return res.json({ checkoutUrl: session.url, priceType });
+  return res.json({
+    checkoutUrl: session.url,
+    priceType,
+    cart: {
+      planCode: normalizedPlanCode,
+      billingCycle,
+      subtotalCents,
+      taxRatePercent: 8.625,
+      estimatedTaxCents,
+      estimatedTotalCents,
+      addonPlatformQty,
+      videoSessionHours,
+    },
+  });
 });
 
 router.post("/visual-topups/checkout", requireAuth, async (req, res) => {
