@@ -19,6 +19,36 @@ import { sendInvoiceEmail } from "../auth/email";
 
 type StripeEvent = Stripe.Event;
 
+function getInvoiceSubtotalCents(invoice: Stripe.Invoice) {
+  if (typeof invoice.subtotal === "number") return invoice.subtotal;
+  if (typeof invoice.amount_paid === "number") return invoice.amount_paid;
+  if (typeof invoice.total === "number") return invoice.total;
+  return 0;
+}
+
+function getInvoiceTaxCents(invoice: Stripe.Invoice) {
+  const invoiceAny = invoice as any;
+
+  if (Array.isArray(invoiceAny.total_tax_amounts) && invoiceAny.total_tax_amounts.length > 0) {
+    return invoiceAny.total_tax_amounts.reduce((sum: number, item: any) => {
+      const amount = typeof item?.amount === "number" ? item.amount : 0;
+      return sum + amount;
+    }, 0);
+  }
+
+  if (typeof invoiceAny.tax === "number") {
+    return invoiceAny.tax;
+  }
+
+  const subtotal = getInvoiceSubtotalCents(invoice);
+  const total = typeof invoice.total === "number"
+    ? invoice.total
+    : typeof invoice.amount_paid === "number"
+      ? invoice.amount_paid
+      : subtotal;
+  return Math.max(total - subtotal, 0);
+}
+
 export async function upsertPlanFromPrice(price: Stripe.Price | null | undefined) {
   if (!stripeClient || !price) return null;
 
@@ -96,6 +126,7 @@ export async function billingWebhook(req: Request, res: Response) {
       case "customer.subscription.deleted":
         await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
         break;
+      case "invoice.payment_succeeded":
       case "invoice.paid":
         await handleInvoicePaid(event.data.object as Stripe.Invoice);
         break;
@@ -336,6 +367,42 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
     `Checkout completed for user ${userId}, plan ${resolvedPlanCode}`,
     { subscriptionId: finalSubscriptionId, switchedFrom }
   );
+
+  // Send invoice email directly after checkout (does not depend on invoice.paid webhook)
+  if (stripeClient && session.invoice) {
+    try {
+      const invoiceId = typeof session.invoice === "string" ? session.invoice : (session.invoice as any).id;
+      const [stripeInvoice, user] = await Promise.all([
+        stripeClient.invoices.retrieve(invoiceId),
+        prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } }),
+      ]);
+      if (user?.email) {
+        const subtotalCents = getInvoiceSubtotalCents(stripeInvoice);
+        const taxCents = getInvoiceTaxCents(stripeInvoice);
+        await sendInvoiceEmail(
+          user.email,
+          stripeInvoice.number || stripeInvoice.id,
+          (stripeInvoice.amount_paid / 100).toFixed(2),
+          stripeInvoice.hosted_invoice_url ?? undefined,
+          (stripeInvoice as any).invoice_pdf ?? undefined,
+          {
+            planName: resolvedPlanCode,
+            billingCycle: billingCycle === BillingCycle.YEARLY ? "Yearly" : "Monthly",
+            userName: user.name ?? undefined,
+            customerEmail: user.email,
+            invoiceStatus: stripeInvoice.status || "paid",
+            subtotalAmount: (subtotalCents / 100).toFixed(2),
+            taxAmount: (taxCents / 100).toFixed(2),
+            transactionId: String((stripeInvoice as any).payment_intent || stripeInvoice.id),
+          },
+        );
+        logger.info(`Invoice email sent to ${user.email} after checkout`, { invoiceId });
+      }
+    } catch (err) {
+      // Non-fatal — do not fail the webhook if email sending fails
+      logger.error(`Failed to send invoice email for user ${userId} after checkout`, err);
+    }
+  }
 }
 
 async function handleVisualTopupCheckout(
@@ -499,13 +566,29 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
 
   if (!subscription?.user?.email) return;
 
+  // Skip if invoice.billing_reason is "subscription_create" —
+  // already handled by handleCheckoutCompleted to avoid duplicate emails
+  if ((invoice as any).billing_reason === "subscription_create") return;
+
   try {
+    const subtotalCents = getInvoiceSubtotalCents(invoice);
+    const taxCents = getInvoiceTaxCents(invoice);
     await sendInvoiceEmail(
       subscription.user.email,
       invoice.number || invoice.id,
       (invoice.amount_paid / 100).toFixed(2),
       invoice.hosted_invoice_url ?? undefined,
       (invoice as any).invoice_pdf ?? undefined,
+      {
+        planName: subscription.planCode,
+        billingCycle: subscription.billingCycle === "YEARLY" ? "Yearly" : "Monthly",
+        userName: subscription.user.name ?? undefined,
+        customerEmail: subscription.user.email,
+        invoiceStatus: invoice.status || "paid",
+        subtotalAmount: (subtotalCents / 100).toFixed(2),
+        taxAmount: (taxCents / 100).toFixed(2),
+        transactionId: String((invoice as any).payment_intent || invoice.id),
+      },
     );
     logger.info(`Invoice email sent for customer ${customerId}`, {
       invoiceId: invoice.id,
