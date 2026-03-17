@@ -25,19 +25,19 @@ const noopLimiter: express.RequestHandler = (_req, _res, next) => next();
 const authLimiter =
   env.NODE_ENV === "production"
     ? rateLimit({
-        windowMs: 15 * 60 * 1000,
-        max: 5,
-        message: "Too many login attempts, please try again later.",
-        skipSuccessfulRequests: true,
-      })
+      windowMs: 15 * 60 * 1000,
+      max: 5,
+      message: "Too many login attempts, please try again later.",
+      skipSuccessfulRequests: true,
+    })
     : noopLimiter;
 
 const googleClient = env.GOOGLE_CLIENT_ID
   ? new OAuth2Client(
-      env.GOOGLE_CLIENT_ID,
-      env.GOOGLE_CLIENT_SECRET,
-      `${env.FRONTEND_URL ?? ""}/api/auth/google/callback`
-    )
+    env.GOOGLE_CLIENT_ID,
+    env.GOOGLE_CLIENT_SECRET,
+    `${env.FRONTEND_URL ?? ""}/api/auth/google/callback`
+  )
   : null;
 const PASSWORD_RESET_EXPIRY_MS = 1000 * 60 * 60; // 1 hour
 const EMAIL_VERIFICATION_EXPIRY_MS = 1000 * 60 * 60 * 24; // 24 hours
@@ -138,7 +138,7 @@ router.post("/signup", authLimiter, async (req, res) => {
   // Require plan selection - no default plan
   if (!normalizedPendingPlanCode) {
     logger.warn("No pendingPlanCode provided during signup", { email });
-    return res.status(400).json({ 
+    return res.status(400).json({
       error: "Please select a plan to continue.",
       details: "No plan selected",
     });
@@ -293,11 +293,11 @@ router.get("/me", requireAuth, async (req, res) => {
   if (!user) {
     return res.status(404).json({ error: "User not found" });
   }
-  
+
   // Use the subscription service helper to get the active subscription
   // This ensures consistency with billing summary and handles edge cases
   const subscription = await getActiveSubscription(userId);
-  
+
   // Check for INCOMPLETE subscriptions if no active one found
   let finalSubscription = subscription;
   if (!subscription) {
@@ -308,11 +308,11 @@ router.get("/me", requireAuth, async (req, res) => {
     });
     finalSubscription = incompleteSub;
   }
-  
+
   // Determine plan category: from subscription, or from pendingPlanCode if no subscription
   let planCategory: PlanCategory | null = (finalSubscription?.plan?.category as PlanCategory) || null;
   let planResolutionPath: "from_subscription" | "from_pending_plan_code" | "unknown" = "unknown";
-  
+
   // Only query for pendingPlan if we don't have a subscription and user has pendingPlanCode
   if (!planCategory && user.pendingPlanCode) {
     // No active subscription, but user has pendingPlanCode - resolve plan from it
@@ -374,22 +374,22 @@ router.get("/me", requireAuth, async (req, res) => {
     subscriptionStatus: finalSubscription?.status,
     hasPendingPlanCode: !!user.pendingPlanCode,
   });
-  
+
   // Build subscription object: use actual subscription if exists, otherwise use pendingPlanCode
   const subscriptionObj = finalSubscription
     ? {
-        planCode: finalSubscription.planCode,
-        planCategory: (finalSubscription.plan?.category as PlanCategory) || null,
-        status: finalSubscription.status,
-        priceType: finalSubscription.priceType,
-      }
+      planCode: finalSubscription.planCode,
+      planCategory: (finalSubscription.plan?.category as PlanCategory) || null,
+      status: finalSubscription.status,
+      priceType: finalSubscription.priceType,
+    }
     : planCategory
       ? {
-          planCode: user.pendingPlanCode || null,
-          planCategory: planCategory as PlanCategory,
-          status: "INCOMPLETE" as const,
-          priceType: "STANDARD" as const,
-        }
+        planCode: user.pendingPlanCode || null,
+        planCategory: planCategory as PlanCategory,
+        status: "INCOMPLETE" as const,
+        priceType: "STANDARD" as const,
+      }
       : null;
 
   return res.json({
@@ -578,35 +578,68 @@ router.post("/verify-email", async (req, res) => {
 router.post("/resend-verification", async (req, res) => {
   const schema = z.object({ email: z.string().email() });
   const parsed = schema.safeParse(req.body);
+
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res.status(400).json({
+      success: false,
+      message: "Invalid request payload. Please provide a valid email address.",
+      details: parsed.error.flatten(),
+    });
   }
+
   const email = parsed.data.email.toLowerCase();
+
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || user.emailVerified) {
-    return res.json({ success: true });
+
+  if (!user) {
+    logger.warn("Resend verification requested for non-existent email", { email });
+
+    return res.status(404).json({
+      success: false,
+      message: "No account found with this email address.",
+    });
+  }
+
+  if (user.emailVerified) {
+    logger.warn("Resend verification requested for already verified email", { email });
+
+    return res.status(400).json({
+      success: false,
+      message: "This email address is already verified. Please log in.",
+    });
   }
 
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_EXPIRY_MS);
+
   await prisma.emailVerificationToken.create({
     data: { userId: user.id, token, expiresAt },
   });
-  
-  const emailResult = await sendVerificationEmail(email, token, user.pendingPlanCode || undefined);
+
+  const emailResult = await sendVerificationEmail(
+    email,
+    token,
+    user.pendingPlanCode || undefined
+  );
+
   if (!emailResult.sent) {
     logger.error("Failed to send verification email", {
       userId: user.id,
       email,
       reason: emailResult.reason,
     });
-    return res.status(500).json({ 
-      error: "Failed to send verification email. Please try again later.",
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send verification email. Please try again later.",
       details: emailResult.reason,
     });
   }
-  
-  return res.json({ success: true });
+
+  return res.status(200).json({
+    success: true,
+    message: "Verification email has been sent successfully. Please check your inbox.",
+  });
 });
 
 function safeUser(user: {
@@ -721,7 +754,7 @@ router.post("/google/callback", async (req, res) => {
     code: z.string(),
     pendingPlanCode: z.string().optional(),
   });
-  
+
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid code" });
@@ -767,7 +800,7 @@ router.post("/google/callback", async (req, res) => {
 
     // Same logic as existing Google route
     let user = await prisma.user.findUnique({ where: { email: payload.email } });
-    
+
     if (!user) {
       user = await prisma.user.create({
         data: {
