@@ -23,6 +23,7 @@ const router = express.Router();
 const VIDEO_SESSION_HOURLY_RATE_CENTS = 49_500;
 const PLATFORM_ADDON_MONTHLY_CENTS = 500;
 const NY_SALES_TAX_BPS = 862.5;
+const YEARLY_MULTIPLIER = 12 * 0.8;
 
 type ApplicableCoupon = {
   id: string;
@@ -100,6 +101,57 @@ async function resolveApplicableCoupon(params: {
   return { coupon };
 }
 
+async function resolveOrCreateYearlyPrice(params: {
+  product: Stripe.Product;
+  defaultPrice: Stripe.Price;
+  normalizedPlanCode: string;
+}): Promise<Stripe.Price> {
+  if (!stripeClient) {
+    throw new Error("Stripe not configured");
+  }
+
+  const allPrices = await stripeClient.prices.list({
+    product: params.product.id,
+    active: true,
+  });
+
+  const yearlyPrice = allPrices.data.find((p) => p.recurring?.interval === "year");
+  if (yearlyPrice) {
+    return yearlyPrice;
+  }
+
+  if ((params.defaultPrice.recurring?.interval || "") !== "month") {
+    throw new Error("Yearly billing is not available for this plan");
+  }
+
+  const monthlyCents = params.defaultPrice.unit_amount ?? 0;
+  const yearlyCents = Math.round(monthlyCents * YEARLY_MULTIPLIER);
+
+  const created = await stripeClient.prices.create(
+    {
+      product: params.product.id,
+      unit_amount: yearlyCents,
+      currency: params.defaultPrice.currency || "usd",
+      recurring: { interval: "year" },
+      metadata: {
+        interval: "year",
+        source: "talexia_runtime_yearly_fallback",
+        planCode: params.normalizedPlanCode,
+      },
+    },
+    { idempotencyKey: `yearly-price-${params.product.id}-${yearlyCents}` }
+  );
+
+  logger.info("Created yearly price on demand", {
+    planCode: params.normalizedPlanCode,
+    productId: params.product.id,
+    priceId: created.id,
+    yearlyCents,
+  });
+
+  return created;
+}
+
 async function resolvePriceForPlanAndCycle(params: {
   normalizedPlanCode: string;
   billingCycle: BillingCycle;
@@ -162,15 +214,11 @@ async function resolvePriceForPlanAndCycle(params: {
 
   let selectedPrice: Stripe.Price = defaultPrice;
   if (interval === "year") {
-    const allPrices = await stripeClient.prices.list({
-      product: product.id,
-      active: true,
+    selectedPrice = await resolveOrCreateYearlyPrice({
+      product,
+      defaultPrice,
+      normalizedPlanCode: params.normalizedPlanCode,
     });
-    const yearlyPrice = allPrices.data.find((p) => p.recurring?.interval === "year");
-    if (!yearlyPrice) {
-      throw new Error("Yearly billing is not available for this plan");
-    }
-    selectedPrice = yearlyPrice;
   }
 
   const eligibleForFounder = await isFounderEligible(params.userId);
@@ -395,16 +443,16 @@ router.post("/checkout", requireAuth, async (req, res) => {
   // Resolve the price to use for checkout (monthly or yearly)
   let price: Stripe.Price = defaultPrice;
   if (interval === "year") {
-    const allPrices = await stripeClient.prices.list({
-      product: product.id,
-      active: true,
-    });
-    const yearlyPrice = allPrices.data.find((p) => p.recurring?.interval === "year");
-    if (yearlyPrice) {
-      price = yearlyPrice;
-    } else {
+    try {
+      price = await resolveOrCreateYearlyPrice({
+        product,
+        defaultPrice,
+        normalizedPlanCode,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Yearly billing is not available for this plan.";
       return res.status(400).json({
-        error: "Yearly billing is not available for this plan. Please choose monthly.",
+        error: `${message} Please choose monthly.`,
       });
     }
   }
@@ -1091,9 +1139,17 @@ router.post("/schedule-change", requireAuth, async (req, res) => {
     });
   } catch (error) {
     logger.error("Failed to schedule plan change", error);
-    return res.status(500).json({
+    const message = error instanceof Error ? error.message : "Unable to schedule plan change";
+    const knownClientErrors = [
+      "Plan not found",
+      "Plan has no price configured",
+      "Yearly billing is not available for this plan",
+      "Unable to determine current billing period bounds",
+    ];
+    const isClientError = knownClientErrors.some((known) => message.includes(known));
+    return res.status(isClientError ? 400 : 500).json({
       success: false,
-      message: "Unable to schedule plan change",
+      message: isClientError ? message : "Unable to schedule plan change",
     });
   }
 });
