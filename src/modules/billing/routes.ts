@@ -819,6 +819,131 @@ router.post("/visual-topups/checkout", requireAuth, async (req, res) => {
   });
 });
 
+// Cancel recurring charges from the next billing cycle.
+router.post("/cancel", requireAuth, async (req, res) => {
+  if (!stripeClient) {
+    return res.status(503).json({ error: "Stripe not configured" });
+  }
+
+  const userId = req.user!.id;
+  const activeSubscription = await prisma.subscription.findFirst({
+    where: {
+      userId,
+      status: {
+        in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING],
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  if (!activeSubscription) {
+    return res.status(404).json({
+      success: false,
+      message: "No active subscription found",
+    });
+  }
+
+  if (!activeSubscription.stripeSubscriptionId) {
+    return res.status(400).json({
+      success: false,
+      message: "Stripe subscription not found for this active plan",
+    });
+  }
+
+  try {
+    const stripeSub = await stripeClient.subscriptions.update(
+      activeSubscription.stripeSubscriptionId,
+      {
+        cancel_at_period_end: true,
+      }
+    );
+
+    const { endUnix } = extractStripePeriodBounds(stripeSub);
+
+    await prisma.subscription.update({
+      where: { id: activeSubscription.id },
+      data: {
+        cancelAtPeriodEnd: true,
+        currentPeriodEnd: endUnix ? new Date(endUnix * 1000) : activeSubscription.currentPeriodEnd,
+        updatedAt: new Date(),
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Subscription will be canceled at the end of current billing cycle",
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: endUnix ? new Date(endUnix * 1000) : activeSubscription.currentPeriodEnd,
+      planCode: activeSubscription.planCode,
+    });
+  } catch (error) {
+    logger.error("Failed to cancel subscription at period end", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to schedule cancellation",
+    });
+  }
+});
+
+// Resume recurring charges if cancellation was scheduled.
+router.post("/resume", requireAuth, async (req, res) => {
+  if (!stripeClient) {
+    return res.status(503).json({ error: "Stripe not configured" });
+  }
+
+  const userId = req.user!.id;
+  const activeSubscription = await prisma.subscription.findFirst({
+    where: {
+      userId,
+      status: {
+        in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING],
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  if (!activeSubscription) {
+    return res.status(404).json({
+      success: false,
+      message: "No active subscription found",
+    });
+  }
+
+  if (!activeSubscription.stripeSubscriptionId) {
+    return res.status(400).json({
+      success: false,
+      message: "Stripe subscription not found for this active plan",
+    });
+  }
+
+  try {
+    await stripeClient.subscriptions.update(activeSubscription.stripeSubscriptionId, {
+      cancel_at_period_end: false,
+    });
+
+    await prisma.subscription.update({
+      where: { id: activeSubscription.id },
+      data: {
+        cancelAtPeriodEnd: false,
+        updatedAt: new Date(),
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Subscription cancellation removed; recurring charges resumed",
+      cancelAtPeriodEnd: false,
+      planCode: activeSubscription.planCode,
+    });
+  } catch (error) {
+    logger.error("Failed to resume subscription recurring", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to resume recurring charges",
+    });
+  }
+});
+
 // Get current active plan details
 router.get("/current-plan", requireAuth, async (req, res) => {
   try {
