@@ -743,6 +743,128 @@ router.post("/portal", requireAuth, async (req, res) => {
   }
 });
 
+// Get subscription history and current subscription
+router.get("/history", requireAuth, async (req, res) => {
+  try {
+    const userId = req.user!.id;
+
+    // Get current active subscription
+    const currentSubscription = await prisma.subscription.findFirst({
+      where: {
+        userId,
+        status: {
+          in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING],
+        },
+      },
+      include: {
+        plan: true,
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+    });
+
+    // Get all subscriptions (both active and past)
+    const allSubscriptions = await prisma.subscription.findMany({
+      where: { userId },
+      include: {
+        plan: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    // Get plan change logs (audit trail)
+    const planChangeLogs = await prisma.planChangeLog.findMany({
+      where: { userId },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    // Format the response
+    const response = {
+      currentSubscription: currentSubscription ? {
+        id: currentSubscription.id,
+        planCode: currentSubscription.planCode,
+        planName: currentSubscription.plan.name,
+        status: currentSubscription.status,
+        billingCycle: currentSubscription.billingCycle,
+        priceType: currentSubscription.priceType,
+        currentPeriodStart: currentSubscription.currentPeriodStart,
+        currentPeriodEnd: currentSubscription.currentPeriodEnd,
+        cancelAtPeriodEnd: currentSubscription.cancelAtPeriodEnd,
+        addonPlatformQty: currentSubscription.addonPlatformQty,
+        videoAddonEnabled: currentSubscription.videoAddonEnabled,
+        videoSessionHours: currentSubscription.videoSessionHours,
+        termsAcceptedAt: currentSubscription.termsAcceptedAt,
+        stripeSubscriptionId: currentSubscription.stripeSubscriptionId,
+        createdAt: currentSubscription.createdAt,
+        updatedAt: currentSubscription.updatedAt,
+        plan: {
+          code: currentSubscription.plan.code,
+          name: currentSubscription.plan.name,
+          category: currentSubscription.plan.category,
+          platformLimit: currentSubscription.plan.platformLimit,
+          baseVisualQuota: currentSubscription.plan.baseVisualQuota,
+          basePostQuota: currentSubscription.plan.basePostQuota,
+          priceStandardCents: currentSubscription.plan.priceStandardCents,
+          priceFounderCents: currentSubscription.plan.priceFounderCents,
+        },
+      } : null,
+      
+      subscriptionHistory: allSubscriptions.map(sub => ({
+        id: sub.id,
+        planCode: sub.planCode,
+        planName: sub.plan.name,
+        status: sub.status,
+        billingCycle: sub.billingCycle,
+        priceType: sub.priceType,
+        currentPeriodStart: sub.currentPeriodStart,
+        currentPeriodEnd: sub.currentPeriodEnd,
+        cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+        canceledAt: sub.canceledAt,
+        addonPlatformQty: sub.addonPlatformQty,
+        videoAddonEnabled: sub.videoAddonEnabled,
+        videoSessionHours: sub.videoSessionHours,
+        termsAcceptedAt: sub.termsAcceptedAt,
+        createdAt: sub.createdAt,
+        updatedAt: sub.updatedAt,
+        plan: {
+          code: sub.plan.code,
+          name: sub.plan.name,
+          category: sub.plan.category,
+          platformLimit: sub.plan.platformLimit,
+          baseVisualQuota: sub.plan.baseVisualQuota,
+          basePostQuota: sub.plan.basePostQuota,
+          priceStandardCents: sub.plan.priceStandardCents,
+          priceFounderCents: sub.plan.priceFounderCents,
+        },
+      })),
+
+      planChangeLog: planChangeLogs.map(log => ({
+        id: log.id,
+        oldPlanCode: log.oldPlanCode,
+        newPlanCode: log.newPlanCode,
+        reason: log.reason,
+        createdAt: log.createdAt,
+      })),
+
+      summary: {
+        totalSubscriptions: allSubscriptions.length,
+        totalPlanChanges: planChangeLogs.length,
+        hasActiveSubscription: !!currentSubscription,
+      },
+    };
+
+    return res.json(response);
+  } catch (error) {
+    logger.error("Error fetching subscription history", error);
+    return res.status(500).json({ error: "Unable to fetch subscription history" });
+  }
+});
+
 // Manual sync endpoint - syncs subscription status from Stripe
 // Useful if webhooks are delayed or failed
 router.post("/sync", requireAuth, billingSyncRateLimiter, async (req, res) => {
