@@ -4,7 +4,7 @@ import { prisma } from "../../lib/prisma";
 import { logger } from "../../lib/logger";
 import { stripeClient } from "./stripe";
 import { env } from "../../config/env";
-import { BillingCycle, PriceType, SubscriptionStatus } from "@prisma/client";
+import { BillingCycle, CouponStatus, PriceType, SubscriptionStatus } from "@prisma/client";
 import { mapStripeStatus, toPlanCategory } from "./billing-utils";
 import {
   getActiveSubscription,
@@ -173,6 +173,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
   const billingCycle = (metadata.billingCycle || "monthly").toLowerCase() === "yearly"
     ? BillingCycle.YEARLY
     : BillingCycle.MONTHLY;
+  const couponId = metadata.couponId;
+  const couponDiscountCents = parseInt(metadata.couponDiscountCents || "0");
   const termsAcceptedAt = metadata.termsAcceptedAt
     ? new Date(metadata.termsAcceptedAt)
     : new Date();
@@ -360,6 +362,53 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
         resolvedPlanCode,
         switchedFrom ? "plan_switch_completed" : "checkout_completed"
       );
+    }
+
+    if (couponId && Number.isFinite(couponDiscountCents) && couponDiscountCents > 0) {
+      const existingUsage = await tx.couponUsage.findUnique({
+        where: {
+          couponId_userId: {
+            couponId,
+            userId,
+          },
+        },
+      });
+
+      if (!existingUsage) {
+        await tx.couponUsage.create({
+          data: {
+            couponId,
+            userId,
+          },
+        });
+
+        const updatedCoupon = await tx.coupon.update({
+          where: { id: couponId },
+          data: {
+            usedCount: { increment: 1 },
+          },
+          select: {
+            id: true,
+            code: true,
+            maxUses: true,
+            usedCount: true,
+            status: true,
+          },
+        });
+
+        if (
+          updatedCoupon.maxUses !== null &&
+          updatedCoupon.usedCount >= updatedCoupon.maxUses &&
+          updatedCoupon.status === CouponStatus.ACTIVE
+        ) {
+          await tx.coupon.update({
+            where: { id: updatedCoupon.id },
+            data: {
+              status: CouponStatus.INACTIVE,
+            },
+          });
+        }
+      }
     }
   });
 

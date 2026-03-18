@@ -1,6 +1,6 @@
 import express from "express";
 import Stripe from "stripe";
-import { BillingCycle, PriceType, SubscriptionStatus } from "@prisma/client";
+import { BillingCycle, CouponStatus, PriceType, SubscriptionStatus } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/requireAuth";
@@ -23,6 +23,82 @@ const router = express.Router();
 const VIDEO_SESSION_HOURLY_RATE_CENTS = 49_500;
 const PLATFORM_ADDON_MONTHLY_CENTS = 500;
 const NY_SALES_TAX_BPS = 862.5;
+
+type ApplicableCoupon = {
+  id: string;
+  code: string;
+  discountType: string;
+  discountValue: number;
+  maxUses: number | null;
+  usedCount: number;
+  maxUsesPerClient: number;
+  status: CouponStatus;
+  expiresAt: Date | null;
+  applicablePlans: string[];
+};
+
+function calculateCouponDiscountCents(coupon: ApplicableCoupon, subtotalCents: number): number {
+  let discountCents = 0;
+  if (coupon.discountType === "percentage") {
+    const percentOff = Math.max(0, Math.min(100, Number(coupon.discountValue)));
+    discountCents = Math.round((subtotalCents * percentOff) / 100);
+  } else {
+    discountCents = Math.round(Number(coupon.discountValue) * 100);
+  }
+  return Math.max(0, Math.min(discountCents, subtotalCents));
+}
+
+async function resolveApplicableCoupon(params: {
+  couponCode?: string;
+  userId: string;
+  normalizedPlanCode: string;
+}): Promise<{ coupon: ApplicableCoupon | null; error?: string }> {
+  const normalizedCouponCode = params.couponCode?.trim().toUpperCase();
+  if (!normalizedCouponCode) {
+    return { coupon: null };
+  }
+
+  const coupon = await prisma.coupon.findUnique({
+    where: { code: normalizedCouponCode },
+    select: {
+      id: true,
+      code: true,
+      discountType: true,
+      discountValue: true,
+      maxUses: true,
+      usedCount: true,
+      maxUsesPerClient: true,
+      status: true,
+      expiresAt: true,
+      applicablePlans: true,
+    },
+  });
+
+  if (!coupon) return { coupon: null, error: "Invalid coupon code" };
+  if (coupon.status !== CouponStatus.ACTIVE) return { coupon: null, error: "Coupon is not active" };
+  if (coupon.expiresAt && coupon.expiresAt.getTime() < Date.now()) {
+    return { coupon: null, error: "Coupon has expired" };
+  }
+  if (coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses) {
+    return { coupon: null, error: "Coupon usage limit reached" };
+  }
+  if (coupon.applicablePlans.length > 0 && !coupon.applicablePlans.includes(params.normalizedPlanCode)) {
+    return { coupon: null, error: "Coupon is not applicable for this plan" };
+  }
+
+  const usageCount = await prisma.couponUsage.count({
+    where: {
+      couponId: coupon.id,
+      userId: params.userId,
+    },
+  });
+
+  if (usageCount >= coupon.maxUsesPerClient) {
+    return { coupon: null, error: "Coupon already used by this client" };
+  }
+
+  return { coupon };
+}
 
 router.get("/plans", async (_req, res) => {
   // Serve from DB first (populated by startup sync — avoids a live Stripe call per request)
@@ -69,6 +145,48 @@ router.get("/plans", async (_req, res) => {
   res.json([]);
 });
 
+router.post("/coupons/validate", requireAuth, async (req, res) => {
+  const schema = z.object({
+    couponCode: z.string().trim().min(3).max(64),
+    planCode: z.string(),
+    subtotalCents: z.coerce.number().int().min(0).optional(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const userId = req.user!.id;
+  const normalizedPlanCode = parsed.data.planCode.trim().toUpperCase();
+  const couponResult = await resolveApplicableCoupon({
+    couponCode: parsed.data.couponCode,
+    userId,
+    normalizedPlanCode,
+  });
+
+  if (couponResult.error || !couponResult.coupon) {
+    return res.status(400).json({ error: couponResult.error || "Invalid coupon code" });
+  }
+
+  const coupon = couponResult.coupon;
+  const subtotalCents = parsed.data.subtotalCents ?? 0;
+  const estimatedDiscountCents = calculateCouponDiscountCents(coupon, subtotalCents);
+
+  return res.json({
+    valid: true,
+    coupon: {
+      id: coupon.id,
+      code: coupon.code,
+      discountType: coupon.discountType,
+      discountValue: coupon.discountValue,
+      expiresAt: coupon.expiresAt,
+      applicablePlans: coupon.applicablePlans,
+    },
+    estimatedDiscountCents,
+  });
+});
+
 router.post("/checkout", requireAuth, async (req, res) => {
   const schema = z.object({
     planCode: z.string(),
@@ -76,6 +194,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
     termsAccepted: z.literal(true, { message: "Terms & Conditions must be accepted" }),
     addonPlatformQty: z.coerce.number().int().min(0).max(10).optional().default(0),
     videoSessionHours: z.coerce.number().int().min(0).max(40).optional().default(0),
+    couponCode: z.string().trim().min(3).max(64).optional(),
     // Backward compatibility for older frontend payload.
     videoAddonEnabled: z.boolean().optional().default(false),
   });
@@ -178,6 +297,16 @@ router.post("/checkout", requireAuth, async (req, res) => {
   const userId = req.user!.id;
   const eligibleForFounder = await isFounderEligible(userId);
   const priceType = eligibleForFounder ? PriceType.FOUNDER : PriceType.STANDARD;
+
+  const couponResult = await resolveApplicableCoupon({
+    couponCode: parsed.data.couponCode,
+    userId,
+    normalizedPlanCode,
+  });
+  if (couponResult.error) {
+    return res.status(400).json({ error: couponResult.error });
+  }
+  const applicableCoupon = couponResult.coupon;
 
   // Use founder price if eligible and available (for the selected interval)
   let priceId = price.id;
@@ -499,18 +628,70 @@ router.post("/checkout", requireAuth, async (req, res) => {
   }
 
   const subtotalCents = cartSubtotalCentsParts.reduce((sum, value) => sum + value, 0);
-  const estimatedTaxCents = Math.round((subtotalCents * NY_SALES_TAX_BPS) / 10_000);
-  const estimatedTotalCents = subtotalCents + estimatedTaxCents;
+  let couponDiscountCents = 0;
+  if (applicableCoupon) {
+    couponDiscountCents = calculateCouponDiscountCents(applicableCoupon, subtotalCents);
+  }
+
+  const discountedSubtotalCents = Math.max(subtotalCents - couponDiscountCents, 0);
+  const estimatedTaxCents = Math.round((discountedSubtotalCents * NY_SALES_TAX_BPS) / 10_000);
+  const estimatedTotalCents = discountedSubtotalCents + estimatedTaxCents;
+
+  let checkoutDiscounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
+  if (applicableCoupon && couponDiscountCents > 0) {
+    try {
+      let stripeCoupon: Stripe.Coupon;
+      if (applicableCoupon.discountType === "percentage") {
+        const percentOff = Math.max(0, Math.min(100, Number(applicableCoupon.discountValue)));
+        stripeCoupon = await stripeClient.coupons.create(
+          {
+            duration: "once",
+            percent_off: percentOff,
+            name: `Talexia Coupon ${applicableCoupon.code}`,
+            metadata: {
+              source: "talexia_internal_coupon",
+              couponId: applicableCoupon.id,
+              couponCode: applicableCoupon.code,
+            },
+          },
+          { idempotencyKey: `coupon-${applicableCoupon.code}-pct-${percentOff}` }
+        );
+      } else {
+        stripeCoupon = await stripeClient.coupons.create(
+          {
+            duration: "once",
+            amount_off: couponDiscountCents,
+            currency: "usd",
+            name: `Talexia Coupon ${applicableCoupon.code}`,
+            metadata: {
+              source: "talexia_internal_coupon",
+              couponId: applicableCoupon.id,
+              couponCode: applicableCoupon.code,
+            },
+          },
+          { idempotencyKey: `coupon-${applicableCoupon.code}-amt-${couponDiscountCents}` }
+        );
+      }
+      checkoutDiscounts = [{ coupon: stripeCoupon.id }];
+    } catch (error) {
+      logger.error("Failed to create Stripe coupon for checkout", {
+        couponCode: applicableCoupon.code,
+        error,
+      });
+      return res.status(500).json({ error: "Unable to apply coupon at this time" });
+    }
+  }
 
   const session = await stripeClient.checkout.sessions.create({
     mode: "subscription",
     line_items: lineItems,
+    ...(checkoutDiscounts ? { discounts: checkoutDiscounts } : {}),
     ...(stripeCustomerId ? { customer: stripeCustomerId } : {}),
     ...(stripeCustomerId
       ? { customer_update: { address: "auto", name: "auto" } }
       : {}),
     billing_address_collection: "required",
-    allow_promotion_codes: true,
+    ...(checkoutDiscounts ? {} : { allow_promotion_codes: true }),
     success_url: `${env.FRONTEND_URL}/billing/success`,
     cancel_url: `${env.FRONTEND_URL}/billing/cancel`,
     subscription_data: {
@@ -524,6 +705,13 @@ router.post("/checkout", requireAuth, async (req, res) => {
         addonPlatformQty: addonPlatformQty.toString(),
         videoAddonEnabled: videoAddonEnabled.toString(),
         videoSessionHours: videoSessionHours.toString(),
+        ...(applicableCoupon
+          ? {
+              couponId: applicableCoupon.id,
+              couponCode: applicableCoupon.code,
+              couponDiscountCents: couponDiscountCents.toString(),
+            }
+          : {}),
         ...(isPlanSwitch ? { switchedFrom: activeSubscription?.planCode } : {}),
       },
     },
@@ -537,6 +725,13 @@ router.post("/checkout", requireAuth, async (req, res) => {
       addonPlatformQty: addonPlatformQty.toString(),
       videoAddonEnabled: videoAddonEnabled.toString(),
       videoSessionHours: videoSessionHours.toString(),
+      ...(applicableCoupon
+        ? {
+            couponId: applicableCoupon.id,
+            couponCode: applicableCoupon.code,
+            couponDiscountCents: couponDiscountCents.toString(),
+          }
+        : {}),
       ...(isPlanSwitch ? { switchedFrom: activeSubscription?.planCode } : {}),
     },
   });
@@ -548,6 +743,9 @@ router.post("/checkout", requireAuth, async (req, res) => {
       planCode: normalizedPlanCode,
       billingCycle,
       subtotalCents,
+      couponCode: applicableCoupon?.code ?? null,
+      couponDiscountCents,
+      discountedSubtotalCents,
       taxRatePercent: 8.625,
       estimatedTaxCents,
       estimatedTotalCents,
@@ -619,6 +817,74 @@ router.post("/visual-topups/checkout", requireAuth, async (req, res) => {
     checkoutUrl: session.url,
     units: totalUnits,
   });
+});
+
+// Get current active plan details
+router.get("/current-plan", requireAuth, async (req, res) => {
+  try {
+    const userId = req.user!.id;
+
+    const activeSubscription = await prisma.subscription.findFirst({
+      where: {
+        userId,
+        status: {
+          in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING],
+        },
+      },
+      include: {
+        plan: true,
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+    });
+
+    if (!activeSubscription) {
+      return res.status(404).json({
+        success: false,
+        message: "No active plan found",
+      });
+    }
+
+    const plan = activeSubscription.plan;
+
+    return res.json({
+      success: true,
+      message: "Current plan details retrieved successfully",
+      plan: {
+        code: plan.code,
+        name: plan.name,
+        category: plan.category,
+        isJewelry: plan.isJewelry,
+        platformLimit: plan.platformLimit,
+        baseVisualQuota: plan.baseVisualQuota,
+        basePostQuota: plan.basePostQuota,
+        postLimitType: plan.postLimitType,
+        schedulerRole: plan.schedulerRole,
+      },
+      subscription: {
+        id: activeSubscription.id,
+        status: activeSubscription.status,
+        billingCycle: activeSubscription.billingCycle,
+        priceType: activeSubscription.priceType,
+        currentPeriodStart: activeSubscription.currentPeriodStart,
+        currentPeriodEnd: activeSubscription.currentPeriodEnd,
+        cancelAtPeriodEnd: activeSubscription.cancelAtPeriodEnd,
+        addonPlatformQty: activeSubscription.addonPlatformQty,
+        videoAddonEnabled: activeSubscription.videoAddonEnabled,
+        videoSessionHours: activeSubscription.videoSessionHours,
+        termsAcceptedAt: activeSubscription.termsAcceptedAt,
+        createdAt: activeSubscription.createdAt,
+        updatedAt: activeSubscription.updatedAt,
+      },
+    });
+  } catch (error) {
+    logger.error("Error fetching current plan", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to fetch current plan",
+    });
+  }
 });
 
 // Stripe Customer Portal session
