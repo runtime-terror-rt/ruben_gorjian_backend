@@ -100,6 +100,121 @@ async function resolveApplicableCoupon(params: {
   return { coupon };
 }
 
+async function resolvePriceForPlanAndCycle(params: {
+  normalizedPlanCode: string;
+  billingCycle: BillingCycle;
+  userId: string;
+}): Promise<{ product: Stripe.Product; priceId: string; priceType: PriceType }> {
+  if (!stripeClient) {
+    throw new Error("Stripe not configured");
+  }
+
+  const interval = params.billingCycle === BillingCycle.YEARLY ? "year" : "month";
+  const planFromDb = await prisma.plan.findUnique({ where: { code: params.normalizedPlanCode } });
+
+  let product: Stripe.Product | null = null;
+  let defaultPrice: Stripe.Price | null = null;
+
+  if (planFromDb?.stripePriceStandardId) {
+    try {
+      const dbPrice = await stripeClient.prices.retrieve(planFromDb.stripePriceStandardId, {
+        expand: ["product"],
+      });
+      defaultPrice = dbPrice;
+      product =
+        typeof dbPrice.product === "string"
+          ? await stripeClient.products.retrieve(dbPrice.product)
+          : (dbPrice.product as Stripe.Product | null);
+    } catch (error) {
+      logger.warn("Failed to resolve scheduled-change plan from DB stripe price", {
+        planCode: params.normalizedPlanCode,
+        stripePriceStandardId: planFromDb?.stripePriceStandardId,
+        error,
+      });
+    }
+  }
+
+  if (!product || !defaultPrice) {
+    const products = await stripeClient.products.list({
+      active: true,
+      expand: ["data.default_price"],
+      limit: 100,
+    });
+
+    const byMetadataCode = products.data.find(
+      (p) => (p.metadata.code || "").toUpperCase() === params.normalizedPlanCode
+    );
+    const byName = planFromDb?.name
+      ? products.data.find((p) => p.name.trim().toLowerCase() === planFromDb.name.trim().toLowerCase())
+      : undefined;
+
+    product = byMetadataCode || byName || null;
+    defaultPrice = (product?.default_price as Stripe.Price | null) || null;
+  }
+
+  if (!product) {
+    throw new Error("Plan not found");
+  }
+
+  if (!defaultPrice) {
+    throw new Error("Plan has no price configured");
+  }
+
+  let selectedPrice: Stripe.Price = defaultPrice;
+  if (interval === "year") {
+    const allPrices = await stripeClient.prices.list({
+      product: product.id,
+      active: true,
+    });
+    const yearlyPrice = allPrices.data.find((p) => p.recurring?.interval === "year");
+    if (!yearlyPrice) {
+      throw new Error("Yearly billing is not available for this plan");
+    }
+    selectedPrice = yearlyPrice;
+  }
+
+  const eligibleForFounder = await isFounderEligible(params.userId);
+  const priceType = eligibleForFounder ? PriceType.FOUNDER : PriceType.STANDARD;
+  let selectedPriceId = selectedPrice.id;
+
+  const founderCentsKey = interval === "year" ? "priceFounderYearlyCents" : "priceFounderCents";
+  const founderCentsRaw = product.metadata[founderCentsKey];
+
+  if (priceType === PriceType.FOUNDER && founderCentsRaw) {
+    const founderPriceCents = parseInt(String(founderCentsRaw));
+    const existingPrices = await stripeClient.prices.list({
+      product: product.id,
+      active: true,
+    });
+
+    const founderPrice = existingPrices.data.find(
+      (p) => p.unit_amount === founderPriceCents && p.recurring?.interval === interval
+    );
+
+    if (founderPrice) {
+      selectedPriceId = founderPrice.id;
+    } else {
+      const newFounderPrice = await stripeClient.prices.create(
+        {
+          product: product.id,
+          unit_amount: founderPriceCents,
+          currency: "usd",
+          recurring: { interval },
+          metadata: { priceType: "founder" },
+        },
+        { idempotencyKey: `founder-price-${product.id}-${interval}-${founderPriceCents}` }
+      );
+      selectedPriceId = newFounderPrice.id;
+    }
+  }
+
+  return {
+    product,
+    priceId: selectedPriceId,
+    priceType,
+  };
+}
+
 router.get("/plans", async (_req, res) => {
   // Serve from DB first (populated by startup sync — avoids a live Stripe call per request)
   const dbPlans = await prisma.plan.findMany({ orderBy: { priceStandardCents: "asc" } });
@@ -819,6 +934,224 @@ router.post("/visual-topups/checkout", requireAuth, async (req, res) => {
   });
 });
 
+// Schedule upgrade/downgrade at next renewal (period end).
+router.post("/schedule-change", requireAuth, async (req, res) => {
+  if (!stripeClient) {
+    return res.status(503).json({ error: "Stripe not configured" });
+  }
+
+  const schema = z.object({
+    targetPlanCode: z.string(),
+    targetBillingCycle: z.enum(["monthly", "yearly"]),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const userId = req.user!.id;
+  const targetPlanCode = parsed.data.targetPlanCode.trim().toUpperCase();
+  const targetBillingCycle =
+    parsed.data.targetBillingCycle === "yearly" ? BillingCycle.YEARLY : BillingCycle.MONTHLY;
+
+  const activeSubscription = await prisma.subscription.findFirst({
+    where: {
+      userId,
+      status: {
+        in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING],
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  if (!activeSubscription) {
+    return res.status(404).json({
+      success: false,
+      message: "No active subscription found",
+    });
+  }
+
+  if (!activeSubscription.stripeSubscriptionId) {
+    return res.status(400).json({
+      success: false,
+      message: "Stripe subscription not found for this active plan",
+    });
+  }
+
+  const samePlan = activeSubscription.planCode === targetPlanCode;
+  const sameCycle = activeSubscription.billingCycle === targetBillingCycle;
+  if (samePlan && sameCycle) {
+    return res.status(400).json({
+      success: false,
+      message: "Target plan and billing cycle are already active",
+    });
+  }
+
+  try {
+    const { priceId: targetPriceId } = await resolvePriceForPlanAndCycle({
+      normalizedPlanCode: targetPlanCode,
+      billingCycle: targetBillingCycle,
+      userId,
+    });
+
+    const stripeSub = await stripeClient.subscriptions.retrieve(activeSubscription.stripeSubscriptionId, {
+      expand: ["items.data.price"],
+    });
+
+    const { startUnix, endUnix } = extractStripePeriodBounds(stripeSub);
+    if (!startUnix || !endUnix) {
+      return res.status(400).json({
+        success: false,
+        message: "Unable to determine current billing period bounds",
+      });
+    }
+
+    const currentItems = stripeSub.items.data.map((item) => ({
+      price: String(item.price.id),
+      quantity: item.quantity ?? 1,
+    }));
+    const nextCycleItems = currentItems.map((item, index) =>
+      index === 0
+        ? { price: targetPriceId, quantity: 1 }
+        : { price: item.price, quantity: item.quantity }
+    );
+
+    const existingScheduleId =
+      typeof stripeSub.schedule === "string"
+        ? stripeSub.schedule
+        : stripeSub.schedule?.id;
+
+    const schedule = existingScheduleId
+      ? await stripeClient.subscriptionSchedules.update(existingScheduleId, {
+          end_behavior: "release",
+          phases: [
+            {
+              start_date: startUnix,
+              end_date: endUnix,
+              items: currentItems,
+              proration_behavior: "none",
+            },
+            {
+              start_date: endUnix,
+              items: nextCycleItems,
+              proration_behavior: "none",
+              metadata: {
+                source: "talexia_scheduled_change",
+                targetPlanCode,
+                targetBillingCycle,
+              },
+            },
+          ],
+        })
+      : await stripeClient.subscriptionSchedules.create({
+          from_subscription: stripeSub.id,
+        });
+
+    const finalSchedule = existingScheduleId
+      ? schedule
+      : await stripeClient.subscriptionSchedules.update(schedule.id, {
+          end_behavior: "release",
+          phases: [
+            {
+              start_date: startUnix,
+              end_date: endUnix,
+              items: currentItems,
+              proration_behavior: "none",
+            },
+            {
+              start_date: endUnix,
+              items: nextCycleItems,
+              proration_behavior: "none",
+              metadata: {
+                source: "talexia_scheduled_change",
+                targetPlanCode,
+                targetBillingCycle,
+              },
+            },
+          ],
+        });
+
+    await logPlanChange(
+      userId,
+      activeSubscription.planCode,
+      `${targetPlanCode}:${targetBillingCycle}`,
+      "plan_switch_scheduled"
+    );
+
+    return res.json({
+      success: true,
+      message: "Plan change scheduled for next billing cycle",
+      scheduleId: finalSchedule.id,
+      currentPlanCode: activeSubscription.planCode,
+      currentBillingCycle: activeSubscription.billingCycle,
+      targetPlanCode,
+      targetBillingCycle,
+      effectiveAt: new Date(endUnix * 1000),
+    });
+  } catch (error) {
+    logger.error("Failed to schedule plan change", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to schedule plan change",
+    });
+  }
+});
+
+// Remove a previously scheduled plan change.
+router.post("/scheduled-change/cancel", requireAuth, async (req, res) => {
+  if (!stripeClient) {
+    return res.status(503).json({ error: "Stripe not configured" });
+  }
+
+  const userId = req.user!.id;
+  const activeSubscription = await prisma.subscription.findFirst({
+    where: {
+      userId,
+      status: {
+        in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING],
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  if (!activeSubscription?.stripeSubscriptionId) {
+    return res.status(404).json({
+      success: false,
+      message: "No active Stripe subscription found",
+    });
+  }
+
+  try {
+    const stripeSub = await stripeClient.subscriptions.retrieve(activeSubscription.stripeSubscriptionId);
+    const scheduleId =
+      typeof stripeSub.schedule === "string"
+        ? stripeSub.schedule
+        : stripeSub.schedule?.id;
+
+    if (!scheduleId) {
+      return res.status(404).json({
+        success: false,
+        message: "No scheduled change found",
+      });
+    }
+
+    await stripeClient.subscriptionSchedules.release(scheduleId);
+
+    return res.json({
+      success: true,
+      message: "Scheduled plan change canceled successfully",
+      scheduleId,
+    });
+  } catch (error) {
+    logger.error("Failed to cancel scheduled plan change", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to cancel scheduled plan change",
+    });
+  }
+});
+
 // Cancel recurring charges from the next billing cycle.
 router.post("/cancel", requireAuth, async (req, res) => {
   if (!stripeClient) {
@@ -972,6 +1305,57 @@ router.get("/current-plan", requireAuth, async (req, res) => {
     }
 
     const plan = activeSubscription.plan;
+    let scheduledChange: {
+      scheduleId: string;
+      effectiveAt: Date | null;
+      targetPriceId: string | null;
+      targetPlanCode: string | null;
+      targetBillingCycle: "monthly" | "yearly" | null;
+    } | null = null;
+
+    if (stripeClient && activeSubscription.stripeSubscriptionId) {
+      try {
+        const stripeSub = await stripeClient.subscriptions.retrieve(activeSubscription.stripeSubscriptionId, {
+          expand: ["schedule"],
+        });
+        const schedule =
+          typeof stripeSub.schedule === "string"
+            ? await stripeClient.subscriptionSchedules.retrieve(stripeSub.schedule)
+            : stripeSub.schedule;
+
+        if (schedule && schedule.status !== "released" && schedule.status !== "canceled") {
+          const phases = schedule.phases || [];
+          if (phases.length > 1) {
+            const nextPhase = phases[1];
+            const nextPrice = nextPhase.items?.[0]?.price;
+            const nextPriceId =
+              typeof nextPrice === "string"
+                ? nextPrice
+                : nextPrice?.id || null;
+            const nextPlanCode = nextPhase.metadata?.targetPlanCode || null;
+            const nextCycleMeta = nextPhase.metadata?.targetBillingCycle;
+            const nextCycle =
+              nextCycleMeta === "monthly" || nextCycleMeta === "yearly"
+                ? nextCycleMeta
+                : null;
+
+            scheduledChange = {
+              scheduleId: schedule.id,
+              effectiveAt: nextPhase.start_date ? new Date(nextPhase.start_date * 1000) : null,
+              targetPriceId: nextPriceId,
+              targetPlanCode: nextPlanCode,
+              targetBillingCycle: nextCycle,
+            };
+          }
+        }
+      } catch (error) {
+        logger.warn("Unable to resolve scheduled change for current-plan", {
+          userId,
+          subscriptionId: activeSubscription.id,
+          error,
+        });
+      }
+    }
 
     return res.json({
       success: true,
@@ -1002,6 +1386,7 @@ router.get("/current-plan", requireAuth, async (req, res) => {
         createdAt: activeSubscription.createdAt,
         updatedAt: activeSubscription.updatedAt,
       },
+      scheduledChange,
     });
   } catch (error) {
     logger.error("Error fetching current plan", error);
