@@ -82,13 +82,29 @@ router.get("/summary", async (req, res) => {
       }
     }
 
+    let currentInterval: "month" | "year" = "month";
+    let currentPrice = subscription.plan
+      ? subscription.priceType === "FOUNDER"
+        ? subscription.plan.priceFounderCents
+        : subscription.plan.priceStandardCents
+      : 0;
+
     // If we don't have currentPeriodEnd in DB but have Stripe subscription, fetch from Stripe and persist
     let currentPeriodEnd: Date | null = subscription.currentPeriodEnd;
-    if (!currentPeriodEnd && subscription.stripeSubscriptionId && stripeClient) {
+    if (subscription.stripeSubscriptionId && stripeClient) {
       try {
-        const stripeSub = await stripeClient.subscriptions.retrieve(
-          subscription.stripeSubscriptionId
-        );
+        const stripeSub = await stripeClient.subscriptions.retrieve(subscription.stripeSubscriptionId, {
+          expand: ["items.data.price"],
+        });
+        const primaryPrice = stripeSub.items.data[0]?.price;
+        const stripeInterval = primaryPrice?.recurring?.interval;
+        if (stripeInterval === "month" || stripeInterval === "year") {
+          currentInterval = stripeInterval;
+        }
+        if (typeof primaryPrice?.unit_amount === "number") {
+          currentPrice = primaryPrice.unit_amount;
+        }
+
         const { startUnix, endUnix } = extractStripePeriodBounds(stripeSub);
         const stripeStatus = (stripeSub as { status?: string }).status;
 
@@ -112,7 +128,7 @@ router.get("/summary", async (req, res) => {
             break;
         }
 
-        if (endUnix) {
+        if (endUnix && !currentPeriodEnd) {
           currentPeriodEnd = new Date(endUnix * 1000);
           subscription = await prisma.subscription.update({
             where: { id: subscription.id },
@@ -158,13 +174,9 @@ router.get("/summary", async (req, res) => {
       id: subscription.id,
       name: subscription.plan?.name ?? subscription.planCode,
       code: subscription.planCode,
-      price: subscription.plan
-        ? subscription.priceType === "FOUNDER"
-          ? subscription.plan.priceFounderCents
-          : subscription.plan.priceStandardCents
-        : 0,
+      price: currentPrice,
       currency: "usd",
-      interval: "month",
+      interval: currentInterval,
       status: subscription.status,
       priceType: subscription.priceType,
       current_period_end: currentPeriodEnd

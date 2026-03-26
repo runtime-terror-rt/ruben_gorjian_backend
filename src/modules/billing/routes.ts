@@ -1,6 +1,6 @@
 import express from "express";
 import Stripe from "stripe";
-import { PriceType, SubscriptionStatus } from "@prisma/client";
+import { BillingQuoteStatus, BillingCycle, PriceType, SubscriptionStatus } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/requireAuth";
@@ -18,14 +18,198 @@ import { extractStripePeriodBounds } from "./stripe-period";
 import { upsertPlanFromPrice } from "./webhook";
 import { mapStripeStatus, toPlanCategory } from "./billing-utils";
 import { billingSyncRateLimiter } from "../../middleware/rateLimiter";
+import {
+  ADDITIONAL_PLATFORM_ADDON_CODE,
+  createBillingQuote,
+  ensureDefaultAdditionalPlatformAddon,
+  fromBillingCycle,
+  serializeBillingQuote,
+  toBillingCycle,
+} from "./catalog-service";
 
 const router = express.Router();
+
+router.get("/catalog", async (_req, res) => {
+  const [plans, additionalPlatformAddon] = await Promise.all([
+    prisma.plan.findMany({
+      orderBy: { priceStandardCents: "asc" },
+    }),
+    ensureDefaultAdditionalPlatformAddon(),
+  ]);
+
+  const activeTerms = await prisma.planTermsVersion.findMany({
+    where: { isActive: true, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
+  const termsByPlanCode = new Map(activeTerms.map((item) => [item.planCode, item]));
+
+  const serializedPlans = plans.map((plan) => ({
+    ...serializePlan(plan),
+    activeTerms: termsByPlanCode.get(plan.code)
+      ? {
+          id: termsByPlanCode.get(plan.code)!.id,
+          version: termsByPlanCode.get(plan.code)!.version,
+          title: termsByPlanCode.get(plan.code)!.title,
+          updatedAt: termsByPlanCode.get(plan.code)!.updatedAt,
+        }
+      : null,
+  }));
+
+  const additionalPlatformPrices = {
+    monthly:
+      additionalPlatformAddon.prices.find((price) => price.billingCycle === BillingCycle.MONTHLY)
+        ?.unitAmountCents ?? 500,
+    yearly:
+      additionalPlatformAddon.prices.find((price) => price.billingCycle === BillingCycle.YEARLY)
+        ?.unitAmountCents ?? 4800,
+  };
+
+  return res.json({
+    plans: serializedPlans,
+    addons: [
+      ...(additionalPlatformAddon.isActive && !additionalPlatformAddon.deletedAt
+        ? [
+            {
+              code: ADDITIONAL_PLATFORM_ADDON_CODE,
+              name: additionalPlatformAddon.name,
+              description: additionalPlatformAddon.description,
+              type: additionalPlatformAddon.type,
+              prices: additionalPlatformPrices,
+            },
+          ]
+        : []),
+      {
+        code: "VIDEO_SESSION",
+        name: "Video Session",
+        description: "One-time video session add-on billed per hour.",
+        type: "ONE_TIME",
+        prices: {
+          hourly: 49500,
+        },
+      },
+    ],
+  });
+});
+
+router.get("/terms/:planCode", async (req, res) => {
+  const terms = await prisma.planTermsVersion.findFirst({
+    where: {
+      planCode: req.params.planCode,
+      isActive: true,
+      deletedAt: null,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!terms) {
+    return res.status(404).json({ error: "Active plan terms not found" });
+  }
+
+  return res.json({
+    id: terms.id,
+    planCode: terms.planCode,
+    version: terms.version,
+    title: terms.title,
+    content: terms.content,
+    updatedAt: terms.updatedAt,
+  });
+});
+
+router.post("/quote", requireAuth, async (req, res) => {
+  const schema = z.object({
+    planCode: z.string(),
+    billingCycle: z.enum(["monthly", "yearly"]),
+    termsVersionId: z.string().min(1),
+    additionalPlatformQty: z.coerce.number().int().min(0).max(10).optional().default(0),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  try {
+    const quote = await createBillingQuote({
+      userId: req.user!.id,
+      planCode: parsed.data.planCode,
+      billingCycle: toBillingCycle(parsed.data.billingCycle),
+      termsVersionId: parsed.data.termsVersionId,
+      additionalPlatformQty: parsed.data.additionalPlatformQty,
+    });
+
+    return res.status(201).json({
+      quote: serializeBillingQuote(quote),
+    });
+  } catch (error) {
+    return res.status(400).json({
+      error: error instanceof Error ? error.message : "Unable to create billing quote",
+    });
+  }
+});
 
 router.get("/plans", async (_req, res) => {
   // Serve from DB first (populated by startup sync — avoids a live Stripe call per request)
   const dbPlans = await prisma.plan.findMany({ orderBy: { priceStandardCents: "asc" } });
   if (dbPlans.length > 0) {
-    return res.json(dbPlans.map(serializePlan));
+    if (!stripeClient) {
+      return res.json(dbPlans.map((plan) => serializePlan(plan)));
+    }
+
+    const stripe = stripeClient;
+
+    try {
+      const products = await stripe.products.list({
+        active: true,
+        expand: ["data.default_price"],
+        limit: 100,
+      });
+
+      const productByCode = new Map<string, Stripe.Product>();
+      for (const product of products.data) {
+        const code = product.metadata?.code;
+        if (code) {
+          productByCode.set(code, product);
+        }
+      }
+
+      const plans = await Promise.all(
+        dbPlans.map(async (plan) => {
+          const product = productByCode.get(plan.code);
+          if (!product) {
+            return serializePlan(plan);
+          }
+
+          const prices = await stripe.prices.list({
+            product: product.id,
+            active: true,
+            limit: 100,
+          });
+
+          const monthlyPrice =
+            prices.data.find((item) => item.recurring?.interval === "month") ||
+            ((product.default_price as Stripe.Price | null) ?? null);
+          const yearlyPrice =
+            prices.data.find((item) => item.recurring?.interval === "year") ?? null;
+          const yearlyFounderPriceCents = product.metadata.priceFounderYearlyCents
+            ? parseInt(product.metadata.priceFounderYearlyCents, 10)
+            : null;
+
+          return serializePlan(plan, {
+            monthlyPriceCents: monthlyPrice?.unit_amount ?? plan.priceStandardCents,
+            yearlyPriceCents: yearlyPrice?.unit_amount ?? null,
+            yearlyFounderPriceCents:
+              yearlyFounderPriceCents && !Number.isNaN(yearlyFounderPriceCents)
+                ? yearlyFounderPriceCents
+                : null,
+          });
+        })
+      );
+
+      return res.json(plans);
+    } catch (error) {
+      logger.warn("Failed to enrich plans with Stripe yearly pricing", error);
+      return res.json(dbPlans.map((plan) => serializePlan(plan)));
+    }
   }
 
   // DB empty — one-time fallback to Stripe (e.g. first boot before sync ran)
@@ -40,6 +224,9 @@ router.get("/plans", async (_req, res) => {
       const plans = products.data.map((product) => {
         const price = product.default_price as Stripe.Price | null;
         const metadata = product.metadata || {};
+        const yearlyFounderPriceCents = metadata.priceFounderYearlyCents
+          ? parseInt(metadata.priceFounderYearlyCents, 10)
+          : null;
         return {
           code: metadata.code || product.id,
           name: product.name,
@@ -53,6 +240,10 @@ router.get("/plans", async (_req, res) => {
           schedulerRole: metadata.schedulerRole || "CLIENT",
           priceStandardCents: price?.unit_amount || 0,
           priceFounderCents: metadata.priceFounderCents ? parseInt(metadata.priceFounderCents) : price?.unit_amount || 0,
+          yearlyFounderPriceCents:
+            yearlyFounderPriceCents && !Number.isNaN(yearlyFounderPriceCents)
+              ? yearlyFounderPriceCents
+              : null,
           hasYearlyPrice: false,
         };
       });
@@ -68,8 +259,7 @@ router.get("/plans", async (_req, res) => {
 
 router.post("/checkout", requireAuth, async (req, res) => {
   const schema = z.object({
-    planCode: z.string(),
-    billingCycle: z.enum(["monthly", "yearly"]).optional().default("monthly"),
+    quoteId: z.string(),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -77,7 +267,70 @@ router.post("/checkout", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
-  const { planCode, billingCycle } = parsed.data;
+  const quote = await prisma.billingQuote.findFirst({
+    where: {
+      id: parsed.data.quoteId,
+      userId: req.user!.id,
+      status: BillingQuoteStatus.PENDING,
+      expiresAt: { gt: new Date() },
+    },
+    include: {
+      plan: true,
+      termsVersion: true,
+    },
+  });
+  if (!quote) {
+    return res.status(404).json({ error: "Billing quote not found or expired" });
+  }
+
+  const termsVersion = await prisma.planTermsVersion.findFirst({
+    where: {
+      id: quote.termsVersionId,
+      planCode: quote.planCode,
+      isActive: true,
+      deletedAt: null,
+    },
+  });
+  if (!termsVersion) {
+    await prisma.billingQuote.update({
+      where: { id: quote.id },
+      data: { status: BillingQuoteStatus.EXPIRED },
+    });
+    return res.status(400).json({
+      error: "The selected terms are no longer available. Please review the latest terms and request a new quote.",
+    });
+  }
+
+  if (quote.additionalPlatformQty > 0) {
+    const additionalPlatformAddon = await prisma.addon.findFirst({
+      where: {
+        code: ADDITIONAL_PLATFORM_ADDON_CODE,
+        isActive: true,
+        deletedAt: null,
+      },
+      include: {
+        prices: {
+          where: {
+            billingCycle: quote.billingCycle,
+            isActive: true,
+          },
+        },
+      },
+    });
+
+    if (!additionalPlatformAddon || additionalPlatformAddon.prices.length === 0) {
+      await prisma.billingQuote.update({
+        where: { id: quote.id },
+        data: { status: BillingQuoteStatus.EXPIRED },
+      });
+      return res.status(400).json({
+        error: "Additional Platform add-on is no longer available. Please request a new quote.",
+      });
+    }
+  }
+
+  const planCode = quote.planCode;
+  const billingCycle = fromBillingCycle(quote.billingCycle);
   const interval = billingCycle === "yearly" ? "year" : "month";
 
   // Find product in Stripe by code in metadata
@@ -212,13 +465,17 @@ router.post("/checkout", requireAuth, async (req, res) => {
             items: [
               {
                 id: stripeSub.items.data[0].id,
-                price: priceId,
+              price: priceId,
               },
             ],
             metadata: {
               userId,
               planCode,
               priceType,
+              billingCycle,
+              quoteId: quote.id,
+              termsVersionId: quote.termsVersionId,
+              addonPlatformQty: String(quote.additionalPlatformQty),
               switchedFrom: activeSubscription.planCode,
             },
             proration_behavior: "create_prorations",
@@ -249,6 +506,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
             message: "Plan switched successfully",
             planCode,
             priceType,
+            billingCycle,
             // Optionally redirect to billing page instead of checkout
             redirectUrl: `${env.FRONTEND_URL}/dashboard/billing`,
           });
@@ -336,6 +594,8 @@ router.post("/checkout", requireAuth, async (req, res) => {
       data: {
         planCode,
         priceType,
+        billingInterval: quote.billingCycle,
+        latestQuoteId: quote.id,
         status: SubscriptionStatus.INCOMPLETE,
         stripeCustomerId: stripeCustomerId || existingSubscription.stripeCustomerId,
         updatedAt: new Date(),
@@ -348,6 +608,8 @@ router.post("/checkout", requireAuth, async (req, res) => {
         userId,
         planCode,
         priceType,
+        billingInterval: quote.billingCycle,
+        latestQuoteId: quote.id,
         status: SubscriptionStatus.INCOMPLETE,
         stripeCustomerId,
       },
@@ -355,17 +617,54 @@ router.post("/checkout", requireAuth, async (req, res) => {
   }
 
   // Create Stripe checkout session
+  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+    { price: priceId, quantity: 1 },
+  ];
+
+  if (quote.additionalPlatformQty > 0) {
+    lineItems.push({
+      quantity: quote.additionalPlatformQty,
+      price_data: {
+        currency: "usd",
+        product_data: {
+          name: "Additional Platform",
+          metadata: {
+            code: ADDITIONAL_PLATFORM_ADDON_CODE,
+          },
+        },
+        recurring: {
+          interval,
+        },
+        unit_amount:
+          quote.billingCycle === BillingCycle.YEARLY
+            ? 4800
+            : 500,
+        tax_behavior: "exclusive",
+      },
+    });
+  }
+
+  const nyTaxRate = await getOrCreateNySalesTaxRate(stripeClient);
+
   const session = await stripeClient.checkout.sessions.create({
     mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: lineItems,
     ...(stripeCustomerId ? { customer: stripeCustomerId } : {}),
     success_url: `${env.FRONTEND_URL}/billing/success`,
     cancel_url: `${env.FRONTEND_URL}/billing/cancel`,
+    automatic_tax: { enabled: false },
+    tax_id_collection: { enabled: false },
+    customer_update: { address: "auto" },
     subscription_data: {
+      default_tax_rates: [nyTaxRate.id],
       metadata: {
         userId,
         planCode,
         priceType,
+        billingCycle,
+        quoteId: quote.id,
+        termsVersionId: quote.termsVersionId,
+        addonPlatformQty: String(quote.additionalPlatformQty),
         subscriptionId: subscriptionRecord.id,
         ...(isPlanSwitch ? { switchedFrom: activeSubscription?.planCode } : {}),
       },
@@ -374,12 +673,28 @@ router.post("/checkout", requireAuth, async (req, res) => {
       userId,
       planCode,
       priceType,
+      billingCycle,
+      quoteId: quote.id,
+      termsVersionId: quote.termsVersionId,
+      addonPlatformQty: String(quote.additionalPlatformQty),
       subscriptionId: subscriptionRecord.id,
       ...(isPlanSwitch ? { switchedFrom: activeSubscription?.planCode } : {}),
     },
   });
 
-  return res.json({ checkoutUrl: session.url, priceType });
+  await prisma.billingQuote.update({
+    where: { id: quote.id },
+    data: {
+      status: BillingQuoteStatus.CHECKOUT_CREATED,
+    },
+  });
+
+  return res.json({
+    checkoutUrl: session.url,
+    priceType,
+    billingCycle,
+    quoteId: quote.id,
+  });
 });
 
 router.post("/visual-topups/checkout", requireAuth, async (req, res) => {
@@ -443,6 +758,73 @@ router.post("/visual-topups/checkout", requireAuth, async (req, res) => {
   return res.json({
     checkoutUrl: session.url,
     units: totalUnits,
+  });
+});
+
+router.post("/video-session/checkout", requireAuth, async (req, res) => {
+  const schema = z.object({
+    hours: z.coerce.number().int().min(1).max(12),
+    reference: z.string().optional(),
+    successUrl: z.string().url().optional(),
+    cancelUrl: z.string().url().optional(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  if (!stripeClient) {
+    return res.status(503).json({ error: "Stripe not configured" });
+  }
+
+  const hours = parsed.data.hours;
+  const unitAmountCents = 49500;
+  const totalCents = hours * unitAmountCents;
+
+  const subscription = await prisma.subscription.findFirst({
+    where: { userId: req.user!.id },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const session = await stripeClient.checkout.sessions.create({
+    mode: "payment",
+    ...(subscription?.stripeCustomerId ? { customer: subscription.stripeCustomerId } : {}),
+    line_items: [
+      {
+        quantity: hours,
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: "Video Session",
+            description: "One-time video session add-on billed per hour.",
+            metadata: {
+              code: "VIDEO_SESSION",
+            },
+          },
+          unit_amount: unitAmountCents,
+          tax_behavior: "exclusive",
+        },
+      },
+    ],
+    success_url:
+      parsed.data.successUrl ?? `${env.FRONTEND_URL}/billing/success?type=video-session`,
+    cancel_url:
+      parsed.data.cancelUrl ?? `${env.FRONTEND_URL}/billing/cancel?type=video-session`,
+    metadata: {
+      userId: req.user!.id,
+      type: "video_session",
+      hours: String(hours),
+      totalCents: String(totalCents),
+      reference: parsed.data.reference ?? "",
+    },
+  });
+
+  return res.json({
+    checkoutUrl: session.url,
+    hours,
+    unitAmountCents,
+    totalCents,
   });
 });
 
@@ -645,6 +1027,10 @@ router.post("/sync", requireAuth, billingSyncRateLimiter, async (req, res) => {
     const currentPeriodStart = startUnix ? new Date(startUnix * 1000) : undefined;
     const currentPeriodEnd = endUnix ? new Date(endUnix * 1000) : undefined;
     const cancelAtPeriodEnd = (stripeSub as any).cancel_at_period_end || false;
+    const billingInterval =
+      stripeSub.items.data[0]?.price?.recurring?.interval === "year"
+        ? BillingCycle.YEARLY
+        : BillingCycle.MONTHLY;
 
     // Update subscription
     await prisma.$transaction(async (tx) => {
@@ -654,6 +1040,7 @@ router.post("/sync", requireAuth, billingSyncRateLimiter, async (req, res) => {
           status,
           planCode: planInfo.planCode,
           priceType: planInfo.priceType,
+          billingInterval,
           currentPeriodStart,
           currentPeriodEnd,
           cancelAtPeriodEnd,
@@ -707,8 +1094,18 @@ function serializePlan(plan: {
   schedulerRole?: string | null;
   priceStandardCents: number;
   priceFounderCents: number;
+  yearlyFounderPriceCents?: number | null;
   hasYearlyPrice?: boolean;
+}, pricing?: {
+  monthlyPriceCents?: number | null;
+  yearlyPriceCents?: number | null;
+  yearlyFounderPriceCents?: number | null;
 }) {
+  const monthlyPriceCents = pricing?.monthlyPriceCents ?? plan.priceStandardCents;
+  const yearlyPriceCents = pricing?.yearlyPriceCents ?? null;
+  const yearlyFounderPriceCents =
+    pricing?.yearlyFounderPriceCents ?? plan.yearlyFounderPriceCents ?? null;
+
   return {
     code: plan.code,
     name: plan.name,
@@ -719,8 +1116,48 @@ function serializePlan(plan: {
     basePostQuota: plan.basePostQuota,
     postLimitType: plan.postLimitType || "NONE",
     schedulerRole: plan.schedulerRole || "CLIENT",
-    priceStandardCents: plan.priceStandardCents,
+    priceStandardCents: monthlyPriceCents,
     priceFounderCents: plan.priceFounderCents,
-    hasYearlyPrice: plan.hasYearlyPrice ?? false,
+    hasYearlyPrice: plan.hasYearlyPrice ?? Boolean(yearlyPriceCents),
+    billingOptions: {
+      monthly: {
+        interval: "month",
+        priceStandardCents: monthlyPriceCents,
+        priceFounderCents: plan.priceFounderCents,
+      },
+      yearly: yearlyPriceCents
+        ? {
+            interval: "year",
+            priceStandardCents: yearlyPriceCents,
+            priceFounderCents: yearlyFounderPriceCents ?? yearlyPriceCents,
+            savingsPercent: 20,
+          }
+        : null,
+    },
   };
+}
+
+async function getOrCreateNySalesTaxRate(stripe: Stripe) {
+  const taxRates = await stripe.taxRates.list({
+    active: true,
+    limit: 100,
+  });
+
+  const existing = taxRates.data.find(
+    (rate) =>
+      rate.display_name === "NY Sales Tax" &&
+      rate.inclusive === false &&
+      Number(rate.percentage) === 8.625
+  );
+  if (existing) {
+    return existing;
+  }
+
+  return stripe.taxRates.create({
+    display_name: "NY Sales Tax",
+    description: "Fixed New York sales tax for Talexia billing.",
+    jurisdiction: "US-NY",
+    percentage: 8.625,
+    inclusive: false,
+  });
 }

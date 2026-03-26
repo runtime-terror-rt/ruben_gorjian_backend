@@ -4,7 +4,7 @@ import { prisma } from "../../lib/prisma";
 import { logger } from "../../lib/logger";
 import { stripeClient } from "./stripe";
 import { env } from "../../config/env";
-import { PriceType, SubscriptionStatus } from "@prisma/client";
+import { BillingQuoteStatus, BillingCycle, PriceType, SubscriptionStatus } from "@prisma/client";
 import { mapStripeStatus, toPlanCategory } from "./billing-utils";
 import {
   getActiveSubscription,
@@ -135,6 +135,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
     : PriceType.STANDARD;
   const stripeSubscriptionId = session.subscription ? String(session.subscription) : undefined;
   const switchedFrom = metadata.switchedFrom; // Plan code user switched from
+  const quoteId = metadata.quoteId;
+  const termsVersionId = metadata.termsVersionId;
+  const billingCycle =
+    metadata.billingCycle === "yearly" ? BillingCycle.YEARLY : BillingCycle.MONTHLY;
 
   if (metadata.type === "visual_topup") {
     await handleVisualTopupCheckout(session, stripeEventId);
@@ -245,6 +249,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
           status: SubscriptionStatus.ACTIVE,
           stripeSubscriptionId,
           stripeCustomerId: session.customer ? String(session.customer) : undefined,
+          billingInterval: billingCycle,
+          latestQuoteId: quoteId || subscription.latestQuoteId,
           currentPeriodStart,
           currentPeriodEnd,
           cancelAtPeriodEnd,
@@ -264,6 +270,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
           status: SubscriptionStatus.ACTIVE,
           stripeSubscriptionId,
           stripeCustomerId: session.customer ? String(session.customer) : undefined,
+          billingInterval: billingCycle,
+          latestQuoteId: quoteId || undefined,
           currentPeriodStart,
           currentPeriodEnd,
           cancelAtPeriodEnd,
@@ -311,6 +319,26 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
         resolvedPlanCode,
         switchedFrom ? "plan_switch_completed" : "checkout_completed"
       );
+    }
+
+    if (quoteId) {
+      await tx.billingQuote.updateMany({
+        where: { id: quoteId },
+        data: { status: BillingQuoteStatus.COMPLETED },
+      });
+    }
+
+    if (termsVersionId) {
+      await tx.termsAcceptance.create({
+        data: {
+          userId,
+          planCode: resolvedPlanCode,
+          billingCycle,
+          termsVersionId,
+          billingQuoteId: quoteId || undefined,
+          stripeSessionId: session.id,
+        },
+      });
     }
   });
 
@@ -390,6 +418,8 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   const isPlanChange = local.planCode !== newPlanCode;
   const addonPlatformQty = parseInt(subscription.metadata?.addonPlatformQty || "0");
   const videoAddonEnabled = (subscription.metadata?.videoAddonEnabled || "").toLowerCase() === "true";
+  const billingInterval =
+    item?.price?.recurring?.interval === "year" ? BillingCycle.YEARLY : BillingCycle.MONTHLY;
 
   // Get old plan code before update for logging
   const oldPlanCode = local.planCode;
@@ -404,6 +434,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
         stripeCustomerId: customerId, // Ensure customer ID is set
         planCode: newPlanCode,
         priceType: newPriceType,
+        billingInterval,
         addonPlatformQty: Number.isFinite(addonPlatformQty) ? addonPlatformQty : 0,
         videoAddonEnabled,
         currentPeriodStart: currentPeriodStart

@@ -1,7 +1,7 @@
 import express from "express";
 import crypto from "crypto";
 import { z } from "zod";
-import { AuditAction, Prisma, ProviderRoutingMode } from "@prisma/client";
+import { AddonType, AuditAction, BillingCycle, Prisma, ProviderRoutingMode } from "@prisma/client";
 import Stripe from "stripe";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/requireAuth";
@@ -1205,6 +1205,388 @@ router.get("/calendars", async (_req, res) => {
   });
 
   res.json(Array.from(grouped.values()));
+});
+
+router.get("/plan-terms", async (_req, res) => {
+  const items = await prisma.planTermsVersion.findMany({
+    where: { deletedAt: null },
+    orderBy: [{ planCode: "asc" }, { createdAt: "desc" }],
+  });
+
+  res.json({ items });
+});
+
+router.post("/plan-terms", async (req, res) => {
+  const schema = z.object({
+    planCode: z.string(),
+    version: z.string().min(1),
+    title: z.string().min(1),
+    content: z.string().min(1),
+    isActive: z.boolean().optional().default(true),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const plan = await prisma.plan.findUnique({ where: { code: parsed.data.planCode } });
+  if (!plan) {
+    return res.status(404).json({ error: "Plan not found" });
+  }
+
+  const existingVersion = await prisma.planTermsVersion.findFirst({
+    where: {
+      planCode: parsed.data.planCode,
+      version: parsed.data.version,
+      deletedAt: null,
+    },
+  });
+  if (existingVersion) {
+    return res.status(409).json({ error: "A non-deleted terms version with this plan/version already exists" });
+  }
+
+  const created = await prisma.$transaction(async (tx) => {
+    if (parsed.data.isActive) {
+      await tx.planTermsVersion.updateMany({
+        where: { planCode: parsed.data.planCode, isActive: true, deletedAt: null },
+        data: { isActive: false },
+      });
+    }
+
+    return tx.planTermsVersion.create({
+      data: parsed.data,
+    });
+  });
+
+  res.status(201).json(created);
+});
+
+router.patch("/plan-terms/:id", async (req, res) => {
+  const schema = z.object({
+    title: z.string().min(1).optional(),
+    content: z.string().min(1).optional(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const existing = await prisma.planTermsVersion.findFirst({
+    where: { id: req.params.id, deletedAt: null },
+  });
+  if (!existing) {
+    return res.status(404).json({ error: "Plan terms not found" });
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    return tx.planTermsVersion.update({
+      where: { id: existing.id },
+      data: {
+        ...(parsed.data.title !== undefined ? { title: parsed.data.title } : {}),
+        ...(parsed.data.content !== undefined ? { content: parsed.data.content } : {}),
+      },
+    });
+  });
+
+  res.json(updated);
+});
+
+router.post("/plan-terms/:id/status", async (req, res) => {
+  const schema = z.object({
+    isActive: z.boolean(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const existing = await prisma.planTermsVersion.findFirst({
+    where: { id: req.params.id, deletedAt: null },
+  });
+  if (!existing) {
+    return res.status(404).json({ error: "Plan terms not found" });
+  }
+
+  if (!parsed.data.isActive) {
+    const activeCount = await prisma.planTermsVersion.count({
+      where: { planCode: existing.planCode, isActive: true, deletedAt: null },
+    });
+    if (existing.isActive && activeCount <= 1) {
+      return res.status(400).json({
+        error: "At least one active terms version must remain for the plan",
+      });
+    }
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    if (parsed.data.isActive) {
+      await tx.planTermsVersion.updateMany({
+        where: {
+          planCode: existing.planCode,
+          isActive: true,
+          deletedAt: null,
+          id: { not: existing.id },
+        },
+        data: { isActive: false },
+      });
+    }
+
+    return tx.planTermsVersion.update({
+      where: { id: existing.id },
+      data: { isActive: parsed.data.isActive },
+    });
+  });
+
+  res.json(updated);
+});
+
+router.delete("/plan-terms/:id", async (req, res) => {
+  const existing = await prisma.planTermsVersion.findUnique({
+    where: { id: req.params.id },
+    include: {
+      acceptances: {
+        select: { id: true },
+        take: 1,
+      },
+    },
+  });
+  if (!existing) {
+    return res.status(404).json({ error: "Plan terms not found" });
+  }
+
+  if (existing.deletedAt) {
+    return res.status(400).json({ error: "Plan terms already deleted" });
+  }
+
+  if (existing.acceptances.length > 0) {
+    return res.status(400).json({
+      error: "Cannot delete plan terms that have already been accepted",
+    });
+  }
+
+  if (existing.isActive) {
+    const activeCount = await prisma.planTermsVersion.count({
+      where: { planCode: existing.planCode, isActive: true, deletedAt: null },
+    });
+    if (activeCount <= 1) {
+      return res.status(400).json({
+        error: "Cannot delete the only active terms version for the plan",
+      });
+    }
+  }
+
+  await prisma.planTermsVersion.update({
+    where: { id: existing.id },
+    data: {
+      isActive: false,
+      deletedAt: new Date(),
+    },
+  });
+
+  res.json({ success: true });
+});
+
+router.get("/addons", async (_req, res) => {
+  const items = await prisma.addon.findMany({
+    where: { deletedAt: null },
+    include: {
+      prices: {
+        orderBy: { billingCycle: "asc" },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  res.json({ items });
+});
+
+router.post("/addons", async (req, res) => {
+  const schema = z.object({
+    code: z.string().min(1),
+    name: z.string().min(1),
+    description: z.string().optional(),
+    type: z.nativeEnum(AddonType).optional().default(AddonType.RECURRING),
+    isActive: z.boolean().optional().default(true),
+    monthlyUnitAmountCents: z.coerce.number().int().min(0),
+    yearlyUnitAmountCents: z.coerce.number().int().min(0),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const existingAddon = await prisma.addon.findFirst({
+    where: { code: parsed.data.code, deletedAt: null },
+  });
+  if (existingAddon) {
+    return res.status(409).json({ error: "A non-deleted add-on with this code already exists" });
+  }
+
+  const created = await prisma.addon.create({
+    data: {
+      code: parsed.data.code,
+      name: parsed.data.name,
+      description: parsed.data.description,
+      type: parsed.data.type,
+      isActive: parsed.data.isActive,
+      prices: {
+        create: [
+          {
+            billingCycle: BillingCycle.MONTHLY,
+            unitAmountCents: parsed.data.monthlyUnitAmountCents,
+          },
+          {
+            billingCycle: BillingCycle.YEARLY,
+            unitAmountCents: parsed.data.yearlyUnitAmountCents,
+          },
+        ],
+      },
+    },
+    include: { prices: true },
+  });
+
+  res.status(201).json(created);
+});
+
+router.patch("/addons/:id", async (req, res) => {
+  const schema = z.object({
+    name: z.string().min(1).optional(),
+    description: z.string().nullable().optional(),
+    monthlyUnitAmountCents: z.coerce.number().int().min(0).optional(),
+    yearlyUnitAmountCents: z.coerce.number().int().min(0).optional(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const addon = await prisma.addon.findUnique({
+    where: { id: req.params.id },
+    include: { prices: true },
+  });
+  if (!addon || addon.deletedAt) {
+    return res.status(404).json({ error: "Addon not found" });
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const savedAddon = await tx.addon.update({
+      where: { id: addon.id },
+      data: {
+        ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+        ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+      },
+    });
+
+    if (parsed.data.monthlyUnitAmountCents !== undefined) {
+      await tx.addonPrice.updateMany({
+        where: { addonId: addon.id, billingCycle: BillingCycle.MONTHLY },
+        data: { unitAmountCents: parsed.data.monthlyUnitAmountCents },
+      });
+    }
+    if (parsed.data.yearlyUnitAmountCents !== undefined) {
+      await tx.addonPrice.updateMany({
+        where: { addonId: addon.id, billingCycle: BillingCycle.YEARLY },
+        data: { unitAmountCents: parsed.data.yearlyUnitAmountCents },
+      });
+    }
+
+    return tx.addon.findUniqueOrThrow({
+      where: { id: savedAddon.id },
+      include: { prices: true },
+    });
+  });
+
+  res.json(updated);
+});
+
+router.post("/addons/:id/status", async (req, res) => {
+  const schema = z.object({
+    isActive: z.boolean(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const addon = await prisma.addon.findUnique({
+    where: { id: req.params.id },
+    include: { prices: true },
+  });
+  if (!addon || addon.deletedAt) {
+    return res.status(404).json({ error: "Addon not found" });
+  }
+
+  if (parsed.data.isActive) {
+    const hasActivePrice = addon.prices.some((price) => price.isActive && price.unitAmountCents >= 0);
+    if (!hasActivePrice) {
+      return res.status(400).json({
+        error: "Addon cannot be activated without at least one active price",
+      });
+    }
+  }
+
+  const updated = await prisma.addon.update({
+    where: { id: addon.id },
+    data: { isActive: parsed.data.isActive },
+    include: { prices: true },
+  });
+
+  res.json(updated);
+});
+
+router.delete("/addons/:id", async (req, res) => {
+  const addon = await prisma.addon.findUnique({
+    where: { id: req.params.id },
+    include: { prices: true },
+  });
+  if (!addon) {
+    return res.status(404).json({ error: "Addon not found" });
+  }
+
+  if (addon.deletedAt) {
+    return res.status(400).json({ error: "Addon already deleted" });
+  }
+
+  if (addon.code === "ADDITIONAL_PLATFORM") {
+    return res.status(400).json({
+      error: "Core add-on cannot be deleted; deactivate it instead",
+    });
+  }
+
+  if (addon.isActive) {
+    return res.status(400).json({
+      error: "Deactivate the add-on before deleting it",
+    });
+  }
+
+  const hasStripePrice = addon.prices.some((price) => !!price.stripePriceId);
+  if (hasStripePrice) {
+    return res.status(400).json({
+      error: "Addon with Stripe prices cannot be deleted; deactivate it instead",
+    });
+  }
+
+  await prisma.addon.update({
+    where: { id: addon.id },
+    data: {
+      isActive: false,
+      deletedAt: new Date(),
+      prices: {
+        updateMany: {
+          where: { addonId: addon.id },
+          data: { isActive: false },
+        },
+      },
+    },
+  });
+
+  res.json({ success: true });
 });
 
 export { router as adminRouter };

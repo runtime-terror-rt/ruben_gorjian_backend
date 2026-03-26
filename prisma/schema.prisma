@@ -59,6 +59,8 @@ model User {
   providerRoutingConfig             ProviderRoutingConfig?
   uploadPostProfile                 UploadPostProfile?
   planChangeLogs                    PlanChangeLog[]
+  acceptedTerms                     TermsAcceptance[]
+  billingQuotes                     BillingQuote[]
 }
 
 model Plan {
@@ -80,6 +82,8 @@ model Plan {
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
   subscriptions         Subscription[]
+  termsVersions         PlanTermsVersion[]
+  billingQuotes         BillingQuote[]
 }
 
 model Subscription {
@@ -94,14 +98,108 @@ model Subscription {
   currentPeriodEnd     DateTime?
   addonPlatformQty     Int                @default(0)
   videoAddonEnabled    Boolean            @default(false)
+  billingInterval      BillingCycle       @default(MONTHLY)
+  latestQuoteId        String?
   cancelAtPeriodEnd    Boolean            @default(false)
   canceledAt           DateTime?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   plan                 Plan               @relation(fields: [planCode], references: [code])
   user                 User               @relation(fields: [userId], references: [id])
+  latestQuote          BillingQuote?      @relation(fields: [latestQuoteId], references: [id])
 
   @@index([userId])
+}
+
+model PlanTermsVersion {
+  id          String            @id @default(cuid())
+  planCode    String
+  version     String
+  title       String
+  content     String
+  isActive    Boolean           @default(false)
+  deletedAt   DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  plan        Plan              @relation(fields: [planCode], references: [code])
+  acceptances TermsAcceptance[]
+  billingQuotes BillingQuote[]
+
+  @@unique([planCode, version])
+  @@index([planCode, isActive])
+}
+
+model TermsAcceptance {
+  id                String           @id @default(cuid())
+  userId            String
+  planCode          String
+  billingCycle      BillingCycle
+  termsVersionId    String
+  billingQuoteId    String?
+  stripeSessionId   String?
+  acceptedAt        DateTime         @default(now())
+  user              User             @relation(fields: [userId], references: [id])
+  termsVersion      PlanTermsVersion @relation(fields: [termsVersionId], references: [id])
+  billingQuote      BillingQuote?    @relation(fields: [billingQuoteId], references: [id])
+
+  @@index([userId, planCode])
+  @@index([termsVersionId])
+}
+
+model Addon {
+  id          String       @id @default(cuid())
+  code        String       @unique
+  name        String
+  description String?
+  type        AddonType
+  isActive    Boolean      @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  prices      AddonPrice[]
+}
+
+model AddonPrice {
+  id              String       @id @default(cuid())
+  addonId         String
+  billingCycle    BillingCycle
+  unitAmountCents Int
+  currency        String       @default("usd")
+  stripePriceId   String?
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  addon           Addon        @relation(fields: [addonId], references: [id], onDelete: Cascade)
+
+  @@unique([addonId, billingCycle])
+  @@index([addonId, billingCycle, isActive])
+}
+
+model BillingQuote {
+  id                   String             @id @default(cuid())
+  userId               String
+  planCode             String
+  billingCycle         BillingCycle
+  termsVersionId       String
+  additionalPlatformQty Int               @default(0)
+  subtotalCents        Int
+  discountCents        Int                @default(0)
+  taxCents             Int                @default(0)
+  totalCents           Int
+  currency             String             @default("usd")
+  taxRatePercent       String             @default("8.625")
+  status               BillingQuoteStatus @default(PENDING)
+  expiresAt            DateTime
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  user                 User               @relation(fields: [userId], references: [id])
+  plan                 Plan               @relation(fields: [planCode], references: [code])
+  termsVersion         PlanTermsVersion   @relation(fields: [termsVersionId], references: [id])
+  termAcceptances      TermsAcceptance[]
+  subscriptions        Subscription[]
+
+  @@index([userId, status])
+  @@index([planCode])
 }
 
 model PlanChangeLog {
@@ -574,6 +672,24 @@ enum SubscriptionStatus {
   PAST_DUE
   CANCELED
   TRIALING
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum AddonType {
+  RECURRING
+  ONE_TIME
+}
+
+enum BillingQuoteStatus {
+  PENDING
+  CHECKOUT_CREATED
+  COMPLETED
+  EXPIRED
+  CANCELED
 }
 
 enum PriceType {
