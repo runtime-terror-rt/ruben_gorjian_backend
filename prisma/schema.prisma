@@ -123,7 +123,6 @@ model PlanTermsVersion {
   updatedAt   DateTime          @updatedAt
   plan        Plan              @relation(fields: [planCode], references: [code])
   acceptances TermsAcceptance[]
-  billingQuotes BillingQuote[]
 
   @@unique([planCode, version])
   @@index([planCode, isActive])
@@ -180,7 +179,7 @@ model BillingQuote {
   userId               String
   planCode             String
   billingCycle         BillingCycle
-  termsVersionId       String
+  acceptedTermsJson    Json
   additionalPlatformQty Int               @default(0)
   subtotalCents        Int
   discountCents        Int                @default(0)
@@ -194,7 +193,6 @@ model BillingQuote {
   updatedAt            DateTime           @updatedAt
   user                 User               @relation(fields: [userId], references: [id])
   plan                 Plan               @relation(fields: [planCode], references: [code])
-  termsVersion         PlanTermsVersion   @relation(fields: [termsVersionId], references: [id])
   termAcceptances      TermsAcceptance[]
   subscriptions        Subscription[]
 

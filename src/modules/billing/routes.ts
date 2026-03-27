@@ -23,6 +23,7 @@ import {
   createBillingQuote,
   ensureDefaultAdditionalPlatformAddon,
   fromBillingCycle,
+  parseAcceptedTermsJson,
   serializeBillingQuote,
   toBillingCycle,
 } from "./catalog-service";
@@ -41,18 +42,16 @@ router.get("/catalog", async (_req, res) => {
     where: { isActive: true, deletedAt: null },
     orderBy: { createdAt: "desc" },
   });
-  const termsByPlanCode = new Map(activeTerms.map((item) => [item.planCode, item]));
-
   const serializedPlans = plans.map((plan) => ({
     ...serializePlan(plan),
-    activeTerms: termsByPlanCode.get(plan.code)
-      ? {
-          id: termsByPlanCode.get(plan.code)!.id,
-          version: termsByPlanCode.get(plan.code)!.version,
-          title: termsByPlanCode.get(plan.code)!.title,
-          updatedAt: termsByPlanCode.get(plan.code)!.updatedAt,
-        }
-      : null,
+    activeTerms: activeTerms
+      .filter((item) => item.planCode === plan.code)
+      .map((item) => ({
+        id: item.id,
+        version: item.version,
+        title: item.title,
+        updatedAt: item.updatedAt,
+      })),
   }));
 
   const additionalPlatformPrices = {
@@ -92,26 +91,28 @@ router.get("/catalog", async (_req, res) => {
 });
 
 router.get("/terms/:planCode", async (req, res) => {
-  const terms = await prisma.planTermsVersion.findFirst({
+  const terms = await prisma.planTermsVersion.findMany({
     where: {
       planCode: req.params.planCode,
       isActive: true,
       deletedAt: null,
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ createdAt: "desc" }],
   });
 
-  if (!terms) {
+  if (terms.length === 0) {
     return res.status(404).json({ error: "Active plan terms not found" });
   }
 
   return res.json({
-    id: terms.id,
-    planCode: terms.planCode,
-    version: terms.version,
-    title: terms.title,
-    content: terms.content,
-    updatedAt: terms.updatedAt,
+    items: terms.map((item) => ({
+      id: item.id,
+      planCode: item.planCode,
+      version: item.version,
+      title: item.title,
+      content: item.content,
+      updatedAt: item.updatedAt,
+    })),
   });
 });
 
@@ -119,7 +120,7 @@ router.post("/quote", requireAuth, async (req, res) => {
   const schema = z.object({
     planCode: z.string(),
     billingCycle: z.enum(["monthly", "yearly"]),
-    termsVersionId: z.string().min(1),
+    termsVersionIds: z.array(z.string().min(1)).min(1, "At least one terms ID must be provided"),
     additionalPlatformQty: z.coerce.number().int().min(0).max(10).optional().default(0),
   });
 
@@ -133,12 +134,24 @@ router.post("/quote", requireAuth, async (req, res) => {
       userId: req.user!.id,
       planCode: parsed.data.planCode,
       billingCycle: toBillingCycle(parsed.data.billingCycle),
-      termsVersionId: parsed.data.termsVersionId,
+      termsVersionIds: parsed.data.termsVersionIds,
       additionalPlatformQty: parsed.data.additionalPlatformQty,
     });
 
+    const selectedTerms = await prisma.planTermsVersion.findMany({
+      where: {
+        id: { in: parseAcceptedTermsJson(quote.acceptedTermsJson) },
+      },
+      select: {
+        id: true,
+        version: true,
+        title: true,
+      },
+      orderBy: [{ createdAt: "desc" }],
+    });
+
     return res.status(201).json({
-      quote: serializeBillingQuote(quote),
+      quote: serializeBillingQuote(quote, selectedTerms),
     });
   } catch (error) {
     return res.status(400).json({
@@ -276,22 +289,32 @@ router.post("/checkout", requireAuth, async (req, res) => {
     },
     include: {
       plan: true,
-      termsVersion: true,
     },
   });
   if (!quote) {
     return res.status(404).json({ error: "Billing quote not found or expired" });
   }
 
-  const termsVersion = await prisma.planTermsVersion.findFirst({
+  const acceptedTermsIds = parseAcceptedTermsJson(quote.acceptedTermsJson);
+  if (acceptedTermsIds.length === 0) {
+    await prisma.billingQuote.update({
+      where: { id: quote.id },
+      data: { status: BillingQuoteStatus.EXPIRED },
+    });
+    return res.status(400).json({
+      error: "The quote does not include any accepted terms. Please request a new quote.",
+    });
+  }
+
+  const termsVersions = await prisma.planTermsVersion.findMany({
     where: {
-      id: quote.termsVersionId,
+      id: { in: acceptedTermsIds },
       planCode: quote.planCode,
       isActive: true,
       deletedAt: null,
     },
   });
-  if (!termsVersion) {
+  if (termsVersions.length !== acceptedTermsIds.length) {
     await prisma.billingQuote.update({
       where: { id: quote.id },
       data: { status: BillingQuoteStatus.EXPIRED },
@@ -474,7 +497,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
               priceType,
               billingCycle,
               quoteId: quote.id,
-              termsVersionId: quote.termsVersionId,
+              termsVersionIds: JSON.stringify(acceptedTermsIds),
               addonPlatformQty: String(quote.additionalPlatformQty),
               switchedFrom: activeSubscription.planCode,
             },
@@ -663,7 +686,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
         priceType,
         billingCycle,
         quoteId: quote.id,
-        termsVersionId: quote.termsVersionId,
+        termsVersionIds: JSON.stringify(acceptedTermsIds),
         addonPlatformQty: String(quote.additionalPlatformQty),
         subscriptionId: subscriptionRecord.id,
         ...(isPlanSwitch ? { switchedFrom: activeSubscription?.planCode } : {}),
@@ -675,7 +698,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
       priceType,
       billingCycle,
       quoteId: quote.id,
-      termsVersionId: quote.termsVersionId,
+      termsVersionIds: JSON.stringify(acceptedTermsIds),
       addonPlatformQty: String(quote.additionalPlatformQty),
       subscriptionId: subscriptionRecord.id,
       ...(isPlanSwitch ? { switchedFrom: activeSubscription?.planCode } : {}),

@@ -1243,17 +1243,13 @@ router.post("/plan-terms", async (req, res) => {
     },
   });
   if (existingVersion) {
-    return res.status(409).json({ error: "A non-deleted terms version with this plan/version already exists" });
+    return res.status(409).json({
+      error:
+        "A terms entry with this version already exists for the selected plan. Use a different version value for each terms record under the same plan.",
+    });
   }
 
   const created = await prisma.$transaction(async (tx) => {
-    if (parsed.data.isActive) {
-      await tx.planTermsVersion.updateMany({
-        where: { planCode: parsed.data.planCode, isActive: true, deletedAt: null },
-        data: { isActive: false },
-      });
-    }
-
     return tx.planTermsVersion.create({
       data: parsed.data,
     });
@@ -1322,18 +1318,6 @@ router.post("/plan-terms/:id/status", async (req, res) => {
   }
 
   const updated = await prisma.$transaction(async (tx) => {
-    if (parsed.data.isActive) {
-      await tx.planTermsVersion.updateMany({
-        where: {
-          planCode: existing.planCode,
-          isActive: true,
-          deletedAt: null,
-          id: { not: existing.id },
-        },
-        data: { isActive: false },
-      });
-    }
-
     return tx.planTermsVersion.update({
       where: { id: existing.id },
       data: { isActive: parsed.data.isActive },

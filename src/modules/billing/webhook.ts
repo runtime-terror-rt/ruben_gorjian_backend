@@ -18,6 +18,21 @@ import { extractStripePeriodBounds } from "./stripe-period";
 
 type StripeEvent = Stripe.Event;
 
+function parseTermsVersionIdsMetadata(value: string | undefined, legacyValue?: string | undefined) {
+  if (value) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+      }
+    } catch (_error) {
+      logger.warn("Unable to parse termsVersionIds metadata", { value });
+    }
+  }
+
+  return legacyValue ? [legacyValue] : [];
+}
+
 export async function upsertPlanFromPrice(price: Stripe.Price | null | undefined) {
   if (!stripeClient || !price) return null;
 
@@ -136,7 +151,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
   const stripeSubscriptionId = session.subscription ? String(session.subscription) : undefined;
   const switchedFrom = metadata.switchedFrom; // Plan code user switched from
   const quoteId = metadata.quoteId;
-  const termsVersionId = metadata.termsVersionId;
+  const termsVersionIds = parseTermsVersionIdsMetadata(metadata.termsVersionIds, metadata.termsVersionId);
   const billingCycle =
     metadata.billingCycle === "yearly" ? BillingCycle.YEARLY : BillingCycle.MONTHLY;
 
@@ -328,16 +343,16 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
       });
     }
 
-    if (termsVersionId) {
-      await tx.termsAcceptance.create({
-        data: {
+    if (termsVersionIds.length > 0) {
+      await tx.termsAcceptance.createMany({
+        data: termsVersionIds.map((termsVersionId) => ({
           userId,
           planCode: resolvedPlanCode,
           billingCycle,
           termsVersionId,
           billingQuoteId: quoteId || undefined,
           stripeSessionId: session.id,
-        },
+        })),
       });
     }
   });

@@ -94,21 +94,36 @@ export async function ensureDefaultAdditionalPlatformAddon() {
 }
 
 export async function getActiveTermsForPlan(planCode: string) {
-  return prisma.planTermsVersion.findFirst({
+  return prisma.planTermsVersion.findMany({
     where: {
       planCode,
       isActive: true,
       deletedAt: null,
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ createdAt: "desc" }],
   });
+}
+
+export function normalizeTermsVersionIds(input: string[]) {
+  return [...new Set(input.map((id) => id.trim()).filter(Boolean))];
+}
+
+export function parseAcceptedTermsJson(value: Prisma.JsonValue): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 export async function createBillingQuote(params: {
   userId: string;
   planCode: string;
   billingCycle: BillingCycle;
-  termsVersionId: string;
+  termsVersionIds: string[];
   additionalPlatformQty: number;
 }) {
   const plan = await prisma.plan.findUnique({
@@ -118,16 +133,22 @@ export async function createBillingQuote(params: {
     throw new Error("Plan not found");
   }
 
-  const termsVersion = await prisma.planTermsVersion.findFirst({
+  const normalizedTermsVersionIds = normalizeTermsVersionIds(params.termsVersionIds);
+  if (normalizedTermsVersionIds.length === 0) {
+    throw new Error("At least one active terms version must be accepted");
+  }
+
+  const termsVersions = await prisma.planTermsVersion.findMany({
     where: {
-      id: params.termsVersionId,
+      id: { in: normalizedTermsVersionIds },
       planCode: params.planCode,
       isActive: true,
       deletedAt: null,
     },
+    orderBy: [{ createdAt: "desc" }],
   });
-  if (!termsVersion) {
-    throw new Error("Active terms version not found for plan");
+  if (termsVersions.length !== normalizedTermsVersionIds.length) {
+    throw new Error("One or more selected terms are invalid, inactive, or deleted");
   }
 
   const additionalPlatformAddon = await ensureDefaultAdditionalPlatformAddon();
@@ -159,7 +180,7 @@ export async function createBillingQuote(params: {
       userId: params.userId,
       planCode: params.planCode,
       billingCycle: params.billingCycle,
-      termsVersionId: params.termsVersionId,
+      acceptedTermsJson: normalizedTermsVersionIds,
       additionalPlatformQty: params.additionalPlatformQty,
       subtotalCents,
       discountCents,
@@ -171,13 +192,13 @@ export async function createBillingQuote(params: {
     },
     include: {
       plan: true,
-      termsVersion: true,
     },
   });
 }
 
 export function serializeBillingQuote(
-  quote: Prisma.BillingQuoteGetPayload<{ include: { plan: true; termsVersion: true } }>
+  quote: Prisma.BillingQuoteGetPayload<{ include: { plan: true } }>,
+  selectedTerms: Array<{ id: string; version: string; title: string }>
 ) {
   const additionalPlatformUnitAmountCents = getAdditionalPlatformUnitAmountCents(quote.billingCycle);
   return {
@@ -192,11 +213,7 @@ export function serializeBillingQuote(
     totalCents: quote.totalCents,
     expiresAt: quote.expiresAt,
     status: quote.status,
-    terms: {
-      id: quote.termsVersion.id,
-      version: quote.termsVersion.version,
-      title: quote.termsVersion.title,
-    },
+    terms: selectedTerms,
     items: [
       {
         code: quote.plan.code,
