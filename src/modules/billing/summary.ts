@@ -164,7 +164,8 @@ router.get("/summary", async (req, res) => {
           : subscription.plan.priceStandardCents
         : 0,
       currency: "usd",
-      interval: "month",
+      interval: subscription.billingCycle === "YEARLY" ? "year" : "month",
+      billingCycle: subscription.billingCycle === "YEARLY" ? "yearly" : "monthly",
       status: subscription.status,
       priceType: subscription.priceType,
       current_period_end: currentPeriodEnd
@@ -179,6 +180,7 @@ router.get("/summary", async (req, res) => {
           : null,
       addonPlatformQty: subscription.addonPlatformQty ?? 0,
       videoAddonEnabled: subscription.videoAddonEnabled ?? false,
+      videoSessionHours: subscription.videoSessionHours ?? 0,
       postLimitType: subscription.plan?.postLimitType ?? "NONE",
       schedulerRole: subscription.plan?.schedulerRole ?? "CLIENT",
       visualQuota: subscription.plan?.baseVisualQuota ?? null,
