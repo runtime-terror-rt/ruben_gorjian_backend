@@ -4,7 +4,7 @@ import { prisma } from "../../lib/prisma";
 import { logger } from "../../lib/logger";
 import { stripeClient } from "./stripe";
 import { env } from "../../config/env";
-import { PriceType, SubscriptionStatus } from "@prisma/client";
+import { BillingCycle, CouponStatus, PriceType, SubscriptionStatus } from "@prisma/client";
 import { mapStripeStatus, toPlanCategory } from "./billing-utils";
 import {
   getActiveSubscription,
@@ -15,8 +15,39 @@ import {
 import { creditVisualTopup } from "../submissions/quota-service";
 import { toPostLimitType, toSchedulerRole } from "./plan-metadata";
 import { extractStripePeriodBounds } from "./stripe-period";
+import { sendInvoiceEmail } from "../auth/email";
 
 type StripeEvent = Stripe.Event;
+
+function getInvoiceSubtotalCents(invoice: Stripe.Invoice) {
+  if (typeof invoice.subtotal === "number") return invoice.subtotal;
+  if (typeof invoice.amount_paid === "number") return invoice.amount_paid;
+  if (typeof invoice.total === "number") return invoice.total;
+  return 0;
+}
+
+function getInvoiceTaxCents(invoice: Stripe.Invoice) {
+  const invoiceAny = invoice as any;
+
+  if (Array.isArray(invoiceAny.total_tax_amounts) && invoiceAny.total_tax_amounts.length > 0) {
+    return invoiceAny.total_tax_amounts.reduce((sum: number, item: any) => {
+      const amount = typeof item?.amount === "number" ? item.amount : 0;
+      return sum + amount;
+    }, 0);
+  }
+
+  if (typeof invoiceAny.tax === "number") {
+    return invoiceAny.tax;
+  }
+
+  const subtotal = getInvoiceSubtotalCents(invoice);
+  const total = typeof invoice.total === "number"
+    ? invoice.total
+    : typeof invoice.amount_paid === "number"
+      ? invoice.amount_paid
+      : subtotal;
+  return Math.max(total - subtotal, 0);
+}
 
 export async function upsertPlanFromPrice(price: Stripe.Price | null | undefined) {
   if (!stripeClient || !price) return null;
@@ -95,6 +126,10 @@ export async function billingWebhook(req: Request, res: Response) {
       case "customer.subscription.deleted":
         await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
         break;
+      case "invoice.payment_succeeded":
+      case "invoice.paid":
+        await handleInvoicePaid(event.data.object as Stripe.Invoice);
+        break;
       default:
         break;
     }
@@ -135,6 +170,14 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
     : PriceType.STANDARD;
   const stripeSubscriptionId = session.subscription ? String(session.subscription) : undefined;
   const switchedFrom = metadata.switchedFrom; // Plan code user switched from
+  const billingCycle = (metadata.billingCycle || "monthly").toLowerCase() === "yearly"
+    ? BillingCycle.YEARLY
+    : BillingCycle.MONTHLY;
+  const couponId = metadata.couponId;
+  const couponDiscountCents = parseInt(metadata.couponDiscountCents || "0");
+  const termsAcceptedAt = metadata.termsAcceptedAt
+    ? new Date(metadata.termsAcceptedAt)
+    : new Date();
 
   if (metadata.type === "visual_topup") {
     await handleVisualTopupCheckout(session, stripeEventId);
@@ -161,6 +204,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
   let cancelAtPeriodEnd = false;
   let addonPlatformQty = 0;
   let videoAddonEnabled = false;
+  let videoSessionHours = parseInt(metadata.videoSessionHours || "0");
 
   // Sync plan + price type from the live Stripe subscription when available
   if (stripeClient && stripeSubscriptionId) {
@@ -178,6 +222,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
       cancelAtPeriodEnd = Boolean((stripeSub as any).cancel_at_period_end);
       addonPlatformQty = parseInt(stripeSub.metadata?.addonPlatformQty || "0");
       videoAddonEnabled = (stripeSub.metadata?.videoAddonEnabled || "").toLowerCase() === "true";
+      videoSessionHours = parseInt(stripeSub.metadata?.videoSessionHours || metadata.videoSessionHours || "0");
     } catch (err) {
       logger.warn("Unable to sync plan from Stripe subscription on checkout completion", err);
     }
@@ -242,14 +287,17 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
         data: {
           planCode: resolvedPlanCode,
           priceType: resolvedPriceType,
+          billingCycle,
           status: SubscriptionStatus.ACTIVE,
           stripeSubscriptionId,
           stripeCustomerId: session.customer ? String(session.customer) : undefined,
           currentPeriodStart,
           currentPeriodEnd,
+          termsAcceptedAt: Number.isNaN(termsAcceptedAt.getTime()) ? new Date() : termsAcceptedAt,
           cancelAtPeriodEnd,
           addonPlatformQty: Number.isFinite(addonPlatformQty) ? addonPlatformQty : 0,
           videoAddonEnabled,
+          videoSessionHours: Number.isFinite(videoSessionHours) ? Math.max(videoSessionHours, 0) : 0,
           updatedAt: new Date(),
         },
       });
@@ -261,14 +309,17 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
           userId,
           planCode: resolvedPlanCode,
           priceType: resolvedPriceType,
+          billingCycle,
           status: SubscriptionStatus.ACTIVE,
           stripeSubscriptionId,
           stripeCustomerId: session.customer ? String(session.customer) : undefined,
           currentPeriodStart,
           currentPeriodEnd,
+          termsAcceptedAt: Number.isNaN(termsAcceptedAt.getTime()) ? new Date() : termsAcceptedAt,
           cancelAtPeriodEnd,
           addonPlatformQty: Number.isFinite(addonPlatformQty) ? addonPlatformQty : 0,
           videoAddonEnabled,
+          videoSessionHours: Number.isFinite(videoSessionHours) ? Math.max(videoSessionHours, 0) : 0,
         },
       });
       finalSubscriptionId = subscription.id;
@@ -312,12 +363,95 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
         switchedFrom ? "plan_switch_completed" : "checkout_completed"
       );
     }
+
+    if (couponId && Number.isFinite(couponDiscountCents) && couponDiscountCents > 0) {
+      const existingUsage = await tx.couponUsage.findUnique({
+        where: {
+          couponId_userId: {
+            couponId,
+            userId,
+          },
+        },
+      });
+
+      if (!existingUsage) {
+        await tx.couponUsage.create({
+          data: {
+            couponId,
+            userId,
+          },
+        });
+
+        const updatedCoupon = await tx.coupon.update({
+          where: { id: couponId },
+          data: {
+            usedCount: { increment: 1 },
+          },
+          select: {
+            id: true,
+            code: true,
+            maxUses: true,
+            usedCount: true,
+            status: true,
+          },
+        });
+
+        if (
+          updatedCoupon.maxUses !== null &&
+          updatedCoupon.usedCount >= updatedCoupon.maxUses &&
+          updatedCoupon.status === CouponStatus.ACTIVE
+        ) {
+          await tx.coupon.update({
+            where: { id: updatedCoupon.id },
+            data: {
+              status: CouponStatus.INACTIVE,
+            },
+          });
+        }
+      }
+    }
   });
 
   logger.info(
     `Checkout completed for user ${userId}, plan ${resolvedPlanCode}`,
     { subscriptionId: finalSubscriptionId, switchedFrom }
   );
+
+  // Send invoice email directly after checkout (does not depend on invoice.paid webhook)
+  if (stripeClient && session.invoice) {
+    try {
+      const invoiceId = typeof session.invoice === "string" ? session.invoice : (session.invoice as any).id;
+      const [stripeInvoice, user] = await Promise.all([
+        stripeClient.invoices.retrieve(invoiceId),
+        prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } }),
+      ]);
+      if (user?.email) {
+        const subtotalCents = getInvoiceSubtotalCents(stripeInvoice);
+        const taxCents = getInvoiceTaxCents(stripeInvoice);
+        await sendInvoiceEmail(
+          user.email,
+          stripeInvoice.number || stripeInvoice.id,
+          (stripeInvoice.amount_paid / 100).toFixed(2),
+          stripeInvoice.hosted_invoice_url ?? undefined,
+          (stripeInvoice as any).invoice_pdf ?? undefined,
+          {
+            planName: resolvedPlanCode,
+            billingCycle: billingCycle === BillingCycle.YEARLY ? "Yearly" : "Monthly",
+            userName: user.name ?? undefined,
+            customerEmail: user.email,
+            invoiceStatus: stripeInvoice.status || "paid",
+            subtotalAmount: (subtotalCents / 100).toFixed(2),
+            taxAmount: (taxCents / 100).toFixed(2),
+            transactionId: String((stripeInvoice as any).payment_intent || stripeInvoice.id),
+          },
+        );
+        logger.info(`Invoice email sent to ${user.email} after checkout`, { invoiceId });
+      }
+    } catch (err) {
+      // Non-fatal — do not fail the webhook if email sending fails
+      logger.error(`Failed to send invoice email for user ${userId} after checkout`, err);
+    }
+  }
 }
 
 async function handleVisualTopupCheckout(
@@ -390,6 +524,10 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   const isPlanChange = local.planCode !== newPlanCode;
   const addonPlatformQty = parseInt(subscription.metadata?.addonPlatformQty || "0");
   const videoAddonEnabled = (subscription.metadata?.videoAddonEnabled || "").toLowerCase() === "true";
+  const videoSessionHours = parseInt(subscription.metadata?.videoSessionHours || "0");
+  const billingCycle = (subscription.metadata?.billingCycle || "monthly").toLowerCase() === "yearly"
+    ? BillingCycle.YEARLY
+    : BillingCycle.MONTHLY;
 
   // Get old plan code before update for logging
   const oldPlanCode = local.planCode;
@@ -404,8 +542,10 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
         stripeCustomerId: customerId, // Ensure customer ID is set
         planCode: newPlanCode,
         priceType: newPriceType,
+        billingCycle,
         addonPlatformQty: Number.isFinite(addonPlatformQty) ? addonPlatformQty : 0,
         videoAddonEnabled,
+        videoSessionHours: Number.isFinite(videoSessionHours) ? Math.max(videoSessionHours, 0) : 0,
         currentPeriodStart: currentPeriodStart
           ? new Date(currentPeriodStart * 1000)
           : undefined,
@@ -463,3 +603,47 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   );
 }
 
+async function handleInvoicePaid(invoice: Stripe.Invoice) {
+  if (!invoice.customer) return;
+
+  const customerId = String(invoice.customer);
+  const subscription = await prisma.subscription.findFirst({
+    where: { stripeCustomerId: customerId },
+    include: { user: true },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  if (!subscription?.user?.email) return;
+
+  // Skip if invoice.billing_reason is "subscription_create" —
+  // already handled by handleCheckoutCompleted to avoid duplicate emails
+  if ((invoice as any).billing_reason === "subscription_create") return;
+
+  try {
+    const subtotalCents = getInvoiceSubtotalCents(invoice);
+    const taxCents = getInvoiceTaxCents(invoice);
+    await sendInvoiceEmail(
+      subscription.user.email,
+      invoice.number || invoice.id,
+      (invoice.amount_paid / 100).toFixed(2),
+      invoice.hosted_invoice_url ?? undefined,
+      (invoice as any).invoice_pdf ?? undefined,
+      {
+        planName: subscription.planCode,
+        billingCycle: subscription.billingCycle === "YEARLY" ? "Yearly" : "Monthly",
+        userName: subscription.user.name ?? undefined,
+        customerEmail: subscription.user.email,
+        invoiceStatus: invoice.status || "paid",
+        subtotalAmount: (subtotalCents / 100).toFixed(2),
+        taxAmount: (taxCents / 100).toFixed(2),
+        transactionId: String((invoice as any).payment_intent || invoice.id),
+      },
+    );
+    logger.info(`Invoice email sent for customer ${customerId}`, {
+      invoiceId: invoice.id,
+      amountPaid: invoice.amount_paid,
+    });
+  } catch (err) {
+    logger.error(`Failed to send invoice email for customer ${customerId}`, err);
+  }
+}

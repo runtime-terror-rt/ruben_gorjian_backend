@@ -16,10 +16,12 @@ import {
   getGlobalPublishingRoutingConfig,
   normalizeProviderRoutingMode,
 } from "../social/provider-routing";
+import { adminCouponRouter } from "./admin-coupon-routes";
 
 const router = express.Router();
 
 router.use(requireAuth, requireAdmin);
+router.use("/coupons", adminCouponRouter);
 
 const ADMIN_USER_SELECT = {
   id: true,

@@ -1,6 +1,7 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
+import Stripe from "stripe";
 import { Role, UserStatus } from "@prisma/client";
 import { OAuth2Client } from "google-auth-library";
 import { z } from "zod";
@@ -14,6 +15,9 @@ import { logger } from "../../lib/logger";
 import type { PlanCategory } from "../../types/plan-category";
 import { ensureUserProviderRoutingConfig } from "../social/provider-routing";
 import { getActiveSubscription } from "../billing/subscription-service";
+import { stripeClient } from "../billing/stripe";
+import { toPlanCategory } from "../billing/billing-utils";
+import { toPostLimitType, toSchedulerRole } from "../billing/plan-metadata";
 
 const router = express.Router();
 
@@ -21,22 +25,95 @@ const noopLimiter: express.RequestHandler = (_req, _res, next) => next();
 const authLimiter =
   env.NODE_ENV === "production"
     ? rateLimit({
-        windowMs: 15 * 60 * 1000,
-        max: 5,
-        message: "Too many login attempts, please try again later.",
-        skipSuccessfulRequests: true,
-      })
+      windowMs: 15 * 60 * 1000,
+      max: 5,
+      message: "Too many login attempts, please try again later.",
+      skipSuccessfulRequests: true,
+    })
     : noopLimiter;
 
 const googleClient = env.GOOGLE_CLIENT_ID
   ? new OAuth2Client(
-      env.GOOGLE_CLIENT_ID,
-      env.GOOGLE_CLIENT_SECRET,
-      `${env.FRONTEND_URL ?? ""}/api/auth/google/callback`
-    )
+    env.GOOGLE_CLIENT_ID,
+    env.GOOGLE_CLIENT_SECRET,
+    `${env.FRONTEND_URL ?? ""}/api/auth/google/callback`
+  )
   : null;
 const PASSWORD_RESET_EXPIRY_MS = 1000 * 60 * 60; // 1 hour
 const EMAIL_VERIFICATION_EXPIRY_MS = 1000 * 60 * 60 * 24; // 24 hours
+
+async function ensurePlanAvailable(planCode: string) {
+  const existing = await prisma.plan.findUnique({ where: { code: planCode } });
+  if (existing) {
+    return existing;
+  }
+
+  if (!stripeClient) {
+    return null;
+  }
+
+  const products = await stripeClient.products.list({
+    active: true,
+    expand: ["data.default_price"],
+    limit: 100,
+  });
+
+  const product = products.data.find((p) => p.metadata.code === planCode);
+  if (!product) {
+    return null;
+  }
+
+  const defaultPrice = product.default_price as Stripe.Price | null;
+  const allPrices = await stripeClient.prices.list({
+    product: product.id,
+    active: true,
+    limit: 100,
+  });
+  const hasYearlyPrice = allPrices.data.some((p) => p.recurring?.interval === "year");
+
+  const synced = await prisma.plan.upsert({
+    where: { code: planCode },
+    update: {
+      name: product.name,
+      category: toPlanCategory(product.metadata.category),
+      isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
+      platformLimit: product.metadata.platformLimit ? parseInt(product.metadata.platformLimit) : null,
+      baseVisualQuota: product.metadata.baseVisualQuota ? parseInt(product.metadata.baseVisualQuota) : null,
+      basePostQuota: product.metadata.basePostQuota ? parseInt(product.metadata.basePostQuota) : null,
+      postLimitType: toPostLimitType(product.metadata.postLimitType),
+      schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
+      priceStandardCents: product.metadata.priceStandardCents
+        ? parseInt(product.metadata.priceStandardCents)
+        : defaultPrice?.unit_amount ?? 0,
+      priceFounderCents: product.metadata.priceFounderCents
+        ? parseInt(product.metadata.priceFounderCents)
+        : defaultPrice?.unit_amount ?? 0,
+      stripePriceStandardId: defaultPrice?.id,
+      hasYearlyPrice,
+    },
+    create: {
+      code: planCode,
+      name: product.name,
+      category: toPlanCategory(product.metadata.category),
+      isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
+      platformLimit: product.metadata.platformLimit ? parseInt(product.metadata.platformLimit) : null,
+      baseVisualQuota: product.metadata.baseVisualQuota ? parseInt(product.metadata.baseVisualQuota) : null,
+      basePostQuota: product.metadata.basePostQuota ? parseInt(product.metadata.basePostQuota) : null,
+      postLimitType: toPostLimitType(product.metadata.postLimitType),
+      schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
+      priceStandardCents: product.metadata.priceStandardCents
+        ? parseInt(product.metadata.priceStandardCents)
+        : defaultPrice?.unit_amount ?? 0,
+      priceFounderCents: product.metadata.priceFounderCents
+        ? parseInt(product.metadata.priceFounderCents)
+        : defaultPrice?.unit_amount ?? 0,
+      stripePriceStandardId: defaultPrice?.id,
+      hasYearlyPrice,
+    },
+  });
+
+  return synced;
+}
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -51,6 +128,7 @@ router.post("/signup", authLimiter, async (req, res) => {
   }
 
   const { email, password, pendingPlanCode } = parsed.data;
+  const normalizedPendingPlanCode = pendingPlanCode?.trim().toUpperCase();
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
@@ -58,28 +136,29 @@ router.post("/signup", authLimiter, async (req, res) => {
   }
 
   // Require plan selection - no default plan
-  if (!pendingPlanCode) {
+  if (!normalizedPendingPlanCode) {
     logger.warn("No pendingPlanCode provided during signup", { email });
-    return res.status(400).json({ 
+    return res.status(400).json({
       error: "Please select a plan to continue.",
       details: "No plan selected",
     });
   }
 
-  // Validate that the pending plan exists
-  const pendingPlan = await prisma.plan.findUnique({ where: { code: pendingPlanCode } });
+  // Try to sync/validate selected plan from DB/Stripe, but do not block account creation.
+  // Final plan validity is enforced at checkout.
+  const pendingPlan = await ensurePlanAvailable(normalizedPendingPlanCode);
   if (!pendingPlan) {
-    logger.warn("Invalid plan code provided during signup", {
+    logger.warn("Pending plan code not yet synced at signup; continuing", {
       email,
-      pendingPlanCode,
-    });
-    return res.status(400).json({ 
-      error: "The selected plan is no longer available. Please select a different plan.",
-      details: "Invalid plan code",
+      pendingPlanCode: normalizedPendingPlanCode,
     });
   }
 
-  logger.info("Creating user with pendingPlanCode", { pendingPlanCode, email, planCategory: pendingPlan.category });
+  logger.info("Creating user with pendingPlanCode", {
+    pendingPlanCode: normalizedPendingPlanCode,
+    email,
+    planCategory: pendingPlan?.category,
+  });
 
   const passwordHash = await hashPassword(password);
   const verificationToken = crypto.randomBytes(32).toString("hex");
@@ -91,8 +170,8 @@ router.post("/signup", authLimiter, async (req, res) => {
       passwordHash,
       role: "USER",
       emailVerified: false,
-      pendingPlanCode: pendingPlanCode,
-      pendingPlanCodeSetAt: pendingPlanCode ? new Date() : null,
+      pendingPlanCode: normalizedPendingPlanCode,
+      pendingPlanCodeSetAt: normalizedPendingPlanCode ? new Date() : null,
       emailVerifications: {
         create: {
           token: verificationToken,
@@ -104,7 +183,7 @@ router.post("/signup", authLimiter, async (req, res) => {
   });
   await ensureUserProviderRoutingConfig(user.id);
 
-  await sendVerificationEmail(email, verificationToken, pendingPlanCode);
+  await sendVerificationEmail(email, verificationToken, normalizedPendingPlanCode);
 
   // Do not issue session until email verified.
   return res.status(201).json({
@@ -214,11 +293,11 @@ router.get("/me", requireAuth, async (req, res) => {
   if (!user) {
     return res.status(404).json({ error: "User not found" });
   }
-  
+
   // Use the subscription service helper to get the active subscription
   // This ensures consistency with billing summary and handles edge cases
   const subscription = await getActiveSubscription(userId);
-  
+
   // Check for INCOMPLETE subscriptions if no active one found
   let finalSubscription = subscription;
   if (!subscription) {
@@ -229,11 +308,11 @@ router.get("/me", requireAuth, async (req, res) => {
     });
     finalSubscription = incompleteSub;
   }
-  
+
   // Determine plan category: from subscription, or from pendingPlanCode if no subscription
   let planCategory: PlanCategory | null = (finalSubscription?.plan?.category as PlanCategory) || null;
   let planResolutionPath: "from_subscription" | "from_pending_plan_code" | "unknown" = "unknown";
-  
+
   // Only query for pendingPlan if we don't have a subscription and user has pendingPlanCode
   if (!planCategory && user.pendingPlanCode) {
     // No active subscription, but user has pendingPlanCode - resolve plan from it
@@ -295,22 +374,22 @@ router.get("/me", requireAuth, async (req, res) => {
     subscriptionStatus: finalSubscription?.status,
     hasPendingPlanCode: !!user.pendingPlanCode,
   });
-  
+
   // Build subscription object: use actual subscription if exists, otherwise use pendingPlanCode
   const subscriptionObj = finalSubscription
     ? {
-        planCode: finalSubscription.planCode,
-        planCategory: (finalSubscription.plan?.category as PlanCategory) || null,
-        status: finalSubscription.status,
-        priceType: finalSubscription.priceType,
-      }
+      planCode: finalSubscription.planCode,
+      planCategory: (finalSubscription.plan?.category as PlanCategory) || null,
+      status: finalSubscription.status,
+      priceType: finalSubscription.priceType,
+    }
     : planCategory
       ? {
-          planCode: user.pendingPlanCode || null,
-          planCategory: planCategory as PlanCategory,
-          status: "INCOMPLETE" as const,
-          priceType: "STANDARD" as const,
-        }
+        planCode: user.pendingPlanCode || null,
+        planCategory: planCategory as PlanCategory,
+        status: "INCOMPLETE" as const,
+        priceType: "STANDARD" as const,
+      }
       : null;
 
   return res.json({
@@ -418,7 +497,10 @@ router.post("/google", async (req, res) => {
 
     const googleId = payload.sub;
     const email = payload.email.toLowerCase();
-    const pendingPlanCode = parsed.data.pendingPlanCode;
+    const pendingPlanCode = parsed.data.pendingPlanCode?.trim().toUpperCase();
+    const validatedPendingPlan = pendingPlanCode
+      ? await ensurePlanAvailable(pendingPlanCode)
+      : null;
 
     let user = await prisma.user.findFirst({
       where: {
@@ -434,20 +516,6 @@ router.post("/google", async (req, res) => {
         });
       }
     } else {
-      // Validate pendingPlanCode if provided
-      if (pendingPlanCode) {
-        const pendingPlan = await prisma.plan.findUnique({
-          where: { code: pendingPlanCode },
-        });
-        if (!pendingPlan) {
-          logger.warn("Invalid pendingPlanCode in Google signup", {
-            email,
-            pendingPlanCode,
-          });
-          // Continue without pendingPlanCode rather than failing signup
-        }
-      }
-
       user = await prisma.user.create({
         data: {
           email,
@@ -510,35 +578,68 @@ router.post("/verify-email", async (req, res) => {
 router.post("/resend-verification", async (req, res) => {
   const schema = z.object({ email: z.string().email() });
   const parsed = schema.safeParse(req.body);
+
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res.status(400).json({
+      success: false,
+      message: "Invalid request payload. Please provide a valid email address.",
+      details: parsed.error.flatten(),
+    });
   }
+
   const email = parsed.data.email.toLowerCase();
+
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || user.emailVerified) {
-    return res.json({ success: true });
+
+  if (!user) {
+    logger.warn("Resend verification requested for non-existent email", { email });
+
+    return res.status(404).json({
+      success: false,
+      message: "No account found with this email address.",
+    });
+  }
+
+  if (user.emailVerified) {
+    logger.warn("Resend verification requested for already verified email", { email });
+
+    return res.status(400).json({
+      success: false,
+      message: "This email address is already verified. Please log in.",
+    });
   }
 
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_EXPIRY_MS);
+
   await prisma.emailVerificationToken.create({
     data: { userId: user.id, token, expiresAt },
   });
-  
-  const emailResult = await sendVerificationEmail(email, token, user.pendingPlanCode || undefined);
+
+  const emailResult = await sendVerificationEmail(
+    email,
+    token,
+    user.pendingPlanCode || undefined
+  );
+
   if (!emailResult.sent) {
     logger.error("Failed to send verification email", {
       userId: user.id,
       email,
       reason: emailResult.reason,
     });
-    return res.status(500).json({ 
-      error: "Failed to send verification email. Please try again later.",
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send verification email. Please try again later.",
       details: emailResult.reason,
     });
   }
-  
-  return res.json({ success: true });
+
+  return res.status(200).json({
+    success: true,
+    message: "Verification email has been sent successfully. Please check your inbox.",
+  });
 });
 
 function safeUser(user: {
@@ -653,7 +754,7 @@ router.post("/google/callback", async (req, res) => {
     code: z.string(),
     pendingPlanCode: z.string().optional(),
   });
-  
+
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid code" });
@@ -699,7 +800,7 @@ router.post("/google/callback", async (req, res) => {
 
     // Same logic as existing Google route
     let user = await prisma.user.findUnique({ where: { email: payload.email } });
-    
+
     if (!user) {
       user = await prisma.user.create({
         data: {

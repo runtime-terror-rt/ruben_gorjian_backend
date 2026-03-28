@@ -59,6 +59,8 @@ model User {
   providerRoutingConfig       ProviderRoutingConfig?
   uploadPostProfile           UploadPostProfile?
   planChangeLogs              PlanChangeLog[]
+  couponsCreated              Coupon[]                 @relation("CouponCreatedBy")
+  couponUsages                CouponUsage[]            @relation("UserCouponUsages")
 }
 
 model Plan {
@@ -88,12 +90,15 @@ model Subscription {
   planCode             String
   status               SubscriptionStatus @default(INCOMPLETE)
   priceType            PriceType          @default(STANDARD)
+  billingCycle         BillingCycle       @default(MONTHLY)
   stripeCustomerId     String?
   stripeSubscriptionId String?
   currentPeriodStart   DateTime?
   currentPeriodEnd     DateTime?
+  termsAcceptedAt      DateTime?
   addonPlatformQty     Int                @default(0)
   videoAddonEnabled    Boolean            @default(false)
+  videoSessionHours    Int                @default(0)
   cancelAtPeriodEnd    Boolean            @default(false)
   canceledAt           DateTime?
   createdAt            DateTime           @default(now())
@@ -135,6 +140,11 @@ enum PostLimitType {
 enum SchedulerRole {
   CLIENT
   ADMIN
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
 }
 
 model Founder {
@@ -581,6 +591,12 @@ enum PriceType {
   FOUNDER
 }
 
+enum CouponStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
 enum AssetType {
   IMAGE
   VIDEO
@@ -831,4 +847,41 @@ model EnhancedDeliveryFile {
 
   @@index([enhancedDeliveryId])
   @@index([storageKey])
+}
+
+model Coupon {
+  id                String        @id @default(cuid())
+  code              String        @unique
+  discountType      String        // "fixed" or "percentage"
+  discountValue     Float         // Amount or percentage value
+  maxUses           Int?          // null = unlimited uses
+  usedCount         Int           @default(0)
+  maxUsesPerClient  Int           @default(1)
+  status            CouponStatus  @default(ACTIVE)
+  description       String?
+  expiresAt         DateTime?
+  applicablePlans   String[]      @default([]) // empty array = all plans
+  createdBy         String
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  couponUsages      CouponUsage[]
+  creator           User          @relation("CouponCreatedBy", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([code])
+  @@index([expiresAt])
+  @@index([createdAt])
+}
+
+model CouponUsage {
+  id          String   @id @default(cuid())
+  couponId    String
+  userId      String
+  usedAt      DateTime @default(now())
+  coupon      Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user        User     @relation("UserCouponUsages", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, userId])
+  @@index([couponId])
+  @@index([userId])
 }
