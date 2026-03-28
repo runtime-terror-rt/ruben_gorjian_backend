@@ -33,23 +33,23 @@ export async function ensureDefaultAdditionalPlatformAddon() {
 
   const addon = existingAddon
     ? await prisma.addon.update({
-        where: { id: existingAddon.id },
-        data: {
-          name: "Additional Platform",
-          description: "Adds one more connected social platform to the active subscription.",
-          type: AddonType.RECURRING,
-          isActive: true,
-        },
-      })
+      where: { id: existingAddon.id },
+      data: {
+        name: "Additional Platform",
+        description: "Adds one more connected social platform to the active subscription.",
+        type: AddonType.RECURRING,
+        isActive: true,
+      },
+    })
     : await prisma.addon.create({
-        data: {
-          code: ADDITIONAL_PLATFORM_ADDON_CODE,
-          name: "Additional Platform",
-          description: "Adds one more connected social platform to the active subscription.",
-          type: AddonType.RECURRING,
-          isActive: true,
-        },
-      });
+      data: {
+        code: ADDITIONAL_PLATFORM_ADDON_CODE,
+        name: "Additional Platform",
+        description: "Adds one more connected social platform to the active subscription.",
+        type: AddonType.RECURRING,
+        isActive: true,
+      },
+    });
 
   await prisma.addonPrice.upsert({
     where: {
@@ -231,16 +231,16 @@ export function serializeBillingQuote(
       },
       ...(quote.additionalPlatformQty > 0
         ? [
-            {
-              code: ADDITIONAL_PLATFORM_ADDON_CODE,
-              name: "Additional Platform",
-              type: "addon",
-              quantity: quote.additionalPlatformQty,
-              unitAmountCents: additionalPlatformUnitAmountCents,
-              totalAmountCents:
-                additionalPlatformUnitAmountCents * quote.additionalPlatformQty,
-            },
-          ]
+          {
+            code: ADDITIONAL_PLATFORM_ADDON_CODE,
+            name: "Additional Platform",
+            type: "addon",
+            quantity: quote.additionalPlatformQty,
+            unitAmountCents: additionalPlatformUnitAmountCents,
+            totalAmountCents:
+              additionalPlatformUnitAmountCents * quote.additionalPlatformQty,
+          },
+        ]
         : []),
     ],
   };

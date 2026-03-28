@@ -400,7 +400,7 @@ async function handleVisualTopupCheckout(
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   const customerId = String(subscription.customer);
-  
+
   // Find subscription by Stripe subscription ID first (most reliable)
   // Fall back to customer ID if subscription ID not found
   let local = await prisma.subscription.findFirst({

@@ -68,14 +68,14 @@ router.get("/catalog", async (_req, res) => {
     addons: [
       ...(additionalPlatformAddon.isActive && !additionalPlatformAddon.deletedAt
         ? [
-            {
-              code: ADDITIONAL_PLATFORM_ADDON_CODE,
-              name: additionalPlatformAddon.name,
-              description: additionalPlatformAddon.description,
-              type: additionalPlatformAddon.type,
-              prices: additionalPlatformPrices,
-            },
-          ]
+          {
+            code: ADDITIONAL_PLATFORM_ADDON_CODE,
+            name: additionalPlatformAddon.name,
+            description: additionalPlatformAddon.description,
+            type: additionalPlatformAddon.type,
+            prices: additionalPlatformPrices,
+          },
+        ]
         : []),
       {
         code: "VIDEO_SESSION",
@@ -480,76 +480,76 @@ router.post("/checkout", requireAuth, async (req, res) => {
           activeSubscription.stripeSubscriptionId
         );
 
-      if (stripeSub.status === "active" || stripeSub.status === "trialing") {
-        // Update existing subscription to new plan (Stripe handles proration)
-        // This is the preferred method as it maintains billing continuity
-        try {
-          await stripeClient.subscriptions.update(activeSubscription.stripeSubscriptionId, {
-            items: [
-              {
-                id: stripeSub.items.data[0].id,
-              price: priceId,
+        if (stripeSub.status === "active" || stripeSub.status === "trialing") {
+          // Update existing subscription to new plan (Stripe handles proration)
+          // This is the preferred method as it maintains billing continuity
+          try {
+            await stripeClient.subscriptions.update(activeSubscription.stripeSubscriptionId, {
+              items: [
+                {
+                  id: stripeSub.items.data[0].id,
+                  price: priceId,
+                },
+              ],
+              metadata: {
+                userId,
+                planCode,
+                priceType,
+                billingCycle,
+                quoteId: quote.id,
+                termsVersionIds: JSON.stringify(acceptedTermsIds),
+                addonPlatformQty: String(quote.additionalPlatformQty),
+                switchedFrom: activeSubscription.planCode,
               },
-            ],
-            metadata: {
-              userId,
+              proration_behavior: "create_prorations",
+            });
+
+            logger.info(
+              `Updated Stripe subscription ${activeSubscription.stripeSubscriptionId} to plan ${planCode}`,
+              { userId, oldPlan: activeSubscription.planCode, newPlan: planCode }
+            );
+
+            // Update local subscription record
+            await prisma.subscription.update({
+              where: { id: activeSubscription.id },
+              data: {
+                planCode,
+                priceType,
+                status: SubscriptionStatus.ACTIVE,
+                updatedAt: new Date(),
+              },
+            });
+
+            // Log plan change
+            await logPlanChange(userId, activeSubscription.planCode, planCode, "plan_switch_checkout");
+
+            // Return success - no checkout needed since we updated the subscription
+            return res.json({
+              success: true,
+              message: "Plan switched successfully",
               planCode,
               priceType,
               billingCycle,
-              quoteId: quote.id,
-              termsVersionIds: JSON.stringify(acceptedTermsIds),
-              addonPlatformQty: String(quote.additionalPlatformQty),
-              switchedFrom: activeSubscription.planCode,
-            },
-            proration_behavior: "create_prorations",
-          });
-
-          logger.info(
-            `Updated Stripe subscription ${activeSubscription.stripeSubscriptionId} to plan ${planCode}`,
-            { userId, oldPlan: activeSubscription.planCode, newPlan: planCode }
-          );
-
-          // Update local subscription record
+              // Optionally redirect to billing page instead of checkout
+              redirectUrl: `${env.FRONTEND_URL}/dashboard/billing`,
+            });
+          } catch (updateError) {
+            logger.warn(
+              "Failed to update Stripe subscription, falling back to new checkout",
+              updateError
+            );
+            // Fall through to create new checkout session
+          }
+        } else {
+          // Subscription is not active, cancel it in our DB
           await prisma.subscription.update({
             where: { id: activeSubscription.id },
             data: {
-              planCode,
-              priceType,
-              status: SubscriptionStatus.ACTIVE,
+              status: SubscriptionStatus.CANCELED,
               updatedAt: new Date(),
             },
           });
-
-          // Log plan change
-          await logPlanChange(userId, activeSubscription.planCode, planCode, "plan_switch_checkout");
-
-          // Return success - no checkout needed since we updated the subscription
-          return res.json({
-            success: true,
-            message: "Plan switched successfully",
-            planCode,
-            priceType,
-            billingCycle,
-            // Optionally redirect to billing page instead of checkout
-            redirectUrl: `${env.FRONTEND_URL}/dashboard/billing`,
-          });
-        } catch (updateError) {
-          logger.warn(
-            "Failed to update Stripe subscription, falling back to new checkout",
-            updateError
-          );
-          // Fall through to create new checkout session
         }
-      } else {
-        // Subscription is not active, cancel it in our DB
-        await prisma.subscription.update({
-          where: { id: activeSubscription.id },
-          data: {
-            status: SubscriptionStatus.CANCELED,
-            updatedAt: new Date(),
-          },
-        });
-      }
       } catch (error) {
         logger.error("Error handling plan switch in Stripe", error);
         // Cancel the old Stripe subscription so the user is not double-billed
@@ -754,8 +754,8 @@ router.post("/visual-topups/checkout", requireAuth, async (req, res) => {
   const unitsPerPack = price.metadata.visualUnits
     ? parseInt(price.metadata.visualUnits)
     : product?.metadata?.visualUnits
-    ? parseInt(product.metadata.visualUnits)
-    : env.STRIPE_VISUAL_TOPUP_UNITS;
+      ? parseInt(product.metadata.visualUnits)
+      : env.STRIPE_VISUAL_TOPUP_UNITS;
 
   if (!unitsPerPack || Number.isNaN(unitsPerPack)) {
     return res.status(500).json({ error: "Top-up units not configured" });
@@ -1150,11 +1150,11 @@ function serializePlan(plan: {
       },
       yearly: yearlyPriceCents
         ? {
-            interval: "year",
-            priceStandardCents: yearlyPriceCents,
-            priceFounderCents: yearlyFounderPriceCents ?? yearlyPriceCents,
-            savingsPercent: 20,
-          }
+          interval: "year",
+          priceStandardCents: yearlyPriceCents,
+          priceFounderCents: yearlyFounderPriceCents ?? yearlyPriceCents,
+          savingsPercent: 20,
+        }
         : null,
     },
   };
