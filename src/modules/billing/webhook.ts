@@ -647,4 +647,3 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
     logger.error(`Failed to send invoice email for customer ${customerId}`, err);
   }
 }
-
