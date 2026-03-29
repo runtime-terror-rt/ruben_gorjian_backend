@@ -1,5 +1,5 @@
 import "dotenv/config";
-import bcrypt from "bcryptjs";
+import * as bcrypt from "bcryptjs";
 import {
   PostStatus,
   PostTargetStatus,
@@ -9,6 +9,7 @@ import {
   SchedulerRole,
   SocialPlatform,
   SubscriptionStatus,
+  PlanCategory,
 } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -21,7 +22,7 @@ const planSeed = [
   {
     code: "FMP-20",
     name: "Full Management",
-    category: "FULL_MANAGEMENT",
+    category: PlanCategory.FULL_MANAGEMENT,
     isJewelry: false,
     platformLimit: 1,
     baseVisualQuota: 0,
@@ -34,7 +35,7 @@ const planSeed = [
   {
     code: "FMP-35",
     name: "Full Management Plus",
-    category: "FULL_MANAGEMENT",
+    category: PlanCategory.FULL_MANAGEMENT,
     isJewelry: false,
     platformLimit: 2,
     baseVisualQuota: 0,
@@ -47,7 +48,7 @@ const planSeed = [
   {
     code: "FM-70",
     name: "Full Management Premium",
-    category: "FULL_MANAGEMENT",
+    category: PlanCategory.FULL_MANAGEMENT,
     isJewelry: false,
     platformLimit: 3,
     baseVisualQuota: 0,
