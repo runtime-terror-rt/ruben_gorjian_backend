@@ -338,7 +338,6 @@ router.get("/users/:id", async (req, res) => {
     user: serializeUser({ ...user, connectedPlatformsCount, scheduledPostsCount }),
     profile: user.profile,
     brandProfile: user.brandProfile,
-    subscriptions: user.subscriptions,
     posts,
     usageSummary: {
       scheduledPostsCount,
