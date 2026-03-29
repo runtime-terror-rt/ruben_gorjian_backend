@@ -1,31 +1,64 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
 import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import {
   ScheduledPost,
   ScheduledPostStatus,
-  SocialPlan,
   SocialPlatform,
   User,
-  Role:UserRole,
+  Role as UserRole,
 } from '@prisma/client';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { prisma } from '../../lib/prisma';
+import { ApiError } from '../../lib/errors';
 
-@Injectable()
+// Minimal Nest-like exceptions so the original pasted logic can remain unchanged in Express.
+// Express routes should use `handleError()` to convert these into proper HTTP responses.
+class BadRequestException extends ApiError {
+  constructor(messageOrDetails: unknown) {
+    const message =
+      typeof messageOrDetails === 'string'
+        ? messageOrDetails
+        : (messageOrDetails as any)?.message ?? 'Bad Request';
+    super(400, message, typeof messageOrDetails === 'string' ? undefined : messageOrDetails);
+    this.name = 'BadRequestException';
+  }
+  getResponse() {
+    return this.details ?? { message: this.message };
+  }
+}
+
+class ForbiddenException extends ApiError {
+  constructor(messageOrDetails: unknown) {
+    const message =
+      typeof messageOrDetails === 'string'
+        ? messageOrDetails
+        : (messageOrDetails as any)?.message ?? 'Forbidden';
+    super(403, message, typeof messageOrDetails === 'string' ? undefined : messageOrDetails);
+    this.name = 'ForbiddenException';
+  }
+}
+
+class NotFoundException extends ApiError {
+  constructor(messageOrDetails: unknown) {
+    const message =
+      typeof messageOrDetails === 'string'
+        ? messageOrDetails
+        : (messageOrDetails as any)?.message ?? 'Not Found';
+    super(404, message, typeof messageOrDetails === 'string' ? undefined : messageOrDetails);
+    this.name = 'NotFoundException';
+  }
+}
+
 export class SocialMediaService {
-  constructor(
-    private readonly configService: ConfigService,
-    private readonly prisma: PrismaService,
-  ) {}
+  private readonly prisma = prisma;
 
-  private readonly allowedPlatforms = ['facebook', 'instagram', 'tiktok'] as const;
+  // Minimal ConfigService shim so existing logic stays the same in Express.
+  private readonly configService = {
+    get: <T = string>(name: string): T | undefined =>
+      (process.env[name] as unknown as T | undefined) ?? undefined,
+  };
 
-  private planLimits: Record<SocialPlan, { maxLinkedPlatforms: number; monthlyScheduledPosts: number }> = {
+  private readonly allowedPlatforms = ['facebook', 'instagram', 'linkedin'] as const;
+
+  private planLimits: Record<string, { maxLinkedPlatforms: number; monthlyScheduledPosts: number }> = {
     FREE: { maxLinkedPlatforms: 1, monthlyScheduledPosts: 10 },
     DEFAULT: { maxLinkedPlatforms: 2, monthlyScheduledPosts: 30 },
     PRO: { maxLinkedPlatforms: 3, monthlyScheduledPosts: 200 },
@@ -68,24 +101,24 @@ export class SocialMediaService {
     return normalized;
   }
 
-  private normalizePlatform(platform: string): 'facebook' | 'instagram' | 'tiktok' {
+  private normalizePlatform(platform: string): 'facebook' | 'instagram' | 'linkedin' {
     const p = platform?.toLowerCase();
     if (!p || !this.allowedPlatforms.includes(p as any)) {
-      throw new BadRequestException('platform must be one of: facebook, instagram, tiktok');
+      throw new BadRequestException('platform must be one of: facebook, instagram, linkedin');
     }
-    return p as 'facebook' | 'instagram' | 'tiktok';
+    return p as 'facebook' | 'instagram' | 'linkedin';
   }
 
-  private toPrismaPlatform(platform: 'facebook' | 'instagram' | 'tiktok'): SocialPlatform {
+  private toPrismaPlatform(platform: 'facebook' | 'instagram' | 'linkedin'): SocialPlatform {
     if (platform === 'facebook') return SocialPlatform.FACEBOOK;
     if (platform === 'instagram') return SocialPlatform.INSTAGRAM;
-    return SocialPlatform.TIKTOK;
+    return SocialPlatform.LINKEDIN;
   }
 
-  private fromPrismaPlatform(platform: SocialPlatform): 'facebook' | 'instagram' | 'tiktok' {
+  private fromPrismaPlatform(platform: SocialPlatform): 'facebook' | 'instagram' | 'linkedin' {
     if (platform === SocialPlatform.FACEBOOK) return 'facebook';
     if (platform === SocialPlatform.INSTAGRAM) return 'instagram';
-    return 'tiktok';
+    return 'linkedin';
   }
 
   private uploadPostUsername(user: User): string {
@@ -135,9 +168,10 @@ export class SocialMediaService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
     const linked = await this.prisma.socialPlatformLink.count({ where: { userId } });
-    const limit = this.planLimits[user.socialPlan].maxLinkedPlatforms;
+    const socialPlan = String((user as any).socialPlan ?? 'FREE');
+    const limit = (this.planLimits[socialPlan] ?? this.planLimits.FREE).maxLinkedPlatforms;
     if (linked >= limit) {
-      throw new ForbiddenException(`Plan limit reached. Max linked platforms for ${user.socialPlan}: ${limit}`);
+      throw new ForbiddenException(`Plan limit reached. Max linked platforms for ${socialPlan}: ${limit}`);
     }
   }
 
@@ -156,9 +190,10 @@ export class SocialMediaService {
       },
     });
 
-    const limit = this.planLimits[user.socialPlan].monthlyScheduledPosts;
+    const socialPlan = String((user as any).socialPlan ?? 'FREE');
+    const limit = (this.planLimits[socialPlan] ?? this.planLimits.FREE).monthlyScheduledPosts;
     if (total >= limit) {
-      throw new ForbiddenException(`Monthly schedule limit reached for ${user.socialPlan} plan: ${limit}`);
+      throw new ForbiddenException(`Monthly schedule limit reached for ${socialPlan} plan: ${limit}`);
     }
   }
 
@@ -266,7 +301,7 @@ export class SocialMediaService {
 
   private async publishToProvider(payload: {
     username: string;
-    platform: 'facebook' | 'instagram' | 'tiktok';
+    platform: 'facebook' | 'instagram' | 'linkedin';
     title: string;
     mediaUrl?: string;
     mediaUrls?: string[];
@@ -445,6 +480,7 @@ export class SocialMediaService {
   async publishNowByUser(
     user: User,
     payload: {
+      username: string;
       platform: string;
       title: string;
       mediaUrl?: string;
@@ -456,9 +492,9 @@ export class SocialMediaService {
     const prismaPlatform = this.toPrismaPlatform(platform);
     await this.ensurePlatformLinked(user.id, prismaPlatform);
 
-    const username = this.uploadPostUsername(user);
+    // const username = this.uploadPostUsername(user);
     const published = await this.publishToProvider({
-      username,
+      username: payload.username,
       platform,
       title: payload.title,
       mediaUrl: payload.mediaUrl,
@@ -539,15 +575,38 @@ export class SocialMediaService {
     return this.getMyCalendar(clientId, month);
   }
 
-  async getMyPlatformLinks(userId: string) {
-    return this.prisma.socialPlatformLink.findMany({
-      where: { userId },
-      orderBy: { linkedAt: 'desc' },
-    });
-  }
-  async updatePlan(admin: User, userId: string, plan: SocialPlan) {
+//   async getMyPlatformLinks(userId: string) {
+//     return this.prisma.socialPlatformLink.findMany({
+//       where: { userId },
+//       orderBy: { linkedAt: 'desc' },
+//       include: { user: true },
+//     });
+//   }
+
+async getMyPlatformLinks(userId: string) {
+  const links = await this.prisma.socialPlatformLink.findMany({
+    where: { userId },
+    orderBy: { linkedAt: 'desc' },
+    include: { user: true },
+  });
+
+  return links.map(link => {
+    const email = link.user?.email || '';
+    const username = email.split('@')[0]; // @ এর আগে part
+
+    return {
+        uploadPostUsername: username, // 👈 extra field
+        ...link,
+    };
+  });
+}
+
+  async updatePlan(admin: User, userId: string, plan: any) {
     if (admin.role !== UserRole.ADMIN) throw new ForbiddenException('Admin only');
-    return this.prisma.user.update({ where: { id: userId }, data: { socialPlan: plan } });
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { ...( { socialPlan: plan } as any ) },
+    });
   }
 
   async processDueScheduledPosts(limit = 20) {
