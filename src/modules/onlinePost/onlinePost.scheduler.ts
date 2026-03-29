@@ -1,13 +1,14 @@
-import { Injectable } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import { SocialMediaService } from './social-media.service';
+import { SocialMediaService } from "./onlinePost.service";
 
-@Injectable()
-export class SocialMediaScheduler {
-  constructor(private readonly socialMediaService: SocialMediaService) {}
+export function startOnlinePostScheduler(service = new SocialMediaService()) {
+  const intervalMs = 60_000;
 
-  @Cron(CronExpression.EVERY_MINUTE)
-  async handleDueScheduledPosts() {
-    await this.socialMediaService.processDueScheduledPosts();
-  }
+  const timer = setInterval(() => {
+    service.processDueScheduledPosts().catch(() => {
+      // Swallow errors here; the service should persist failures and/or log upstream.
+    });
+  }, intervalMs);
+
+  timer.unref?.();
+  return () => clearInterval(timer);
 }

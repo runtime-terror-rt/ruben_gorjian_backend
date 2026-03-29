@@ -29,6 +29,7 @@ import debugRouter from "./modules/debug/routes";
 import { visitsRouter } from "./modules/visits/routes";
 import { logger } from "./lib/logger";
 import { uploadPostProviderRouter } from "./modules/providers/upload-post/routes";
+import { onlinePostRouter } from "./modules/onlinePost/onlinePost.route";
 
 export const app = express();
 
@@ -106,5 +107,5 @@ if (env.NODE_ENV !== "production") {
   app.use("/api/debug", debugRouter);
 }
 app.use("/api/providers/upload-post", uploadPostProviderRouter);
-
+app.use('/api/social-media', onlinePostRouter);
 app.use(errorHandler);
