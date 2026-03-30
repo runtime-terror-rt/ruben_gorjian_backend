@@ -1,5 +1,5 @@
 import "dotenv/config";
-import bcrypt from "bcryptjs";
+import * as bcrypt from "bcryptjs";
 import {
 <<<<<<< HEAD
   AddonType,
@@ -15,6 +15,7 @@ import {
   SchedulerRole,
   SocialPlatform,
   SubscriptionStatus,
+  PlanCategory,
 } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -27,11 +28,7 @@ const planSeed = [
   {
     code: "FMP-20",
     name: "Full Management",
-<<<<<<< HEAD
-    category: PlanCategory.FULL_MANAGEMENT,
-=======
     category: "FULL_MANAGEMENT",
->>>>>>> origin/dev
     isJewelry: false,
     platformLimit: 1,
     baseVisualQuota: 0,
@@ -44,11 +41,7 @@ const planSeed = [
   {
     code: "FMP-35",
     name: "Full Management Plus",
-<<<<<<< HEAD
-    category: PlanCategory.FULL_MANAGEMENT,
-=======
     category: "FULL_MANAGEMENT",
->>>>>>> origin/dev
     isJewelry: false,
     platformLimit: 2,
     baseVisualQuota: 0,
@@ -61,11 +54,7 @@ const planSeed = [
   {
     code: "FM-70",
     name: "Full Management Premium",
-<<<<<<< HEAD
-    category: PlanCategory.FULL_MANAGEMENT,
-=======
     category: "FULL_MANAGEMENT",
->>>>>>> origin/dev
     isJewelry: false,
     platformLimit: 3,
     baseVisualQuota: 0,
@@ -296,53 +285,53 @@ async function seedPosts(users: Array<{ id: string; email: string }>) {
         socialAccountId: string;
       }>;
     }> = [
-      {
-        status: PostStatus.SCHEDULED,
-        scheduledFor: inThreeDays,
-        caption: "Teaser drop next week",
-        targets: [
-          {
-            platform: SocialPlatform.INSTAGRAM,
-            status: PostTargetStatus.SCHEDULED,
-            scheduledFor: inThreeDays,
-            socialAccountId: socialAccounts.instagram,
-          },
-          {
-            platform: SocialPlatform.FACEBOOK,
-            status: PostTargetStatus.SCHEDULED,
-            scheduledFor: inThreeDays,
-            socialAccountId: socialAccounts.facebook,
-          },
-        ],
-      },
-      {
-        status: PostStatus.SCHEDULED,
-        scheduledFor: inFiveDays,
-        caption: "LinkedIn thought leadership",
-        targets: [
-          {
-            platform: SocialPlatform.LINKEDIN,
-            status: PostTargetStatus.SCHEDULED,
-            scheduledFor: inFiveDays,
-            socialAccountId: socialAccounts.linkedin,
-          },
-        ],
-      },
-      {
-        status: PostStatus.POSTED,
-        scheduledFor: pastDay,
-        caption: "Recap from recent campaign",
-        targets: [
-          {
-            platform: SocialPlatform.INSTAGRAM,
-            status: PostTargetStatus.POSTED,
-            scheduledFor: pastDay,
-            publishedAt: now,
-            socialAccountId: socialAccounts.instagram,
-          },
-        ],
-      },
-    ];
+        {
+          status: PostStatus.SCHEDULED,
+          scheduledFor: inThreeDays,
+          caption: "Teaser drop next week",
+          targets: [
+            {
+              platform: SocialPlatform.INSTAGRAM,
+              status: PostTargetStatus.SCHEDULED,
+              scheduledFor: inThreeDays,
+              socialAccountId: socialAccounts.instagram,
+            },
+            {
+              platform: SocialPlatform.FACEBOOK,
+              status: PostTargetStatus.SCHEDULED,
+              scheduledFor: inThreeDays,
+              socialAccountId: socialAccounts.facebook,
+            },
+          ],
+        },
+        {
+          status: PostStatus.SCHEDULED,
+          scheduledFor: inFiveDays,
+          caption: "LinkedIn thought leadership",
+          targets: [
+            {
+              platform: SocialPlatform.LINKEDIN,
+              status: PostTargetStatus.SCHEDULED,
+              scheduledFor: inFiveDays,
+              socialAccountId: socialAccounts.linkedin,
+            },
+          ],
+        },
+        {
+          status: PostStatus.POSTED,
+          scheduledFor: pastDay,
+          caption: "Recap from recent campaign",
+          targets: [
+            {
+              platform: SocialPlatform.INSTAGRAM,
+              status: PostTargetStatus.POSTED,
+              scheduledFor: pastDay,
+              publishedAt: now,
+              socialAccountId: socialAccounts.instagram,
+            },
+          ],
+        },
+      ];
 
     for (const post of posts) {
       await prisma.post.create({
