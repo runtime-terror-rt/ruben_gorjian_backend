@@ -1,9 +1,12 @@
 import "dotenv/config";
 import bcrypt from "bcryptjs";
 import {
+<<<<<<< HEAD
   AddonType,
   BillingCycle,
   PlanCategory,
+=======
+>>>>>>> origin/dev
   PostStatus,
   PostTargetStatus,
   PrismaClient,
@@ -24,7 +27,11 @@ const planSeed = [
   {
     code: "FMP-20",
     name: "Full Management",
+<<<<<<< HEAD
     category: PlanCategory.FULL_MANAGEMENT,
+=======
+    category: "FULL_MANAGEMENT",
+>>>>>>> origin/dev
     isJewelry: false,
     platformLimit: 1,
     baseVisualQuota: 0,
@@ -37,7 +44,11 @@ const planSeed = [
   {
     code: "FMP-35",
     name: "Full Management Plus",
+<<<<<<< HEAD
     category: PlanCategory.FULL_MANAGEMENT,
+=======
+    category: "FULL_MANAGEMENT",
+>>>>>>> origin/dev
     isJewelry: false,
     platformLimit: 2,
     baseVisualQuota: 0,
@@ -50,7 +61,11 @@ const planSeed = [
   {
     code: "FM-70",
     name: "Full Management Premium",
+<<<<<<< HEAD
     category: PlanCategory.FULL_MANAGEMENT,
+=======
+    category: "FULL_MANAGEMENT",
+>>>>>>> origin/dev
     isJewelry: false,
     platformLimit: 3,
     baseVisualQuota: 0,
@@ -79,6 +94,7 @@ async function main() {
       update: payload,
       create: { code, ...payload },
     });
+<<<<<<< HEAD
 
     await prisma.planTermsVersion.upsert({
       where: {
@@ -149,6 +165,10 @@ async function main() {
     },
   });
 
+=======
+  }
+
+>>>>>>> origin/dev
   const seededUsers = await seedUsersAndSubscriptions();
   await seedPosts(seededUsers);
 }
