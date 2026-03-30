@@ -29,6 +29,7 @@ import debugRouter from "./modules/debug/routes";
 import { visitsRouter } from "./modules/visits/routes";
 import { logger } from "./lib/logger";
 import { uploadPostProviderRouter } from "./modules/providers/upload-post/routes";
+import { schedulerRouter } from "./modules/scheduler/routes";
 
 export const app = express();
 
@@ -88,6 +89,8 @@ app.use("/ai", aiRouter);
 app.use(["/social", "/api/social"], socialRouter);
 app.use("/posts", postsRouter);
 app.use("/posts", enhancedPostsRouter);
+app.use("/scheduler", schedulerRouter);
+app.use("/api/scheduler", schedulerRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/admin", adminPostRouter);
 app.use("/admin", adminRouter);

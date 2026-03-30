@@ -233,7 +233,7 @@ router.post("/:id/files/complete", fileUploadRateLimiter, async (req, res) => {
 
     // Fetch submission with user details for notifications
     const submissionWithUser = await getSubmissionById(submissionId, userId);
-    
+
     // Send notifications (async, don't block response)
     if (submissionWithUser) {
       notifySubmissionCreated(submissionWithUser).catch((error) => {
@@ -352,10 +352,10 @@ router.get("/", async (req, res) => {
         })),
         latestEvent: s.events[0]
           ? {
-              status: s.events[0].status,
-              note: s.events[0].note,
-              createdAt: s.events[0].createdAt,
-            }
+            status: s.events[0].status,
+            note: s.events[0].note,
+            createdAt: s.events[0].createdAt,
+          }
           : null,
         createdAt: s.createdAt,
         updatedAt: s.updatedAt,

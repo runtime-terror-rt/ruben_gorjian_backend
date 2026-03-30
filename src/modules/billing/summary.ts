@@ -14,7 +14,7 @@ router.use(requireAuth);
 
 router.get("/summary", async (req, res) => {
   const userId = req.user!.id;
-  
+
   try {
     // First try to get active subscription (ACTIVE or TRIALING)
     let subscription = await getActiveSubscription(userId);
@@ -82,31 +82,6 @@ router.get("/summary", async (req, res) => {
       }
     }
 
-<<<<<<< HEAD
-    let currentInterval: "month" | "year" = "month";
-    let currentPrice = subscription.plan
-      ? subscription.priceType === "FOUNDER"
-        ? subscription.plan.priceFounderCents
-        : subscription.plan.priceStandardCents
-      : 0;
-
-    // If we don't have currentPeriodEnd in DB but have Stripe subscription, fetch from Stripe and persist
-    let currentPeriodEnd: Date | null = subscription.currentPeriodEnd;
-    if (subscription.stripeSubscriptionId && stripeClient) {
-      try {
-        const stripeSub = await stripeClient.subscriptions.retrieve(subscription.stripeSubscriptionId, {
-          expand: ["items.data.price"],
-        });
-        const primaryPrice = stripeSub.items.data[0]?.price;
-        const stripeInterval = primaryPrice?.recurring?.interval;
-        if (stripeInterval === "month" || stripeInterval === "year") {
-          currentInterval = stripeInterval;
-        }
-        if (typeof primaryPrice?.unit_amount === "number") {
-          currentPrice = primaryPrice.unit_amount;
-        }
-
-=======
     // If we don't have currentPeriodEnd in DB but have Stripe subscription, fetch from Stripe and persist
     let currentPeriodEnd: Date | null = subscription.currentPeriodEnd;
     if (!currentPeriodEnd && subscription.stripeSubscriptionId && stripeClient) {
@@ -114,7 +89,6 @@ router.get("/summary", async (req, res) => {
         const stripeSub = await stripeClient.subscriptions.retrieve(
           subscription.stripeSubscriptionId
         );
->>>>>>> origin/dev
         const { startUnix, endUnix } = extractStripePeriodBounds(stripeSub);
         const stripeStatus = (stripeSub as { status?: string }).status;
 
@@ -138,11 +112,7 @@ router.get("/summary", async (req, res) => {
             break;
         }
 
-<<<<<<< HEAD
-        if (endUnix && !currentPeriodEnd) {
-=======
         if (endUnix) {
->>>>>>> origin/dev
           currentPeriodEnd = new Date(endUnix * 1000);
           subscription = await prisma.subscription.update({
             where: { id: subscription.id },
@@ -188,11 +158,6 @@ router.get("/summary", async (req, res) => {
       id: subscription.id,
       name: subscription.plan?.name ?? subscription.planCode,
       code: subscription.planCode,
-<<<<<<< HEAD
-      price: currentPrice,
-      currency: "usd",
-      interval: currentInterval,
-=======
       price: subscription.plan
         ? subscription.priceType === "FOUNDER"
           ? subscription.plan.priceFounderCents
@@ -201,7 +166,6 @@ router.get("/summary", async (req, res) => {
       currency: "usd",
       interval: subscription.billingCycle === "YEARLY" ? "year" : "month",
       billingCycle: subscription.billingCycle === "YEARLY" ? "yearly" : "monthly",
->>>>>>> origin/dev
       status: subscription.status,
       priceType: subscription.priceType,
       current_period_end: currentPeriodEnd
@@ -216,10 +180,7 @@ router.get("/summary", async (req, res) => {
           : null,
       addonPlatformQty: subscription.addonPlatformQty ?? 0,
       videoAddonEnabled: subscription.videoAddonEnabled ?? false,
-<<<<<<< HEAD
-=======
       videoSessionHours: subscription.videoSessionHours ?? 0,
->>>>>>> origin/dev
       postLimitType: subscription.plan?.postLimitType ?? "NONE",
       schedulerRole: subscription.plan?.schedulerRole ?? "CLIENT",
       visualQuota: subscription.plan?.baseVisualQuota ?? null,
@@ -244,7 +205,7 @@ router.get("/summary", async (req, res) => {
 
 router.get("/invoices", async (req, res) => {
   const userId = req.user!.id;
-  
+
   try {
     // Get user's subscription to find Stripe customer ID
     const subscription = await prisma.subscription.findFirst({
@@ -285,8 +246,4 @@ router.get("/invoices", async (req, res) => {
   }
 });
 
-<<<<<<< HEAD
 export { router as billingSummaryRouter };
-=======
-export { router as billingSummaryRouter };
->>>>>>> origin/dev

