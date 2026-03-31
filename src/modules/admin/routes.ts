@@ -829,6 +829,12 @@ router.post("/users/:id/block", async (req, res) => {
   if (req.user!.id === id) {
     return res.status(400).json({ error: "Cannot block your own account" });
   }
+  if (user.status === "DELETED") {
+    return res.status(400).json({ error: `Cannot block a deleted user account` });
+  }
+  if (user.status === "BLOCKED") {
+    return res.status(400).json({ error: `User ${user.email} is already blocked` });
+  }
 
   const updated = await prisma.user.update({
     where: { id },
@@ -855,7 +861,11 @@ router.post("/users/:id/block", async (req, res) => {
     },
   });
 
-  res.json(serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }));
+  res.json({
+    success: true,
+    message: `User ${user.email} has been successfully blocked. Reason: ${parsed.data.reason}`,
+    user: serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }),
+  });
 });
 
 router.post("/users/:id/unblock", async (req, res) => {
@@ -865,7 +875,10 @@ router.post("/users/:id/unblock", async (req, res) => {
     return res.status(404).json({ error: "User not found" });
   }
   if (user.status === "DELETED") {
-    return res.status(400).json({ error: "Cannot unblock a deleted account" });
+    return res.status(400).json({ error: `Cannot unblock user ${user.email} - account is deleted` });
+  }
+  if (user.status !== "BLOCKED") {
+    return res.status(400).json({ error: `User ${user.email} is not currently blocked` });
   }
   const updated = await prisma.user.update({
     where: { id },
@@ -891,7 +904,11 @@ router.post("/users/:id/unblock", async (req, res) => {
     },
   });
 
-  res.json(serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }));
+  res.json({
+    success: true,
+    message: `User ${user.email} has been successfully unblocked`,
+    user: serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }),
+  });
 });
 
 router.post("/users/:id/resend-verification", async (req, res) => {
