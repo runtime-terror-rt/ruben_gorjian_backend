@@ -754,6 +754,50 @@ router.post("/users/:id/delete-with-password", async (req, res) => {
   });
 });
 
+router.post("/users/:id/restore", async (req, res) => {
+  const { id } = req.params;
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  if (user.status !== "DELETED") {
+    return res.status(400).json({ error: `User ${user.email} is not deleted` });
+  }
+
+  const updated = await prisma.user.update({
+    where: { id },
+    data: {
+      status: "ACTIVE",
+      deletedAt: null,
+      blockedAt: null,
+      blockedReason: null,
+    },
+    select: ADMIN_USER_SELECT,
+  });
+
+  await createAuditLog({
+    actorId: req.user!.id,
+    actorEmail: req.user!.email,
+    action: "UPDATE_USER",
+    targetUserId: id,
+    metadata: { restoreUser: true, previousStatus: user.status },
+  });
+
+  const scheduledPostsCount = await prisma.post.count({
+    where: {
+      userId: id,
+      status: { in: ["SCHEDULED", "PUBLISHING"] },
+    },
+  });
+
+  res.json({
+    success: true,
+    message: `User ${user.email} has been restored successfully`,
+    user: serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }),
+  });
+});
+
 router.get("/users/:id/scheduled-items", async (req, res) => {
   const schema = z.object({
     page: z.coerce.number().int().min(1).optional().default(1),
