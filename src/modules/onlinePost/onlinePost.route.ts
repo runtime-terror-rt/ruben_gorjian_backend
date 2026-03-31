@@ -13,7 +13,7 @@ router.get("/status", controller.status);
 
 // Authenticated (CUSTOMER/ADMIN)
 router.post("/platform/connect-link", requireAuth, controller.connectLinkForLoggedUser);
-router.post("/publish-now",requireAuth, requireAdmin, controller.publishNow);
+router.post("/publish-now",requireAuth, controller.publishNow);
 router.post("/calendar/schedule", requireAuth, controller.schedule);
 router.get("/calendar/my", requireAuth, controller.myCalendar);
 router.get("/calendar/:id", requireAuth, controller.getScheduledPost);
