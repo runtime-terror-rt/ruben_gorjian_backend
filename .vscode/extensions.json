@@ -1,16 +1,7 @@
-<<<<<<< HEAD
 {
     "recommendations": [
         "myml.vscode-markdown-plantuml-preview",
         "esbenp.prettier-vscode",
         "jebbs.plantuml"
     ]
-=======
-{
-    "recommendations": [
-        "myml.vscode-markdown-plantuml-preview",
-        "esbenp.prettier-vscode",
-        "jebbs.plantuml"
-    ]
->>>>>>> origin/dev
 }
