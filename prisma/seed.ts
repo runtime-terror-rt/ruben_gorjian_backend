@@ -1,7 +1,6 @@
 import "dotenv/config";
-import bcrypt = require("bcryptjs");
+import * as bcrypt from "bcryptjs";
 import {
-  PlanCategory,
   PostStatus,
   PostTargetStatus,
   PrismaClient,
@@ -10,6 +9,7 @@ import {
   SchedulerRole,
   SocialPlatform,
   SubscriptionStatus,
+  PlanCategory,
 } from "@prisma/client";
 
 const prisma = new PrismaClient();
