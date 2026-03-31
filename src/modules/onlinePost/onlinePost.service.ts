@@ -6,6 +6,8 @@ import {
   User,
   Role as UserRole,
 } from '@prisma/client';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { env } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 import { ApiError } from '../../lib/errors';
 
@@ -49,6 +51,16 @@ class NotFoundException extends ApiError {
 
 export class SocialMediaService {
   private readonly prisma = prisma;
+  private readonly s3Client =
+    env.S3_BUCKET && env.AWS_REGION && env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY
+      ? new S3Client({
+          region: env.AWS_REGION,
+          credentials: {
+            accessKeyId: env.AWS_ACCESS_KEY_ID,
+            secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+          },
+        })
+      : null;
 
   // Minimal ConfigService shim so existing logic stays the same in Express.
   private readonly configService = {
@@ -159,9 +171,9 @@ export class SocialMediaService {
       where: { userId_platform: { userId, platform } },
     });
 
-    if (!link) {
-      throw new ForbiddenException('User must login/connect this platform first via API');
-    }
+    // if (!link) {
+    //   throw new ForbiddenException('User must login/connect this platform first via API');
+    // }
   }
 
   private async enforceLinkLimit(userId: string) {
@@ -299,6 +311,66 @@ export class SocialMediaService {
     return [raw];
   }
 
+  private normalizeBoolean(value: unknown, fallback = true): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+      if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+    }
+    return fallback;
+  }
+
+  private sanitizeFilename(fileName: string): string {
+    const trimmed = fileName.trim();
+    if (!trimmed) return 'upload';
+
+    return trimmed
+      .normalize('NFKD')
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 120) || 'upload';
+  }
+
+  private buildStorageUrl(storageKey: string): string {
+    const baseUrl = env.STORAGE_BASE_URL?.trim();
+    if (!baseUrl) {
+      throw new BadRequestException('STORAGE_BASE_URL is required to publish uploaded files');
+    }
+    return `${baseUrl.replace(/\/+$/, '')}/${storageKey.replace(/^\/+/, '')}`;
+  }
+
+  private async uploadMultipartFiles(
+    userId: string,
+    files: Express.Multer.File[],
+  ): Promise<string[]> {
+    if (!files.length) return [];
+
+    if (!this.s3Client || !env.S3_BUCKET) {
+      throw new BadRequestException('S3 upload is not configured');
+    }
+
+    const uploadedUrls: string[] = [];
+
+    for (const file of files) {
+      const storageKey = `attachments/media/${Date.now()}_${userId}_${this.sanitizeFilename(file.originalname)}`;
+
+      await this.s3Client.send(
+        new PutObjectCommand({
+          Bucket: env.S3_BUCKET,
+          Key: storageKey,
+          Body: file.buffer,
+          ContentType: file.mimetype || 'application/octet-stream',
+        }),
+      );
+
+      uploadedUrls.push(this.buildStorageUrl(storageKey));
+    }
+
+    return uploadedUrls;
+  }
+
   private async publishToProvider(payload: {
     username: string;
     platform: 'facebook' | 'instagram' | 'linkedin';
@@ -312,6 +384,10 @@ export class SocialMediaService {
     const mediaList = this.normalizeMediaUrls(payload.mediaUrl, payload.mediaUrls);
 
     if (mediaList.length === 0) {
+      if (payload.platform === 'instagram') {
+        throw new BadRequestException('Instagram posts require at least one image or one video.');
+      }
+
       const form = new FormData();
       form.append('user', payload.username);
       form.append('platform[]', payload.platform);
@@ -333,6 +409,10 @@ export class SocialMediaService {
       form.append('title', title);
       form.append('status', 'active');
       form.append('async_upload', String(asyncUpload));
+      if (payload.platform === 'instagram') {
+        form.append('instagram_description', title);
+        form.append('description', title);
+      }
 
       for (const url of mediaList) {
         form.append('photo_urls[]', url);
@@ -359,6 +439,9 @@ export class SocialMediaService {
       form.append('status', 'active');
       form.append('video', mediaList[0]);
       form.append('async_upload', String(asyncUpload));
+      if (payload.platform === 'instagram') {
+        form.append('instagram_title', title);
+      }
 
       const result = await this.api('/upload_videos', { method: 'POST', body: form });
       return { result, title, mediaList };
@@ -477,6 +560,47 @@ export class SocialMediaService {
     };
   }
 
+  async disconnectLinkForUser(user: User, payload: { platform: string }) {
+    const platform = this.normalizePlatform(payload.platform);
+    const prismaPlatform = this.toPrismaPlatform(platform);
+
+    const existing = await this.prisma.socialPlatformLink.findUnique({
+      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+    });
+
+    if (!existing) {
+      return {
+        success: true,
+        platform,
+        disconnected: false,
+        message: 'Platform link was not connected.',
+      };
+    }
+
+    const previousLink = {
+      id: existing.id,
+      userId: existing.userId,
+      platform,
+      externalRef: existing.externalRef,
+      externalProfileUrl: existing.externalProfileUrl,
+      linkedAt: existing.linkedAt,
+      createdAt: existing.createdAt,
+      updatedAt: existing.updatedAt,
+    };
+
+    await this.prisma.socialPlatformLink.delete({
+      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+    });
+
+    return {
+      success: true,
+      platform,
+      disconnected: true,
+      message: 'Platform disconnected successfully.',
+      link: previousLink,
+    };
+  }
+
   async publishNowByUser(
     user: User,
     payload: {
@@ -520,6 +644,40 @@ export class SocialMediaService {
     });
 
     return { success: true, result: published.result, savedPost };
+  }
+
+  async publishNowMultipartByUser(
+    user: User,
+    payload: {
+      username?: string;
+      platform?: string;
+      title?: string;
+      asyncUpload?: unknown;
+      files: Express.Multer.File[];
+    },
+  ) {
+    if (!payload.username?.trim()) {
+      throw new BadRequestException('username is required');
+    }
+
+    if (!payload.platform?.trim()) {
+      throw new BadRequestException('platform is required');
+    }
+
+    if (!payload.title?.trim()) {
+      throw new BadRequestException('title is required');
+    }
+
+    const uploadedUrls = await this.uploadMultipartFiles(user.id, payload.files);
+
+    return this.publishNowByUser(user, {
+      username: payload.username.trim(),
+      platform: payload.platform.trim(),
+      title: payload.title.trim(),
+      mediaUrl: uploadedUrls.length === 1 ? uploadedUrls[0] : undefined,
+      mediaUrls: uploadedUrls.length > 1 ? uploadedUrls : undefined,
+      asyncUpload: this.normalizeBoolean(payload.asyncUpload, true),
+    });
   }
 
   async schedulePost(user: User, payload: { platform: string; title: string; mediaUrl?: string; mediaUrls?: string[]; scheduledAt: string }) {
@@ -586,6 +744,22 @@ export class SocialMediaService {
 async getMyPlatformLinks(userId: string) {
   const links = await this.prisma.socialPlatformLink.findMany({
     where: { userId },
+    orderBy: { linkedAt: 'desc' },
+    include: { user: true },
+  });
+
+  return links.map(link => {
+    const email = link.user?.email || '';
+    const username = email.split('@')[0]; // @ এর আগে part
+
+    return {
+        uploadPostUsername: username, // 👈 extra field
+        ...link,
+    };
+  });
+}
+async getAllPlatformLinks() {
+  const links = await this.prisma.socialPlatformLink.findMany({
     orderBy: { linkedAt: 'desc' },
     include: { user: true },
   });
