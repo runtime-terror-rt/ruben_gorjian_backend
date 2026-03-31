@@ -26,7 +26,6 @@ export const schedulerCreatePostSchema = z.object({
   shortDescription: z.string().max(500).nullable().optional(),
   scheduledAt: dateTimeString("scheduledAt"),
   socialAccountIds: z.array(z.string().min(1)).min(1),
-  assetIds: z.array(z.string().min(1)).optional(),
   adminReason: z.string().max(500).nullable().optional(),
 });
 
@@ -38,7 +37,6 @@ export const schedulerUpdatePostSchema = z.object({
   shortDescription: z.string().max(500).nullable().optional(),
   scheduledAt: dateTimeString("scheduledAt").optional(),
   socialAccountIds: z.array(z.string().min(1)).min(1).optional(),
-  assetIds: z.array(z.string().min(1)).optional(),
   adminReason: z.string().max(500).nullable().optional(),
 });
 
@@ -48,6 +46,8 @@ export const schedulerListQuerySchema = z.object({
   from: dateTimeString("from").optional(),
   to: dateTimeString("to").optional(),
   status: z.string().optional(),
+  scheduleType: z.string().optional(),
+  sessionStatus: z.string().optional(),
   failure: z.coerce.boolean().optional(),
   userId: z.string().optional(),
   platform: z.string().optional(),
@@ -59,6 +59,32 @@ export const schedulerPublishStatusSchema = z.object({
   userId: z.string().optional(),
   status: z.enum(["completed", "failed"]),
   failureReason: z.string().max(500).nullable().optional(),
+  adminReason: z.string().max(500).nullable().optional(),
+});
+
+export const schedulerCreateSessionSchema = z.object({
+  userId: z.string().optional(),
+  scheduleType: z.enum(["PHOTO_SESSION", "VIDEO_SESSION"]),
+  scheduledAt: dateTimeString("scheduledAt"),
+  sessionTitle: z.string().max(220).nullable().optional(),
+  sessionNotes: z.string().max(2000).nullable().optional(),
+  sessionDurationMinutes: z.coerce.number().int().min(15).max(600),
+  adminReason: z.string().max(500).nullable().optional(),
+});
+
+export const schedulerUpdateSessionSchema = z.object({
+  userId: z.string().optional(),
+  scheduledAt: dateTimeString("scheduledAt").optional(),
+  sessionTitle: z.string().max(220).nullable().optional(),
+  sessionNotes: z.string().max(2000).nullable().optional(),
+  sessionDurationMinutes: z.coerce.number().int().min(15).max(600).optional(),
+  adminReason: z.string().max(500).nullable().optional(),
+});
+
+export const schedulerUpdateSessionStatusSchema = z.object({
+  userId: z.string().optional(),
+  status: z.enum(["completed", "failed", "canceled"]),
+  sessionFailureReason: z.string().max(1000).nullable().optional(),
   adminReason: z.string().max(500).nullable().optional(),
 });
 

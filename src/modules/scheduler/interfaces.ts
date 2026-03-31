@@ -1,4 +1,4 @@
-import { PostStatus, Role, SocialPlatform } from "@prisma/client";
+import { PostStatus, Role, ScheduleType, SessionStatus, SocialPlatform } from "@prisma/client";
 
 export type Actor = {
   id: string;
@@ -7,6 +7,7 @@ export type Actor = {
 
 export type SchedulerView = "day" | "week" | "month" | "list";
 export type SchedulerPublishStatus = "completed" | "failed";
+export type SchedulerSessionStatusUpdate = "completed" | "failed" | "canceled";
 
 export type SchedulerCreateInput = {
   userId?: string;
@@ -16,7 +17,7 @@ export type SchedulerCreateInput = {
   shortDescription?: string | null;
   scheduledAt: Date;
   socialAccountIds: string[];
-  assetIds?: string[];
+  uploadedAssetIds?: string[];
   adminReason?: string | null;
 };
 
@@ -28,7 +29,6 @@ export type SchedulerUpdateInput = {
   shortDescription?: string | null;
   scheduledAt?: Date;
   socialAccountIds?: string[];
-  assetIds?: string[];
   adminReason?: string | null;
 };
 
@@ -57,6 +57,8 @@ export type SchedulerListFilters = {
   from?: Date;
   to?: Date;
   status?: PostStatus[];
+  scheduleType?: ScheduleType[];
+  sessionStatus?: SessionStatus[];
   failure?: boolean;
   userId?: string;
   platform?: SocialPlatform[];
@@ -68,5 +70,31 @@ export type SchedulerPublishStatusInput = {
   userId?: string;
   status: SchedulerPublishStatus;
   failureReason?: string | null;
+  adminReason?: string | null;
+};
+
+export type SchedulerCreateSessionInput = {
+  userId?: string;
+  scheduleType: Exclude<ScheduleType, "POSTING">;
+  scheduledAt: Date;
+  sessionTitle?: string | null;
+  sessionNotes?: string | null;
+  sessionDurationMinutes: number;
+  adminReason?: string | null;
+};
+
+export type SchedulerUpdateSessionInput = {
+  userId?: string;
+  scheduledAt?: Date;
+  sessionTitle?: string | null;
+  sessionNotes?: string | null;
+  sessionDurationMinutes?: number;
+  adminReason?: string | null;
+};
+
+export type SchedulerUpdateSessionStatusInput = {
+  userId?: string;
+  status: SchedulerSessionStatusUpdate;
+  sessionFailureReason?: string | null;
   adminReason?: string | null;
 };
