@@ -30,6 +30,7 @@ import { visitsRouter } from "./modules/visits/routes";
 import { logger } from "./lib/logger";
 import { uploadPostProviderRouter } from "./modules/providers/upload-post/routes";
 import { schedulerRouter } from "./modules/scheduler/routes";
+import { onlinePostRouter } from "./modules/onlinePost/onlinePost.route";
 
 export const app = express();
 
@@ -40,18 +41,18 @@ const noopLimiter: express.RequestHandler = (_req, _res, next) => next();
 const limiter =
   env.NODE_ENV === "production"
     ? rateLimit({
-        windowMs: 15 * 60 * 1000, // 15 minutes
-        max: 100,
-        message: { error: "Too many requests from this IP, please try again later." },
-        standardHeaders: true,
-        legacyHeaders: false,
-        skip: (req) => req.path === "/health" || req.path === "/auth/me",
-        handler: (req, res, _next, options) => {
-          const msg = options.message ?? { error: "Too many requests" };
-          logger.warn("Rate limit hit", { path: req.path });
-          res.status(options.statusCode ?? 429).json(msg);
-        },
-      })
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 100,
+      message: { error: "Too many requests from this IP, please try again later." },
+      standardHeaders: true,
+      legacyHeaders: false,
+      skip: (req) => req.path === "/health" || req.path === "/auth/me",
+      handler: (req, res, _next, options) => {
+        const msg = options.message ?? { error: "Too many requests" };
+        logger.warn("Rate limit hit", { path: req.path });
+        res.status(options.statusCode ?? 429).json(msg);
+      },
+    })
     : noopLimiter;
 
 
@@ -109,5 +110,5 @@ if (env.NODE_ENV !== "production") {
   app.use("/api/debug", debugRouter);
 }
 app.use("/api/providers/upload-post", uploadPostProviderRouter);
-
+app.use('/api/social-media', onlinePostRouter);
 app.use(errorHandler);
