@@ -549,6 +549,47 @@ export class SocialMediaService {
     };
   }
 
+  async disconnectLinkForUser(user: User, payload: { platform: string }) {
+    const platform = this.normalizePlatform(payload.platform);
+    const prismaPlatform = this.toPrismaPlatform(platform);
+
+    const existing = await this.prisma.socialPlatformLink.findUnique({
+      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+    });
+
+    if (!existing) {
+      return {
+        success: true,
+        platform,
+        disconnected: false,
+        message: 'Platform link was not connected.',
+      };
+    }
+
+    const previousLink = {
+      id: existing.id,
+      userId: existing.userId,
+      platform,
+      externalRef: existing.externalRef,
+      externalProfileUrl: existing.externalProfileUrl,
+      linkedAt: existing.linkedAt,
+      createdAt: existing.createdAt,
+      updatedAt: existing.updatedAt,
+    };
+
+    await this.prisma.socialPlatformLink.delete({
+      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+    });
+
+    return {
+      success: true,
+      platform,
+      disconnected: true,
+      message: 'Platform disconnected successfully.',
+      link: previousLink,
+    };
+  }
+
   async publishNowByUser(
     user: User,
     payload: {
@@ -692,6 +733,22 @@ export class SocialMediaService {
 async getMyPlatformLinks(userId: string) {
   const links = await this.prisma.socialPlatformLink.findMany({
     where: { userId },
+    orderBy: { linkedAt: 'desc' },
+    include: { user: true },
+  });
+
+  return links.map(link => {
+    const email = link.user?.email || '';
+    const username = email.split('@')[0]; // @ এর আগে part
+
+    return {
+        uploadPostUsername: username, // 👈 extra field
+        ...link,
+    };
+  });
+}
+async getAllPlatformLinks() {
+  const links = await this.prisma.socialPlatformLink.findMany({
     orderBy: { linkedAt: 'desc' },
     include: { user: true },
   });
