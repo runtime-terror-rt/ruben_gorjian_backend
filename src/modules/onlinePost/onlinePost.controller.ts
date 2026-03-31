@@ -21,7 +21,6 @@ export class OnlinePostController {
       return handleError(error, res);
     }
   };
-
   createUser = async (req: Request, res: Response) => {
     try {
       return res.json(
