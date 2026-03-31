@@ -1,8 +1,10 @@
 import {
   Asset,
   PostStatus,
+  PostTargetStatus,
   Prisma,
   ScheduleType,
+  SocialPlatform,
   SocialAccount,
   SessionStatus,
 } from "@prisma/client";
@@ -28,6 +30,14 @@ import {
 import { isAdmin, normalizeDateRange } from "./functions";
 
 const SCHEDULER_UPLOAD_CONTEXT = "SCHEDULER_POST";
+
+type SchedulerTargetAccount = {
+  id: string | null;
+  platform: SocialPlatform;
+  displayName: string | null;
+  externalAccountId: string | null;
+  expiresAt: Date | null;
+};
 
 function formatHashtags(hashtags?: string[] | null) {
   if (!hashtags) return Prisma.JsonNull;
@@ -202,7 +212,7 @@ export class SchedulerService {
     userId: string,
     socialAccountIds: string[],
     platformLimit: number | null
-  ) {
+  ): Promise<SchedulerTargetAccount[]> {
     const uniqueIds = Array.from(new Set(socialAccountIds));
     const socialAccounts = await prisma.socialAccount.findMany({
       where: {
@@ -226,8 +236,8 @@ export class SchedulerService {
       // TEMPORARY (testing): allow schedule flow even without connected accounts.
       // Creates fallback targets with nullable socialAccountId.
       return uniqueIds.map(() => ({
-        id: null as unknown as string,
-        platform: "INSTAGRAM" as const,
+        id: null,
+        platform: SocialPlatform.INSTAGRAM,
         displayName: null,
         externalAccountId: null,
         expiresAt: null,
@@ -320,11 +330,12 @@ export class SchedulerService {
       throw new Error("An active subscription is required to schedule sessions");
     }
 
-    if (scheduleType === "PHOTO_SESSION" && !subscription.plan.photoSessionEnabled) {
-      throw new Error("Photo session booking is not available for your current plan");
+    // Photo sessions are open to all active subscribers in this phase.
+    if (scheduleType !== "VIDEO_SESSION") {
+      return;
     }
 
-    if (scheduleType === "VIDEO_SESSION" && !subscription.plan.videoSessionEnabled) {
+    if (!subscription.plan.videoSessionEnabled) {
       throw new Error("Video session booking is not available for your current plan");
     }
   }
@@ -339,20 +350,22 @@ export class SchedulerService {
       throw new Error("An active subscription is required to schedule sessions");
     }
 
-    const quota =
-      scheduleType === "PHOTO_SESSION"
-        ? subscription.plan.photoSessionsPerPeriod
-        : subscription.plan.videoSessionsPerPeriod;
+    // Photo sessions have no quota restrictions in this phase.
+    if (scheduleType !== "VIDEO_SESSION") {
+      return;
+    }
+
+    const quota = subscription.plan.videoSessionsPerPeriod;
 
     if (!quota || quota <= 0) {
-      throw new Error(`No remaining ${scheduleType === "PHOTO_SESSION" ? "photo" : "video"} sessions available in your plan`);
+      throw new Error("No remaining video sessions available in your plan");
     }
 
     const { periodStart, periodEnd } = getSubscriptionPeriod(subscription);
     const count = await prisma.post.count({
       where: {
         userId,
-        scheduleType,
+        scheduleType: "VIDEO_SESSION",
         sessionStatus: { in: ["BOOKED", "COMPLETED"] },
         scheduledFor: {
           gte: periodStart,
@@ -363,8 +376,7 @@ export class SchedulerService {
     });
 
     if (count >= quota) {
-      const sessionLabel = scheduleType === "PHOTO_SESSION" ? "photo" : "video";
-      throw new Error(`You have reached your ${sessionLabel} session limit for this billing period (${quota})`);
+      throw new Error(`You have reached your video session limit for this billing period (${quota})`);
     }
   }
 
@@ -374,10 +386,10 @@ export class SchedulerService {
   ) {
     const ownerSummary = isAdmin(actor)
       ? {
-          id: post.user.id,
-          email: post.user.email,
-          name: post.user.name,
-        }
+        id: post.user.id,
+        email: post.user.email,
+        name: post.user.name,
+      }
       : undefined;
 
     const media = post.PostAsset.map((entry) => ({
@@ -396,7 +408,7 @@ export class SchedulerService {
     const failureReason =
       post.scheduleType === "POSTING"
         ? post.targets.find((target) => target.errorMessage)?.errorMessage ??
-          (post.status === "FAILED" ? "One or more publish targets failed" : null)
+        (post.status === "FAILED" ? "One or more publish targets failed" : null)
         : post.sessionFailureReason;
 
     return {
@@ -414,12 +426,12 @@ export class SchedulerService {
       session: post.scheduleType === "POSTING"
         ? null
         : {
-            title: post.sessionTitle,
-            notes: post.sessionNotes,
-            durationMinutes: post.sessionDurationMinutes,
-            status: post.sessionStatus,
-            failureReason: post.sessionFailureReason,
-          },
+          title: post.sessionTitle,
+          notes: post.sessionNotes,
+          durationMinutes: post.sessionDurationMinutes,
+          status: post.sessionStatus,
+          failureReason: post.sessionFailureReason,
+        },
       failureReason,
       selectedPlatforms: post.targets.map((target) => target.platform),
       targets: post.targets.map((target) => ({
@@ -431,12 +443,12 @@ export class SchedulerService {
         failureReason: target.errorMessage,
         socialAccount: target.socialAccount
           ? {
-              id: target.socialAccount.id,
-              platform: target.socialAccount.platform,
-              displayName: target.socialAccount.displayName,
-              externalAccountId: target.socialAccount.externalAccountId,
-              expiresAt: target.socialAccount.expiresAt,
-            }
+            id: target.socialAccount.id,
+            platform: target.socialAccount.platform,
+            displayName: target.socialAccount.displayName,
+            externalAccountId: target.socialAccount.externalAccountId,
+            expiresAt: target.socialAccount.expiresAt,
+          }
           : null,
       })),
       media,
@@ -691,7 +703,7 @@ export class SchedulerService {
           postId: post.id,
           socialAccountId: account.id ?? null,
           platform: account.platform,
-          status: "SCHEDULED",
+          status: PostTargetStatus.SCHEDULED,
           scheduledFor: input.scheduledAt,
         })),
       });
@@ -814,7 +826,7 @@ export class SchedulerService {
           postId,
           socialAccountId: account.id ?? null,
           platform: account.platform,
-          status: "SCHEDULED",
+          status: PostTargetStatus.SCHEDULED,
           scheduledFor: nextScheduledAt,
         })),
       });
@@ -1158,31 +1170,31 @@ export class SchedulerService {
       ...(filters.sessionStatus?.length ? { sessionStatus: { in: filters.sessionStatus } } : {}),
       ...(range.start || range.end
         ? {
-            scheduledFor: {
-              ...(range.start ? { gte: range.start } : {}),
-              ...(range.end ? { lte: range.end } : {}),
-            },
-          }
+          scheduledFor: {
+            ...(range.start ? { gte: range.start } : {}),
+            ...(range.end ? { lte: range.end } : {}),
+          },
+        }
         : {}),
       ...(filters.platform?.length
         ? {
-            targets: {
-              some: {
-                platform: { in: filters.platform },
-              },
+          targets: {
+            some: {
+              platform: { in: filters.platform },
             },
-          }
+          },
+        }
         : {}),
       ...(filters.failure
         ? {
-            OR: [
-              { status: "FAILED" },
-              { targets: { some: { status: "FAILED" } } },
-              { targets: { some: { errorMessage: { not: null } } } },
-              { sessionStatus: "FAILED" },
-              { sessionFailureReason: { not: null } },
-            ],
-          }
+          OR: [
+            { status: "FAILED" },
+            { targets: { some: { status: "FAILED" } } },
+            { targets: { some: { errorMessage: { not: null } } } },
+            { sessionStatus: "FAILED" },
+            { sessionFailureReason: { not: null } },
+          ],
+        }
         : {}),
     };
 

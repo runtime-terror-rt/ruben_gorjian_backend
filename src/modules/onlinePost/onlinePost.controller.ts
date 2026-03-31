@@ -1,0 +1,244 @@
+import type { Request, Response } from "express";
+import { handleError } from "../../lib/errors";
+import { SocialMediaService } from "./onlinePost.service";
+import { success } from "zod";
+
+type AuthedRequest = Request & { user?: any };
+
+function firstQuery(value: unknown): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  if (typeof value === "string") return value;
+  return undefined;
+}
+
+export class OnlinePostController {
+  constructor(private readonly onlinePostService = new SocialMediaService()) {}
+
+  me = async (_req: Request, res: Response) => {
+    try {
+      return res.json(await this.onlinePostService.me());
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+  createUser = async (req: Request, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.createUser(req.body?.username),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  connectLinkForLoggedUser = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.createConnectLinkForUser(req.user, {
+          redirectUrl: req.body?.redirectUrl,
+          platform: req.body?.platform,
+          showCalendar: req.body?.showCalendar,
+        }),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  publishNow = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.publishNowByUser(req.user, {
+          username: req.body?.username,
+          platform: req.body?.platform,
+          title: req.body?.title,
+          mediaUrl: req.body?.mediaUrl,
+          mediaUrls: req.body?.mediaUrls,
+          asyncUpload: req.body?.asyncUpload,
+        }),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  schedule = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.schedulePost(req.user, {
+          platform: req.body?.platform,
+          title: req.body?.title,
+          mediaUrl: req.body?.mediaUrl,
+          mediaUrls: req.body?.mediaUrls,
+          scheduledAt: req.body?.scheduledAt,
+        }),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  myCalendar = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.getMyCalendar(
+          req.user?.id,
+          firstQuery(req.query?.month),
+        ),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  getScheduledPost = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.getScheduledPost(
+          req.user,
+          req.params.id as string,
+        ),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  rescheduleScheduledPost = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.reschedulePost(
+          req.user,
+          req.params.id as string,
+          req.body?.scheduledAt,
+        ),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  cancelScheduledPost = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.cancelScheduledPost(
+          req.user,
+          req.params.id as string,
+        ),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  retryScheduledPost = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.retryFailedPost(
+          req.user,
+          req.params.id as string,
+          req.body?.scheduledAt,
+        ),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  clientCalendar = async (req: AuthedRequest, res: Response) => {
+    try {
+      const clientId = firstQuery(req.query.clientId);
+      if (!clientId) {
+        return res.status(400).json({ error: "clientId is required" });
+      }
+      return res.json(
+        await this.onlinePostService.getAdminClientCalendar(
+          req.user,
+          clientId,
+          firstQuery(req.query.month),
+        ),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  myPlatformLinks = async (req: AuthedRequest, res: Response) => {
+    try {
+      const result = await this.onlinePostService.getMyPlatformLinks(
+        req.user?.id,
+      );
+
+      const response ={
+        success:true,
+        message:"My connected links get successfully..",
+        data: result
+      }
+
+      return res.status(200).json(response);
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  updatePlan = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.updatePlan(
+          req.user,
+          req.body?.userId,
+          req.body?.plan,
+        ),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  providerCalendarLink = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.getProviderCalendarLink(req.user, {
+          platform: firstQuery(req.query.platform),
+          redirectUrl: firstQuery(req.query.redirectUrl),
+        }),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  providerCalendar = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.getProviderCalendar(req.user, {
+          platform: firstQuery(req.query.platform),
+          month: firstQuery(req.query.month),
+          from: firstQuery(req.query.from),
+          to: firstQuery(req.query.to),
+          page: firstQuery(req.query.page)
+            ? Number(firstQuery(req.query.page))
+            : undefined,
+          limit: firstQuery(req.query.limit)
+            ? Number(firstQuery(req.query.limit))
+            : undefined,
+        }),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  status = async (req: Request, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.status({
+          jobId: firstQuery(req.query.jobId),
+          requestId: firstQuery(req.query.requestId),
+        }),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+}
