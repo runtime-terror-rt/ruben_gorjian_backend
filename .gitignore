@@ -46,7 +46,6 @@ lerna-debug.log*
 .env.backup
 <<<<<<< HEAD
 =======
-.env
 >>>>>>> origin/dev
 
 # temp directory
@@ -72,6 +71,5 @@ config.bat
 >>>>>>> origin/dev
 =======
 config.bat
-.env
 .env.example
 >>>>>>> 5e1aacd8fafd64f548198ba5a6c4192efa223953
