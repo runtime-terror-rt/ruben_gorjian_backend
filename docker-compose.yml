@@ -1,10 +1,6 @@
 services:
   db:
-<<<<<<< HEAD
     image: postgres:17-alpine
-=======
-    image: postgres:15-alpine
->>>>>>> origin/dev
     container_name: talexia-postgres
     environment:
       POSTGRES_USER: talexia_user
@@ -41,7 +37,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://neondb_owner:npg_6i9kpnMxAazR@ep-withered-leaf-a1zpijmg-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+      DATABASE_URL: postgresql://talexia_user:talexia_password@localhost:5433/talexia_db
       REDIS_URL: redis://redis:6379
       HOST: 0.0.0.0
       PORT: 4000

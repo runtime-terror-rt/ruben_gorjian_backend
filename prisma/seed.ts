@@ -1,12 +1,6 @@
 import "dotenv/config";
 import * as bcrypt from "bcryptjs";
 import {
-<<<<<<< HEAD
-  AddonType,
-  BillingCycle,
-  PlanCategory,
-=======
->>>>>>> origin/dev
   PostStatus,
   PostTargetStatus,
   PrismaClient,
@@ -28,7 +22,7 @@ const planSeed = [
   {
     code: "FMP-20",
     name: "Full Management",
-    category: "FULL_MANAGEMENT",
+    category: PlanCategory.FULL_MANAGEMENT,
     isJewelry: false,
     platformLimit: 1,
     baseVisualQuota: 0,
@@ -41,7 +35,7 @@ const planSeed = [
   {
     code: "FMP-35",
     name: "Full Management Plus",
-    category: "FULL_MANAGEMENT",
+    category: PlanCategory.FULL_MANAGEMENT,
     isJewelry: false,
     platformLimit: 2,
     baseVisualQuota: 0,
@@ -54,7 +48,7 @@ const planSeed = [
   {
     code: "FM-70",
     name: "Full Management Premium",
-    category: "FULL_MANAGEMENT",
+    category: PlanCategory.FULL_MANAGEMENT,
     isJewelry: false,
     platformLimit: 3,
     baseVisualQuota: 0,
@@ -83,81 +77,8 @@ async function main() {
       update: payload,
       create: { code, ...payload },
     });
-<<<<<<< HEAD
-
-    await prisma.planTermsVersion.upsert({
-      where: {
-        planCode_version: {
-          planCode: code,
-          version: "v1",
-        },
-      },
-      update: {
-        title: `${data.name} Terms & Conditions`,
-        content: `${data.name} subscription terms version 1.`,
-        isActive: true,
-      },
-      create: {
-        planCode: code,
-        version: "v1",
-        title: `${data.name} Terms & Conditions`,
-        content: `${data.name} subscription terms version 1.`,
-        isActive: true,
-      },
-    });
   }
 
-  const addon = await prisma.addon.upsert({
-    where: { code: "ADDITIONAL_PLATFORM" },
-    update: {
-      name: "Additional Platform",
-      description: "Adds one more connected social platform.",
-      type: AddonType.RECURRING,
-      isActive: true,
-    },
-    create: {
-      code: "ADDITIONAL_PLATFORM",
-      name: "Additional Platform",
-      description: "Adds one more connected social platform.",
-      type: AddonType.RECURRING,
-      isActive: true,
-    },
-  });
-
-  await prisma.addonPrice.upsert({
-    where: {
-      addonId_billingCycle: {
-        addonId: addon.id,
-        billingCycle: BillingCycle.MONTHLY,
-      },
-    },
-    update: { unitAmountCents: 500, isActive: true },
-    create: {
-      addonId: addon.id,
-      billingCycle: BillingCycle.MONTHLY,
-      unitAmountCents: 500,
-    },
-  });
-
-  await prisma.addonPrice.upsert({
-    where: {
-      addonId_billingCycle: {
-        addonId: addon.id,
-        billingCycle: BillingCycle.YEARLY,
-      },
-    },
-    update: { unitAmountCents: 4800, isActive: true },
-    create: {
-      addonId: addon.id,
-      billingCycle: BillingCycle.YEARLY,
-      unitAmountCents: 4800,
-    },
-  });
-
-=======
-  }
-
->>>>>>> origin/dev
   const seededUsers = await seedUsersAndSubscriptions();
   await seedPosts(seededUsers);
 }
