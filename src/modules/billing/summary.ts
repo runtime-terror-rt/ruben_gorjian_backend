@@ -14,7 +14,7 @@ router.use(requireAuth);
 
 router.get("/summary", async (req, res) => {
   const userId = req.user!.id;
-  
+
   try {
     // First try to get active subscription (ACTIVE or TRIALING)
     let subscription = await getActiveSubscription(userId);
@@ -205,7 +205,7 @@ router.get("/summary", async (req, res) => {
 
 router.get("/invoices", async (req, res) => {
   const userId = req.user!.id;
-  
+
   try {
     // Get user's subscription to find Stripe customer ID
     const subscription = await prisma.subscription.findFirst({

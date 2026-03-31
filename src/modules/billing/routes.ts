@@ -553,80 +553,80 @@ router.post("/checkout", requireAuth, async (req, res) => {
           activeSubscription.stripeSubscriptionId
         );
 
-      if (stripeSub.status === "active" || stripeSub.status === "trialing") {
-        const allowDirectPlanSwitch =
-          interval === "month" && addonPlatformQty === 0 && videoSessionHours === 0;
+        if (stripeSub.status === "active" || stripeSub.status === "trialing") {
+          const allowDirectPlanSwitch =
+            interval === "month" && addonPlatformQty === 0 && videoSessionHours === 0;
 
-        if (!allowDirectPlanSwitch) {
-          throw new Error("Direct plan switch skipped due to add-ons or non-monthly cycle");
-        }
+          if (!allowDirectPlanSwitch) {
+            throw new Error("Direct plan switch skipped due to add-ons or non-monthly cycle");
+          }
 
-        // Update existing subscription to new plan (Stripe handles proration)
-        // This is the preferred method as it maintains billing continuity
-        try {
-          await stripeClient.subscriptions.update(activeSubscription.stripeSubscriptionId, {
-            items: [
-              {
-                id: stripeSub.items.data[0].id,
-                price: priceId,
+          // Update existing subscription to new plan (Stripe handles proration)
+          // This is the preferred method as it maintains billing continuity
+          try {
+            await stripeClient.subscriptions.update(activeSubscription.stripeSubscriptionId, {
+              items: [
+                {
+                  id: stripeSub.items.data[0].id,
+                  price: priceId,
+                },
+              ],
+              metadata: {
+                userId,
+                planCode: normalizedPlanCode,
+                priceType,
+                billingCycle,
+                termsAcceptedAt: termsAcceptedAt.toISOString(),
+                switchedFrom: activeSubscription.planCode,
               },
-            ],
-            metadata: {
-              userId,
+              proration_behavior: "create_prorations",
+            });
+
+            logger.info(
+              `Updated Stripe subscription ${activeSubscription.stripeSubscriptionId} to plan ${normalizedPlanCode}`,
+              { userId, oldPlan: activeSubscription.planCode, newPlan: normalizedPlanCode }
+            );
+
+            // Update local subscription record
+            await prisma.subscription.update({
+              where: { id: activeSubscription.id },
+              data: {
+                planCode: normalizedPlanCode,
+                priceType,
+                status: SubscriptionStatus.ACTIVE,
+                updatedAt: new Date(),
+              },
+            });
+
+            // Log plan change
+            await logPlanChange(userId, activeSubscription.planCode, normalizedPlanCode, "plan_switch_checkout");
+
+            // Return success - no checkout needed since we updated the subscription
+            return res.json({
+              success: true,
+              message: "Plan switched successfully",
               planCode: normalizedPlanCode,
               priceType,
-              billingCycle,
-              termsAcceptedAt: termsAcceptedAt.toISOString(),
-              switchedFrom: activeSubscription.planCode,
-            },
-            proration_behavior: "create_prorations",
-          });
-
-          logger.info(
-            `Updated Stripe subscription ${activeSubscription.stripeSubscriptionId} to plan ${normalizedPlanCode}`,
-            { userId, oldPlan: activeSubscription.planCode, newPlan: normalizedPlanCode }
-          );
-
-          // Update local subscription record
+              // Optionally redirect to billing page instead of checkout
+              redirectUrl: `${env.FRONTEND_URL}/dashboard/billing`,
+            });
+          } catch (updateError) {
+            logger.warn(
+              "Failed to update Stripe subscription, falling back to new checkout",
+              updateError
+            );
+            // Fall through to create new checkout session
+          }
+        } else {
+          // Subscription is not active, cancel it in our DB
           await prisma.subscription.update({
             where: { id: activeSubscription.id },
             data: {
-              planCode: normalizedPlanCode,
-              priceType,
-              status: SubscriptionStatus.ACTIVE,
+              status: SubscriptionStatus.CANCELED,
               updatedAt: new Date(),
             },
           });
-
-          // Log plan change
-          await logPlanChange(userId, activeSubscription.planCode, normalizedPlanCode, "plan_switch_checkout");
-
-          // Return success - no checkout needed since we updated the subscription
-          return res.json({
-            success: true,
-            message: "Plan switched successfully",
-            planCode: normalizedPlanCode,
-            priceType,
-            // Optionally redirect to billing page instead of checkout
-            redirectUrl: `${env.FRONTEND_URL}/dashboard/billing`,
-          });
-        } catch (updateError) {
-          logger.warn(
-            "Failed to update Stripe subscription, falling back to new checkout",
-            updateError
-          );
-          // Fall through to create new checkout session
         }
-      } else {
-        // Subscription is not active, cancel it in our DB
-        await prisma.subscription.update({
-          where: { id: activeSubscription.id },
-          data: {
-            status: SubscriptionStatus.CANCELED,
-            updatedAt: new Date(),
-          },
-        });
-      }
       } catch (error) {
         logger.error("Error handling plan switch in Stripe", error);
         // Cancel the old Stripe subscription so the user is not double-billed
@@ -698,8 +698,8 @@ router.post("/checkout", requireAuth, async (req, res) => {
         status: SubscriptionStatus.INCOMPLETE,
         stripeCustomerId: stripeCustomerId || existingSubscription.stripeCustomerId,
         termsAcceptedAt,
-          addonPlatformQty,
-          videoAddonEnabled,
+        addonPlatformQty,
+        videoAddonEnabled,
         videoSessionHours,
         updatedAt: new Date(),
       },
@@ -870,10 +870,10 @@ router.post("/checkout", requireAuth, async (req, res) => {
         videoSessionHours: videoSessionHours.toString(),
         ...(applicableCoupon
           ? {
-              couponId: applicableCoupon.id,
-              couponCode: applicableCoupon.code,
-              couponDiscountCents: couponDiscountCents.toString(),
-            }
+            couponId: applicableCoupon.id,
+            couponCode: applicableCoupon.code,
+            couponDiscountCents: couponDiscountCents.toString(),
+          }
           : {}),
         ...(isPlanSwitch ? { switchedFrom: activeSubscription?.planCode } : {}),
       },
@@ -890,10 +890,10 @@ router.post("/checkout", requireAuth, async (req, res) => {
       videoSessionHours: videoSessionHours.toString(),
       ...(applicableCoupon
         ? {
-            couponId: applicableCoupon.id,
-            couponCode: applicableCoupon.code,
-            couponDiscountCents: couponDiscountCents.toString(),
-          }
+          couponId: applicableCoupon.id,
+          couponCode: applicableCoupon.code,
+          couponDiscountCents: couponDiscountCents.toString(),
+        }
         : {}),
       ...(isPlanSwitch ? { switchedFrom: activeSubscription?.planCode } : {}),
     },
@@ -952,8 +952,8 @@ router.post("/visual-topups/checkout", requireAuth, async (req, res) => {
   const unitsPerPack = price.metadata.visualUnits
     ? parseInt(price.metadata.visualUnits)
     : product?.metadata?.visualUnits
-    ? parseInt(product.metadata.visualUnits)
-    : env.STRIPE_VISUAL_TOPUP_UNITS;
+      ? parseInt(product.metadata.visualUnits)
+      : env.STRIPE_VISUAL_TOPUP_UNITS;
 
   if (!unitsPerPack || Number.isNaN(unitsPerPack)) {
     return res.status(500).json({ error: "Top-up units not configured" });
@@ -1072,53 +1072,53 @@ router.post("/schedule-change", requireAuth, async (req, res) => {
 
     const schedule = existingScheduleId
       ? await stripeClient.subscriptionSchedules.update(existingScheduleId, {
-          end_behavior: "release",
-          phases: [
-            {
-              start_date: startUnix,
-              end_date: endUnix,
-              items: currentItems,
-              proration_behavior: "none",
+        end_behavior: "release",
+        phases: [
+          {
+            start_date: startUnix,
+            end_date: endUnix,
+            items: currentItems,
+            proration_behavior: "none",
+          },
+          {
+            start_date: endUnix,
+            items: nextCycleItems,
+            proration_behavior: "none",
+            metadata: {
+              source: "talexia_scheduled_change",
+              targetPlanCode,
+              targetBillingCycle,
             },
-            {
-              start_date: endUnix,
-              items: nextCycleItems,
-              proration_behavior: "none",
-              metadata: {
-                source: "talexia_scheduled_change",
-                targetPlanCode,
-                targetBillingCycle,
-              },
-            },
-          ],
-        })
+          },
+        ],
+      })
       : await stripeClient.subscriptionSchedules.create({
-          from_subscription: stripeSub.id,
-        });
+        from_subscription: stripeSub.id,
+      });
 
     const finalSchedule = existingScheduleId
       ? schedule
       : await stripeClient.subscriptionSchedules.update(schedule.id, {
-          end_behavior: "release",
-          phases: [
-            {
-              start_date: startUnix,
-              end_date: endUnix,
-              items: currentItems,
-              proration_behavior: "none",
+        end_behavior: "release",
+        phases: [
+          {
+            start_date: startUnix,
+            end_date: endUnix,
+            items: currentItems,
+            proration_behavior: "none",
+          },
+          {
+            start_date: endUnix,
+            items: nextCycleItems,
+            proration_behavior: "none",
+            metadata: {
+              source: "talexia_scheduled_change",
+              targetPlanCode,
+              targetBillingCycle,
             },
-            {
-              start_date: endUnix,
-              items: nextCycleItems,
-              proration_behavior: "none",
-              metadata: {
-                source: "talexia_scheduled_change",
-                targetPlanCode,
-                targetBillingCycle,
-              },
-            },
-          ],
-        });
+          },
+        ],
+      });
 
     await logPlanChange(
       userId,
@@ -1645,7 +1645,7 @@ router.get("/history", requireAuth, async (req, res) => {
           priceFounderCents: currentSubscription.plan.priceFounderCents,
         },
       } : null,
-      
+
       subscriptionHistory: allSubscriptions.map(sub => ({
         id: sub.id,
         planCode: sub.planCode,
