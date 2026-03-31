@@ -43,10 +43,10 @@ export async function sendVerificationEmail(email: string, token: string, pendin
               Confirm your email address to finish setting up your Talexia account.
             </p>
             ${pendingPlanCode
-              ? `<p style="margin:0 0 24px;color:#475569;font-size:14px;line-height:1.6;">
+      ? `<p style="margin:0 0 24px;color:#475569;font-size:14px;line-height:1.6;">
               Selected Plan: <strong>${pendingPlanCode}</strong>
             </p>`
-              : ""}
+      : ""}
             <table cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
               <tr>
                 <td><a href="${verificationUrl}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">Verify Email</a></td>
@@ -185,12 +185,12 @@ export async function sendInvoiceEmail(
             </table>
             <!-- CTA buttons -->
             ${downloadUrl
-              ? `<table cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
+      ? `<table cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
               <tr>
                 <td><a href="${downloadUrl}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">Download Invoice</a></td>
               </tr>
             </table>`
-              : ""}
+      : ""}
             <p style="margin:0;color:#94a3b8;font-size:13px;line-height:1.6;">
               If you have any questions about this invoice, please contact our support team.
             </p>
