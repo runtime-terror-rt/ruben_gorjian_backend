@@ -1,10 +1,18 @@
 import express from "express";
+import multer from "multer";
 import { requireAuth } from "../../middleware/requireAuth";
 import { requireAdmin } from "../../middleware/requireAdmin";
 import { OnlinePostController } from "./onlinePost.controller";
 
 const router = express.Router();
 const controller = new OnlinePostController();
+const multipartUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 10,
+    fileSize: 100 * 1024 * 1024,
+  },
+});
 
 // Public
 router.get("/me", controller.me);
@@ -14,6 +22,7 @@ router.get("/status", controller.status);
 // Authenticated (CUSTOMER/ADMIN)
 router.post("/platform/connect-link", requireAuth, controller.connectLinkForLoggedUser);
 router.post("/publish-now",requireAuth, controller.publishNow);
+router.post("/publish-now/form-data", requireAuth, multipartUpload.array("files", 10), controller.publishNowMultipart);
 router.post("/calendar/schedule", requireAuth, controller.schedule);
 router.get("/calendar/my", requireAuth, controller.myCalendar);
 router.get("/calendar/:id", requireAuth, controller.getScheduledPost);

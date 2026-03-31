@@ -6,6 +6,8 @@ import {
   User,
   Role as UserRole,
 } from '@prisma/client';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { env } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 import { ApiError } from '../../lib/errors';
 
@@ -49,6 +51,16 @@ class NotFoundException extends ApiError {
 
 export class SocialMediaService {
   private readonly prisma = prisma;
+  private readonly s3Client =
+    env.S3_BUCKET && env.AWS_REGION && env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY
+      ? new S3Client({
+          region: env.AWS_REGION,
+          credentials: {
+            accessKeyId: env.AWS_ACCESS_KEY_ID,
+            secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+          },
+        })
+      : null;
 
   // Minimal ConfigService shim so existing logic stays the same in Express.
   private readonly configService = {
@@ -299,6 +311,66 @@ export class SocialMediaService {
     return [raw];
   }
 
+  private normalizeBoolean(value: unknown, fallback = true): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+      if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+    }
+    return fallback;
+  }
+
+  private sanitizeFilename(fileName: string): string {
+    const trimmed = fileName.trim();
+    if (!trimmed) return 'upload';
+
+    return trimmed
+      .normalize('NFKD')
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 120) || 'upload';
+  }
+
+  private buildStorageUrl(storageKey: string): string {
+    const baseUrl = env.STORAGE_BASE_URL?.trim();
+    if (!baseUrl) {
+      throw new BadRequestException('STORAGE_BASE_URL is required to publish uploaded files');
+    }
+    return `${baseUrl.replace(/\/+$/, '')}/${storageKey.replace(/^\/+/, '')}`;
+  }
+
+  private async uploadMultipartFiles(
+    userId: string,
+    files: Express.Multer.File[],
+  ): Promise<string[]> {
+    if (!files.length) return [];
+
+    if (!this.s3Client || !env.S3_BUCKET) {
+      throw new BadRequestException('S3 upload is not configured');
+    }
+
+    const uploadedUrls: string[] = [];
+
+    for (const file of files) {
+      const storageKey = `attachments/media/${Date.now()}_${userId}_${this.sanitizeFilename(file.originalname)}`;
+
+      await this.s3Client.send(
+        new PutObjectCommand({
+          Bucket: env.S3_BUCKET,
+          Key: storageKey,
+          Body: file.buffer,
+          ContentType: file.mimetype || 'application/octet-stream',
+        }),
+      );
+
+      uploadedUrls.push(this.buildStorageUrl(storageKey));
+    }
+
+    return uploadedUrls;
+  }
+
   private async publishToProvider(payload: {
     username: string;
     platform: 'facebook' | 'instagram' | 'linkedin';
@@ -520,6 +592,40 @@ export class SocialMediaService {
     });
 
     return { success: true, result: published.result, savedPost };
+  }
+
+  async publishNowMultipartByUser(
+    user: User,
+    payload: {
+      username?: string;
+      platform?: string;
+      title?: string;
+      asyncUpload?: unknown;
+      files: Express.Multer.File[];
+    },
+  ) {
+    if (!payload.username?.trim()) {
+      throw new BadRequestException('username is required');
+    }
+
+    if (!payload.platform?.trim()) {
+      throw new BadRequestException('platform is required');
+    }
+
+    if (!payload.title?.trim()) {
+      throw new BadRequestException('title is required');
+    }
+
+    const uploadedUrls = await this.uploadMultipartFiles(user.id, payload.files);
+
+    return this.publishNowByUser(user, {
+      username: payload.username.trim(),
+      platform: payload.platform.trim(),
+      title: payload.title.trim(),
+      mediaUrl: uploadedUrls.length === 1 ? uploadedUrls[0] : undefined,
+      mediaUrls: uploadedUrls.length > 1 ? uploadedUrls : undefined,
+      asyncUpload: this.normalizeBoolean(payload.asyncUpload, true),
+    });
   }
 
   async schedulePost(user: User, payload: { platform: string; title: string; mediaUrl?: string; mediaUrls?: string[]; scheduledAt: string }) {

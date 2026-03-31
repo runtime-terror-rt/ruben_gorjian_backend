@@ -1,7 +1,6 @@
 import type { Request, Response } from "express";
 import { handleError } from "../../lib/errors";
 import { SocialMediaService } from "./onlinePost.service";
-import { success } from "zod";
 
 type AuthedRequest = Request & { user?: any };
 
@@ -13,6 +12,16 @@ function firstQuery(value: unknown): string | undefined {
 
 export class OnlinePostController {
   constructor(private readonly onlinePostService = new SocialMediaService()) {}
+
+  private parseMultipartPayload(raw: unknown): Record<string, unknown> {
+    if (typeof raw !== "string" || !raw.trim()) return {};
+
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      throw new Error("Invalid JSON in `data` field");
+    }
+  }
 
   me = async (_req: Request, res: Response) => {
     try {
@@ -55,6 +64,25 @@ export class OnlinePostController {
           mediaUrl: req.body?.mediaUrl,
           mediaUrls: req.body?.mediaUrls,
           asyncUpload: req.body?.asyncUpload,
+        }),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  publishNowMultipart = async (req: AuthedRequest, res: Response) => {
+    try {
+      const data = this.parseMultipartPayload(req.body?.data);
+      const files = Array.isArray(req.files) ? req.files : [];
+
+      return res.json(
+        await this.onlinePostService.publishNowMultipartByUser(req.user, {
+          username: (data.username ?? req.body?.username) as string | undefined,
+          platform: (data.platform ?? req.body?.platform) as string | undefined,
+          title: (data.title ?? req.body?.title) as string | undefined,
+          asyncUpload: data.asyncUpload ?? req.body?.asyncUpload,
+          files,
         }),
       );
     } catch (error) {
