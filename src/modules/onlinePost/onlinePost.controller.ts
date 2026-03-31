@@ -54,6 +54,18 @@ export class OnlinePostController {
     }
   };
 
+  disconnectLinkForLoggedUser = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.onlinePostService.disconnectLinkForUser(req.user, {
+          platform: req.body?.platform,
+        }),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
   publishNow = async (req: AuthedRequest, res: Response) => {
     try {
       return res.json(
@@ -197,11 +209,26 @@ export class OnlinePostController {
         req.user?.id,
       );
 
-      const response ={
-        success:true,
-        message:"My connected links get successfully..",
-        data: result
-      }
+      const response = {
+        success: true,
+        message: "My connected links get successfully..",
+        data: result,
+      };
+
+      return res.status(200).json(response);
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+  getAllPlatformLinks = async (req: AuthedRequest, res: Response) => {
+    try {
+      const result = await this.onlinePostService.getAllPlatformLinks();
+
+      const response = {
+        success: true,
+        message: "My connected links get successfully..",
+        data: result,
+      };
 
       return res.status(200).json(response);
     } catch (error) {
