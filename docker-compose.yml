@@ -29,7 +29,7 @@ services:
       timeout: 3s
       retries: 10
 
-  backend:
+  backend:  
     build:
       context: .
       dockerfile: Dockerfile
@@ -37,13 +37,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://talexia_user:talexia_password@db:5432/talexia_db
+      DATABASE_URL: postgresql://neondb_owner:npg_6i9kpnMxAazR@ep-withered-leaf-a1zpijmg-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
       REDIS_URL: redis://redis:6379
       HOST: 0.0.0.0
       PORT: 4000
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_healthy
     ports:
