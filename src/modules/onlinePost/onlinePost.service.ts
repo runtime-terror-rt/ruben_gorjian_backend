@@ -384,6 +384,10 @@ export class SocialMediaService {
     const mediaList = this.normalizeMediaUrls(payload.mediaUrl, payload.mediaUrls);
 
     if (mediaList.length === 0) {
+      if (payload.platform === 'instagram') {
+        throw new BadRequestException('Instagram posts require at least one image or one video.');
+      }
+
       const form = new FormData();
       form.append('user', payload.username);
       form.append('platform[]', payload.platform);
@@ -405,6 +409,10 @@ export class SocialMediaService {
       form.append('title', title);
       form.append('status', 'active');
       form.append('async_upload', String(asyncUpload));
+      if (payload.platform === 'instagram') {
+        form.append('instagram_description', title);
+        form.append('description', title);
+      }
 
       for (const url of mediaList) {
         form.append('photo_urls[]', url);
@@ -431,6 +439,9 @@ export class SocialMediaService {
       form.append('status', 'active');
       form.append('video', mediaList[0]);
       form.append('async_upload', String(asyncUpload));
+      if (payload.platform === 'instagram') {
+        form.append('instagram_title', title);
+      }
 
       const result = await this.api('/upload_videos', { method: 'POST', body: form });
       return { result, title, mediaList };
