@@ -124,6 +124,10 @@ model Plan {
   stripePriceStandardId String?
   stripePriceFounderId  String?
   hasYearlyPrice        Boolean        @default(false)
+  photoSessionEnabled   Boolean        @default(false)
+  videoSessionEnabled   Boolean        @default(false)
+  photoSessionsPerPeriod Int           @default(0)
+  videoSessionsPerPeriod Int           @default(0)
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
   subscriptions         Subscription[]
@@ -315,6 +319,12 @@ model Post {
   assetId          String?
   contentItemId    String?
   status           PostStatus    @default(DRAFT)
+  scheduleType     ScheduleType   @default(POSTING)
+  sessionStatus    SessionStatus?
+  sessionTitle     String?
+  sessionNotes     String?
+  sessionDurationMinutes Int?
+  sessionFailureReason String?
   scheduledFor     DateTime?
   caption          String?
   hashtags         Json?
@@ -335,6 +345,8 @@ model Post {
 
   @@index([userId])
   @@index([scheduledFor])
+  @@index([scheduleType])
+  @@index([sessionStatus])
   @@index([adminId])
   @@index([initiatedBy])
 }
@@ -680,6 +692,19 @@ enum PostStatus {
   PUBLISHING
   POSTED
   FAILED
+}
+
+enum ScheduleType {
+  POSTING
+  PHOTO_SESSION
+  VIDEO_SESSION
+}
+
+enum SessionStatus {
+  BOOKED
+  COMPLETED
+  FAILED
+  CANCELED
 }
 
 enum PostInitiator {
