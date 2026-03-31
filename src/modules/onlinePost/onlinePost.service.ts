@@ -159,9 +159,9 @@ export class SocialMediaService {
       where: { userId_platform: { userId, platform } },
     });
 
-    if (!link) {
-      throw new ForbiddenException('User must login/connect this platform first via API');
-    }
+    // if (!link) {
+    //   throw new ForbiddenException('User must login/connect this platform first via API');
+    // }
   }
 
   private async enforceLinkLimit(userId: string) {
