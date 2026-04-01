@@ -42,6 +42,21 @@ export class TiktokController {
     }
   };
 
+  publishNowTikTok = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.tiktokService.publishNowTikTok(req.user, {
+          username: req.body?.username,
+          title: req.body?.title,
+          mediaUrl: req.body?.mediaUrl,
+          asyncUpload: req.body?.asyncUpload,
+        }),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
   scheduleTikTokPost = async (req: AuthedRequest, res: Response) => {
     try {
       return res.json(

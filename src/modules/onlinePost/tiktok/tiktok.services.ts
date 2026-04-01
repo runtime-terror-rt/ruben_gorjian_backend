@@ -315,11 +315,47 @@ export class TiktokService {
     return Array.from(new Set(urls));
   }
 
+  private async publishToTikTok(payload: {
+    username: string;
+    title?: string;
+    mediaUrl?: string;
+    asyncUpload?: boolean;
+  }) {
+    const title = payload.title?.trim() || "TikTok post";
+    const asyncUpload = payload.asyncUpload ?? true;
+
+    if (!payload.mediaUrl?.trim()) {
+      throw new BadRequestException("TikTok posts require a video URL.");
+    }
+
+    if (!this.isVideoUrl(payload.mediaUrl)) {
+      throw new BadRequestException("mediaUrl must be a video URL for TikTok.");
+    }
+
+    // ✅ Prepare FormData for TikTok upload
+    const form = new FormData();
+    form.append("user", payload.username.trim());
+    form.append("platform[]", "tiktok");
+    form.append("title", title);
+    form.append("tiktok_title", title);
+    form.append("status", "active");
+    form.append("video", payload.mediaUrl);
+    form.append("async_upload", String(asyncUpload));
+
+    const result = await this.api("/upload", { method: "POST", body: form });
+
+    return {
+      result,
+      title,
+      mediaList: [payload.mediaUrl],
+    };
+  }
+
   public async publishTikTokMultipartByUserNow(
     user: User,
     payload: {
       username: string;
-      file: Express.Multer.File; // local file to upload to S3
+      file: Express.Multer.File;
       title?: string;
       asyncUpload?: boolean;
     },
@@ -405,6 +441,55 @@ export class TiktokService {
     });
 
     return savedPost;
+  }
+
+  async publishNowTikTok(
+    user: User,
+    payload: {
+      username: string;
+      title?: string;
+      mediaUrl: string; 
+      asyncUpload?: boolean;
+    },
+  ) {
+    // ✅ Ensure TikTok is linked
+    await this.ensurePlatformLinked(user.id, SocialPlatform.TIKTOK);
+
+    if (!payload.username?.trim()) {
+      throw new BadRequestException("username is required");
+    }
+
+    if (!payload.mediaUrl?.trim()) {
+      throw new BadRequestException("mediaUrl is required");
+    }
+
+    // ✅ Publish via provider
+    const published = await this.publishToTikTok({
+      username: payload.username,
+      title: payload.title?.trim(),
+      mediaUrl: payload.mediaUrl,
+      asyncUpload: this.normalizeBoolean(payload.asyncUpload, true),
+    });
+
+    const ids = this.extractExternalIds(published.result);
+    const postUrl = this.extractPostUrl(published.result);
+
+    // ✅ Save post in DB
+    const savedPost = await this.prisma.scheduledPost.create({
+      data: {
+        userId: user.id,
+        platform: SocialPlatform.TIKTOK,
+        title: payload.title ?? "TikTok post",
+        mediaUrl: payload.mediaUrl,
+        scheduledAt: new Date(),
+        status: ScheduledPostStatus.POSTED,
+        externalReqId: ids.requestId,
+        externalJobId: ids.jobId,
+        externalPostUrl: postUrl,
+      },
+    });
+
+    return { success: true, result: published.result, savedPost };
   }
 
   // TODO: need to implement cron job to process due scheduled posts for TikTok
