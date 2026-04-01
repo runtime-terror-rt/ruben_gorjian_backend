@@ -31,6 +31,7 @@ router.patch("/calendar/:id/reschedule", requireAuth, controller.rescheduleSched
 router.delete("/calendar/:id", requireAuth, controller.cancelScheduledPost);
 router.post("/calendar/:id/retry", requireAuth, controller.retryScheduledPost);
 router.get("/platform/get-all-performed-links", requireAuth, requireAdmin, controller.getAllPlatformLinks);
+router.get("/platform/get-all-posts", requireAuth, requireAdmin, controller.getAllPost);
 router.get("/platform/my-links", requireAuth, controller.myPlatformLinks);
 router.get("/provider/calendar-link", requireAuth, controller.providerCalendarLink);
 router.get("/provider/calendar", requireAuth, controller.providerCalendar);

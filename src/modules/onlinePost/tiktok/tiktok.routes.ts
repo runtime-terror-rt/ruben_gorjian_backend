@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { TiktokController } from "./tiktok.controller";
 import { requireAuth } from "../../../middleware/requireAuth";
-import { MultipartUpload$ } from "@aws-sdk/client-s3";
 import multer from "multer";
 
 const router = Router();
@@ -17,11 +16,13 @@ const multipartUpload = multer({
 });
 
 router.post(
-  "/publish-now",
+  "/publish-now/form-data",
   requireAuth,
-  multipartUpload.array("files", 10),
+  multipartUpload.single("file"),
   tikTokController.publishTikTokMultipartByUserNow,
 );
+
+router.post("/publish-now", requireAuth, tikTokController.publishNowTikTok);
 
 router.post(
   "/calendar/schedule",
