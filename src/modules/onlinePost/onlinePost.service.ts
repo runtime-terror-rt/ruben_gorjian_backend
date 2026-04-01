@@ -68,7 +68,7 @@ export class SocialMediaService {
       (process.env[name] as unknown as T | undefined) ?? undefined,
   };
 
-  private readonly allowedPlatforms = ['facebook', 'instagram', 'linkedin'] as const;
+  private readonly allowedPlatforms = ['facebook', 'instagram', 'tiktok'] as const;
 
   private planLimits: Record<string, { maxLinkedPlatforms: number; monthlyScheduledPosts: number }> = {
     FREE: { maxLinkedPlatforms: 1, monthlyScheduledPosts: 10 },
@@ -113,24 +113,24 @@ export class SocialMediaService {
     return normalized;
   }
 
-  private normalizePlatform(platform: string): 'facebook' | 'instagram' | 'linkedin' {
+  private normalizePlatform(platform: string): 'facebook' | 'instagram' | 'tiktok' {
     const p = platform?.toLowerCase();
     if (!p || !this.allowedPlatforms.includes(p as any)) {
-      throw new BadRequestException('platform must be one of: facebook, instagram, linkedin');
+      throw new BadRequestException('platform must be one of: facebook, instagram, tiktok');
     }
-    return p as 'facebook' | 'instagram' | 'linkedin';
+    return p as 'facebook' | 'instagram' | 'tiktok';
   }
 
-  private toPrismaPlatform(platform: 'facebook' | 'instagram' | 'linkedin'): SocialPlatform {
+  private toPrismaPlatform(platform: 'facebook' | 'instagram' | 'tiktok'): SocialPlatform {
     if (platform === 'facebook') return SocialPlatform.FACEBOOK;
     if (platform === 'instagram') return SocialPlatform.INSTAGRAM;
-    return SocialPlatform.LINKEDIN;
+    return SocialPlatform.TIKTOK;
   }
 
-  private fromPrismaPlatform(platform: SocialPlatform): 'facebook' | 'instagram' | 'linkedin' {
+  private fromPrismaPlatform(platform: SocialPlatform): 'facebook' | 'instagram' | 'tiktok' {
     if (platform === SocialPlatform.FACEBOOK) return 'facebook';
     if (platform === SocialPlatform.INSTAGRAM) return 'instagram';
-    return 'linkedin';
+    return 'tiktok';
   }
 
   private uploadPostUsername(user: User): string {
@@ -373,7 +373,7 @@ export class SocialMediaService {
 
   private async publishToProvider(payload: {
     username: string;
-    platform: 'facebook' | 'instagram' | 'linkedin';
+    platform: 'facebook' | 'instagram' | 'tiktok';
     title: string;
     mediaUrl?: string;
     mediaUrls?: string[];
