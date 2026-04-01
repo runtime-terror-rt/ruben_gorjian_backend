@@ -599,6 +599,42 @@ export class SocialMediaService {
     }
   }
 
+  private async disconnectProviderProfileByUsername(username: string) {
+    try {
+      const result = await this.api("/uploadposts/users", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username }),
+      });
+
+      return {
+        success: true,
+        username,
+        result,
+      };
+    } catch (error) {
+      const res =
+        error instanceof BadRequestException
+          ? (error.getResponse() as Record<string, any>)
+          : null;
+
+      // ✅ Handle already-deleted profile safely
+      if (Number(res?.statusCode) === 404) {
+        return {
+          success: true,
+          username,
+          alreadyDeleted: true,
+        };
+      }
+
+      throw new BadRequestException({
+        message: "Failed to delete Upload-Post profile",
+        username,
+        provider: res?.error,
+      });
+    }
+  }
+
   async createConnectLinkForUser(
     user: User,
     payload: { redirectUrl: string; platform: string; showCalendar?: boolean },
@@ -653,6 +689,49 @@ export class SocialMediaService {
     };
   }
 
+  // async disconnectLinkForUser(user: User, payload: { platform: string }) {
+  //   const platform = this.normalizePlatform(payload.platform);
+  //   const prismaPlatform = this.toPrismaPlatform(platform);
+
+  //   const existing = await this.prisma.socialPlatformLink.findUnique({
+  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+  //   });
+
+  //   if (!existing) {
+  //     return {
+  //       success: true,
+  //       platform,
+  //       disconnected: false,
+  //       message: "Platform link was not connected.",
+  //     };
+  //   }
+
+  //   await this.disconnectProviderProfileByUsername(existing.platformUsername);
+
+  //   const previousLink = {
+  //     id: existing.id,
+  //     userId: existing.userId,
+  //     platform,
+  //     externalRef: existing.externalRef,
+  //     externalProfileUrl: existing.externalProfileUrl,
+  //     linkedAt: existing.linkedAt,
+  //     createdAt: existing.createdAt,
+  //     updatedAt: existing.updatedAt,
+  //   };
+
+  //   await this.prisma.socialPlatformLink.delete({
+  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+  //   });
+
+  //   return {
+  //     success: true,
+  //     platform,
+  //     disconnected: true,
+  //     message: "Platform disconnected successfully.",
+  //     link: previousLink,
+  //   };
+  // }
+
   async disconnectLinkForUser(user: User, payload: { platform: string }) {
     const platform = this.normalizePlatform(payload.platform);
     const prismaPlatform = this.toPrismaPlatform(platform);
@@ -670,6 +749,13 @@ export class SocialMediaService {
       };
     }
 
+    // 🔢 Count BEFORE deleting
+    const totalLinks = await this.prisma.socialPlatformLink.count({
+      where: { userId: user.id },
+    });
+
+    const username = this.uploadPostUsername(user);
+
     const previousLink = {
       id: existing.id,
       userId: existing.userId,
@@ -681,15 +767,22 @@ export class SocialMediaService {
       updatedAt: existing.updatedAt,
     };
 
+    // 🧹 Step 1: remove local link
     await this.prisma.socialPlatformLink.delete({
       where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
     });
+
+    // delete all provider profiles
+    await this.disconnectProviderProfileByUsername(username);
 
     return {
       success: true,
       platform,
       disconnected: true,
-      message: "Platform disconnected successfully.",
+      message:
+        totalLinks === 1
+          ? "Platform disconnected and provider profile deleted."
+          : "Platform disconnected locally (provider profile retained).",
       link: previousLink,
     };
   }
