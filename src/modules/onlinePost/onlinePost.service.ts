@@ -707,7 +707,6 @@ export class SocialMediaService {
       },
     });
   }
-
   async getMyCalendar(userId: string, month?: string) {
     let from: Date | undefined;
     let to: Date | undefined;
