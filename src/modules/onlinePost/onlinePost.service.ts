@@ -1,26 +1,31 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
 import {
+  Prisma,
   ScheduledPost,
   ScheduledPostStatus,
   SocialPlatform,
   User,
   Role as UserRole,
-} from '@prisma/client';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { env } from '../../config/env';
-import { prisma } from '../../lib/prisma';
-import { ApiError } from '../../lib/errors';
+} from "@prisma/client";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { env } from "../../config/env";
+import { prisma } from "../../lib/prisma";
+import { ApiError } from "../../lib/errors";
 
 // Minimal Nest-like exceptions so the original pasted logic can remain unchanged in Express.
 // Express routes should use `handleError()` to convert these into proper HTTP responses.
 class BadRequestException extends ApiError {
   constructor(messageOrDetails: unknown) {
     const message =
-      typeof messageOrDetails === 'string'
+      typeof messageOrDetails === "string"
         ? messageOrDetails
-        : (messageOrDetails as any)?.message ?? 'Bad Request';
-    super(400, message, typeof messageOrDetails === 'string' ? undefined : messageOrDetails);
-    this.name = 'BadRequestException';
+        : ((messageOrDetails as any)?.message ?? "Bad Request");
+    super(
+      400,
+      message,
+      typeof messageOrDetails === "string" ? undefined : messageOrDetails,
+    );
+    this.name = "BadRequestException";
   }
   getResponse() {
     return this.details ?? { message: this.message };
@@ -30,29 +35,40 @@ class BadRequestException extends ApiError {
 class ForbiddenException extends ApiError {
   constructor(messageOrDetails: unknown) {
     const message =
-      typeof messageOrDetails === 'string'
+      typeof messageOrDetails === "string"
         ? messageOrDetails
-        : (messageOrDetails as any)?.message ?? 'Forbidden';
-    super(403, message, typeof messageOrDetails === 'string' ? undefined : messageOrDetails);
-    this.name = 'ForbiddenException';
+        : ((messageOrDetails as any)?.message ?? "Forbidden");
+    super(
+      403,
+      message,
+      typeof messageOrDetails === "string" ? undefined : messageOrDetails,
+    );
+    this.name = "ForbiddenException";
   }
 }
 
 class NotFoundException extends ApiError {
   constructor(messageOrDetails: unknown) {
     const message =
-      typeof messageOrDetails === 'string'
+      typeof messageOrDetails === "string"
         ? messageOrDetails
-        : (messageOrDetails as any)?.message ?? 'Not Found';
-    super(404, message, typeof messageOrDetails === 'string' ? undefined : messageOrDetails);
-    this.name = 'NotFoundException';
+        : ((messageOrDetails as any)?.message ?? "Not Found");
+    super(
+      404,
+      message,
+      typeof messageOrDetails === "string" ? undefined : messageOrDetails,
+    );
+    this.name = "NotFoundException";
   }
 }
 
 export class SocialMediaService {
   private readonly prisma = prisma;
   private readonly s3Client =
-    env.S3_BUCKET && env.AWS_REGION && env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY
+    env.S3_BUCKET &&
+    env.AWS_REGION &&
+    env.AWS_ACCESS_KEY_ID &&
+    env.AWS_SECRET_ACCESS_KEY
       ? new S3Client({
           region: env.AWS_REGION,
           credentials: {
@@ -68,9 +84,16 @@ export class SocialMediaService {
       (process.env[name] as unknown as T | undefined) ?? undefined,
   };
 
-  private readonly allowedPlatforms = ['facebook', 'instagram', 'linkedin'] as const;
+  private readonly allowedPlatforms = [
+    "facebook",
+    "instagram",
+    "tiktok",
+  ] as const;
 
-  private planLimits: Record<string, { maxLinkedPlatforms: number; monthlyScheduledPosts: number }> = {
+  private planLimits: Record<
+    string,
+    { maxLinkedPlatforms: number; monthlyScheduledPosts: number }
+  > = {
     FREE: { maxLinkedPlatforms: 1, monthlyScheduledPosts: 10 },
     DEFAULT: { maxLinkedPlatforms: 2, monthlyScheduledPosts: 30 },
     PRO: { maxLinkedPlatforms: 3, monthlyScheduledPosts: 200 },
@@ -86,7 +109,7 @@ export class SocialMediaService {
   }
 
   private authHeader(): string {
-    const key = this.required('UPLOAD_POST_API_KEY');
+    const key = this.required("UPLOAD_POST_API_KEY");
     if (/^apikey\s+/i.test(key) || /^bearer\s+/i.test(key)) {
       return key;
     }
@@ -94,52 +117,62 @@ export class SocialMediaService {
   }
 
   private resolveBaseUrl(): string {
-    const raw = (this.configService.get<string>('UPLOAD_POST_BASE_URL') ?? '').trim();
-    if (!raw) return 'https://api.upload-post.com/api';
+    const raw = (
+      this.configService.get<string>("UPLOAD_POST_BASE_URL") ?? ""
+    ).trim();
+    if (!raw) return "https://api.upload-post.com/api";
 
-    const normalized = raw.replace(/\/$/, '');
+    const normalized = raw.replace(/\/$/, "");
 
     if (
-      normalized === 'https://upload-post.com' ||
-      normalized === 'https://www.upload-post.com' ||
-      normalized === 'https://api.upload-post.com' ||
-      normalized === 'https://www.api.upload-post.com'
+      normalized === "https://upload-post.com" ||
+      normalized === "https://www.upload-post.com" ||
+      normalized === "https://api.upload-post.com" ||
+      normalized === "https://www.api.upload-post.com"
     ) {
-      return 'https://api.upload-post.com/api';
+      return "https://api.upload-post.com/api";
     }
 
-    if (normalized.endsWith('/api')) return normalized;
+    if (normalized.endsWith("/api")) return normalized;
 
     return normalized;
   }
 
-  private normalizePlatform(platform: string): 'facebook' | 'instagram' | 'linkedin' {
+  private normalizePlatform(
+    platform: string,
+  ): "facebook" | "instagram" | "tiktok" {
     const p = platform?.toLowerCase();
     if (!p || !this.allowedPlatforms.includes(p as any)) {
-      throw new BadRequestException('platform must be one of: facebook, instagram, linkedin');
+      throw new BadRequestException(
+        "platform must be one of: facebook, instagram, tiktok",
+      );
     }
-    return p as 'facebook' | 'instagram' | 'linkedin';
+    return p as "facebook" | "instagram" | "tiktok";
   }
 
-  private toPrismaPlatform(platform: 'facebook' | 'instagram' | 'linkedin'): SocialPlatform {
-    if (platform === 'facebook') return SocialPlatform.FACEBOOK;
-    if (platform === 'instagram') return SocialPlatform.INSTAGRAM;
-    return SocialPlatform.LINKEDIN;
+  private toPrismaPlatform(
+    platform: "facebook" | "instagram" | "tiktok",
+  ): SocialPlatform {
+    if (platform === "facebook") return SocialPlatform.FACEBOOK;
+    if (platform === "instagram") return SocialPlatform.INSTAGRAM;
+    return SocialPlatform.TIKTOK;
   }
 
-  private fromPrismaPlatform(platform: SocialPlatform): 'facebook' | 'instagram' | 'linkedin' {
-    if (platform === SocialPlatform.FACEBOOK) return 'facebook';
-    if (platform === SocialPlatform.INSTAGRAM) return 'instagram';
-    return 'linkedin';
+  private fromPrismaPlatform(
+    platform: SocialPlatform,
+  ): "facebook" | "instagram" | "tiktok" {
+    if (platform === SocialPlatform.FACEBOOK) return "facebook";
+    if (platform === SocialPlatform.INSTAGRAM) return "instagram";
+    return "tiktok";
   }
 
   private uploadPostUsername(user: User): string {
-    return user.email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_');
+    return user.email.split("@")[0].replace(/[^a-zA-Z0-9_]/g, "_");
   }
 
   private async api(path: string, init: RequestInit = {}) {
     const headers = new Headers(init.headers);
-    headers.set('Authorization', this.authHeader());
+    headers.set("Authorization", this.authHeader());
 
     const url = `${this.resolveBaseUrl()}${path}`;
     const response = await fetch(url, { ...init, headers });
@@ -155,7 +188,7 @@ export class SocialMediaService {
 
     if (!response.ok) {
       throw new BadRequestException({
-        message: 'Upload Post API request failed',
+        message: "Upload Post API request failed",
         requestUrl: url,
         statusCode: response.status,
         statusText: response.statusText,
@@ -178,18 +211,23 @@ export class SocialMediaService {
 
   private async enforceLinkLimit(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
-    const linked = await this.prisma.socialPlatformLink.count({ where: { userId } });
-    const socialPlan = String((user as any).socialPlan ?? 'FREE');
-    const limit = (this.planLimits[socialPlan] ?? this.planLimits.FREE).maxLinkedPlatforms;
+    if (!user) throw new NotFoundException("User not found");
+    const linked = await this.prisma.socialPlatformLink.count({
+      where: { userId },
+    });
+    const socialPlan = String((user as any).socialPlan ?? "FREE");
+    const limit = (this.planLimits[socialPlan] ?? this.planLimits.FREE)
+      .maxLinkedPlatforms;
     if (linked >= limit) {
-      throw new ForbiddenException(`Plan limit reached. Max linked platforms for ${socialPlan}: ${limit}`);
+      throw new ForbiddenException(
+        `Plan limit reached. Max linked platforms for ${socialPlan}: ${limit}`,
+      );
     }
   }
 
   private async enforceScheduleLimit(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException("User not found");
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -202,10 +240,13 @@ export class SocialMediaService {
       },
     });
 
-    const socialPlan = String((user as any).socialPlan ?? 'FREE');
-    const limit = (this.planLimits[socialPlan] ?? this.planLimits.FREE).monthlyScheduledPosts;
+    const socialPlan = String((user as any).socialPlan ?? "FREE");
+    const limit = (this.planLimits[socialPlan] ?? this.planLimits.FREE)
+      .monthlyScheduledPosts;
     if (total >= limit) {
-      throw new ForbiddenException(`Monthly schedule limit reached for ${socialPlan} plan: ${limit}`);
+      throw new ForbiddenException(
+        `Monthly schedule limit reached for ${socialPlan} plan: ${limit}`,
+      );
     }
   }
 
@@ -217,18 +258,24 @@ export class SocialMediaService {
     return /\.(jpg|jpeg|png|gif|webp|bmp)(\?|$)/i.test(url);
   }
 
-  private extractExternalIds(result: unknown): { requestId?: string; jobId?: string } {
-    const obj = typeof result === 'object' && result ? (result as Record<string, unknown>) : {};
+  private extractExternalIds(result: unknown): {
+    requestId?: string;
+    jobId?: string;
+  } {
+    const obj =
+      typeof result === "object" && result
+        ? (result as Record<string, unknown>)
+        : {};
     const requestId =
-      typeof obj.request_id === 'string'
+      typeof obj.request_id === "string"
         ? obj.request_id
-        : typeof obj.requestId === 'string'
+        : typeof obj.requestId === "string"
           ? obj.requestId
           : undefined;
     const jobId =
-      typeof obj.job_id === 'string'
+      typeof obj.job_id === "string"
         ? obj.job_id
-        : typeof obj.jobId === 'string'
+        : typeof obj.jobId === "string"
           ? obj.jobId
           : undefined;
     return { requestId, jobId };
@@ -238,7 +285,10 @@ export class SocialMediaService {
     externalRef?: string;
     externalProfileUrl?: string;
   } {
-    const obj = typeof result === 'object' && result ? (result as Record<string, unknown>) : {};
+    const obj =
+      typeof result === "object" && result
+        ? (result as Record<string, unknown>)
+        : {};
 
     const externalRefCandidates = [
       obj.request_id,
@@ -258,14 +308,21 @@ export class SocialMediaService {
       obj.permalink,
     ];
 
-    const externalRef = externalRefCandidates.find((v) => typeof v === 'string') as string | undefined;
-    const externalProfileUrl = externalProfileUrlCandidates.find((v) => typeof v === 'string') as string | undefined;
+    const externalRef = externalRefCandidates.find(
+      (v) => typeof v === "string",
+    ) as string | undefined;
+    const externalProfileUrl = externalProfileUrlCandidates.find(
+      (v) => typeof v === "string",
+    ) as string | undefined;
 
     return { externalRef, externalProfileUrl };
   }
 
   private extractPostUrl(result: unknown): string | undefined {
-    const obj = typeof result === 'object' && result ? (result as Record<string, unknown>) : {};
+    const obj =
+      typeof result === "object" && result
+        ? (result as Record<string, unknown>)
+        : {};
 
     const candidates = [
       obj.post_url,
@@ -278,15 +335,18 @@ export class SocialMediaService {
       obj.live_post_url,
     ];
 
-    return candidates.find((v) => typeof v === 'string') as string | undefined;
+    return candidates.find((v) => typeof v === "string") as string | undefined;
   }
 
-  private normalizeMediaUrls(mediaUrl?: string, mediaUrls?: string[]): string[] {
+  private normalizeMediaUrls(
+    mediaUrl?: string,
+    mediaUrls?: string[],
+  ): string[] {
     const urls = [
       ...(Array.isArray(mediaUrls) ? mediaUrls : []),
       ...(mediaUrl ? [mediaUrl] : []),
     ]
-      .map((u) => (u ?? '').trim())
+      .map((u) => (u ?? "").trim())
       .filter(Boolean);
 
     return Array.from(new Set(urls));
@@ -297,7 +357,7 @@ export class SocialMediaService {
     const raw = stored.trim();
     if (!raw) return [];
 
-    if (raw.startsWith('[')) {
+    if (raw.startsWith("[")) {
       try {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
@@ -312,33 +372,37 @@ export class SocialMediaService {
   }
 
   private normalizeBoolean(value: unknown, fallback = true): boolean {
-    if (typeof value === 'boolean') return value;
-    if (typeof value === 'string') {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "string") {
       const normalized = value.trim().toLowerCase();
-      if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
-      if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+      if (["true", "1", "yes", "on"].includes(normalized)) return true;
+      if (["false", "0", "no", "off"].includes(normalized)) return false;
     }
     return fallback;
   }
 
   private sanitizeFilename(fileName: string): string {
     const trimmed = fileName.trim();
-    if (!trimmed) return 'upload';
+    if (!trimmed) return "upload";
 
-    return trimmed
-      .normalize('NFKD')
-      .replace(/[^a-zA-Z0-9._-]+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 120) || 'upload';
+    return (
+      trimmed
+        .normalize("NFKD")
+        .replace(/[^a-zA-Z0-9._-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 120) || "upload"
+    );
   }
 
   private buildStorageUrl(storageKey: string): string {
     const baseUrl = env.STORAGE_BASE_URL?.trim();
     if (!baseUrl) {
-      throw new BadRequestException('STORAGE_BASE_URL is required to publish uploaded files');
+      throw new BadRequestException(
+        "STORAGE_BASE_URL is required to publish uploaded files",
+      );
     }
-    return `${baseUrl.replace(/\/+$/, '')}/${storageKey.replace(/^\/+/, '')}`;
+    return `${baseUrl.replace(/\/+$/, "")}/${storageKey.replace(/^\/+/, "")}`;
   }
 
   private async uploadMultipartFiles(
@@ -348,7 +412,7 @@ export class SocialMediaService {
     if (!files.length) return [];
 
     if (!this.s3Client || !env.S3_BUCKET) {
-      throw new BadRequestException('S3 upload is not configured');
+      throw new BadRequestException("S3 upload is not configured");
     }
 
     const uploadedUrls: string[] = [];
@@ -361,7 +425,7 @@ export class SocialMediaService {
           Bucket: env.S3_BUCKET,
           Key: storageKey,
           Body: file.buffer,
-          ContentType: file.mimetype || 'application/octet-stream',
+          ContentType: file.mimetype || "application/octet-stream",
         }),
       );
 
@@ -373,30 +437,35 @@ export class SocialMediaService {
 
   private async publishToProvider(payload: {
     username: string;
-    platform: 'facebook' | 'instagram' | 'linkedin';
+    platform: "facebook" | "instagram" | "tiktok";
     title: string;
     mediaUrl?: string;
     mediaUrls?: string[];
     asyncUpload?: boolean;
   }) {
-    const title = payload.title?.trim() || 'Social media post';
+    const title = payload.title?.trim() || "Social media post";
     const asyncUpload = payload.asyncUpload ?? true;
-    const mediaList = this.normalizeMediaUrls(payload.mediaUrl, payload.mediaUrls);
+    const mediaList = this.normalizeMediaUrls(
+      payload.mediaUrl,
+      payload.mediaUrls,
+    );
 
     if (mediaList.length === 0) {
-      if (payload.platform === 'instagram') {
-        throw new BadRequestException('Instagram posts require at least one image or one video.');
+      if (payload.platform === "instagram") {
+        throw new BadRequestException(
+          "Instagram posts require at least one image or one video.",
+        );
       }
 
       const form = new FormData();
-      form.append('user', payload.username);
-      form.append('platform[]', payload.platform);
-      form.append('title', title);
-      form.append('status', 'active');
-      form.append('async_upload', String(asyncUpload));
+      form.append("user", payload.username);
+      form.append("platform[]", payload.platform);
+      form.append("title", title);
+      form.append("status", "active");
+      form.append("async_upload", String(asyncUpload));
 
-      const result = await this.api('/upload_text', {
-        method: 'POST',
+      const result = await this.api("/upload_text", {
+        method: "POST",
         body: form,
       });
       return { result, title, mediaList };
@@ -404,63 +473,76 @@ export class SocialMediaService {
 
     if (mediaList.every((u) => this.isImageUrl(u))) {
       const form = new FormData();
-      form.append('user', payload.username);
-      form.append('platform[]', payload.platform);
-      form.append('title', title);
-      form.append('status', 'active');
-      form.append('async_upload', String(asyncUpload));
-      if (payload.platform === 'instagram') {
-        form.append('instagram_description', title);
-        form.append('description', title);
+      form.append("user", payload.username);
+      form.append("platform[]", payload.platform);
+      form.append("title", title);
+      form.append("status", "active");
+      form.append("async_upload", String(asyncUpload));
+      if (payload.platform === "instagram") {
+        form.append("instagram_description", title);
+        form.append("description", title);
       }
 
       for (const url of mediaList) {
-        form.append('photo_urls[]', url);
-        form.append('photos[]', url);
-        form.append('urls[]', url);
+        form.append("photo_urls[]", url);
+        form.append("photos[]", url);
+        form.append("urls[]", url);
       }
-      form.append('photo_url', mediaList[0]);
-      form.append('image', mediaList[0]);
-      form.append('photo', mediaList[0]);
+      form.append("photo_url", mediaList[0]);
+      form.append("image", mediaList[0]);
+      form.append("photo", mediaList[0]);
 
-      const result = await this.api('/upload_photos', { method: 'POST', body: form });
+      const result = await this.api("/upload_photos", {
+        method: "POST",
+        body: form,
+      });
       return { result, title, mediaList };
     }
 
     if (mediaList.every((u) => this.isVideoUrl(u))) {
       if (mediaList.length > 1) {
-        throw new BadRequestException('Only one video is allowed per post.');
+        throw new BadRequestException("Only one video is allowed per post.");
       }
 
       const form = new FormData();
-      form.append('user', payload.username);
-      form.append('platform[]', payload.platform);
-      form.append('title', title);
-      form.append('status', 'active');
-      form.append('video', mediaList[0]);
-      form.append('async_upload', String(asyncUpload));
-      if (payload.platform === 'instagram') {
-        form.append('instagram_title', title);
+      form.append("user", payload.username);
+      form.append("platform[]", payload.platform);
+      form.append("title", title);
+      form.append("status", "active");
+      form.append("video", mediaList[0]);
+      form.append("async_upload", String(asyncUpload));
+      if (payload.platform === "instagram") {
+        form.append("instagram_title", title);
       }
 
-      const result = await this.api('/upload_videos', { method: 'POST', body: form });
+      const result = await this.api("/upload_videos", {
+        method: "POST",
+        body: form,
+      });
       return { result, title, mediaList };
     }
 
-    throw new BadRequestException('Use a direct image/video URL');
+    throw new BadRequestException("Use a direct image/video URL");
   }
 
-  private async getOwnedPostOrThrow(postId: string, user: User): Promise<ScheduledPost> {
-    const post = await this.prisma.scheduledPost.findUnique({ where: { id: postId } });
-    if (!post) throw new NotFoundException('Scheduled post not found');
+  private async getOwnedPostOrThrow(
+    postId: string,
+    user: User,
+  ): Promise<ScheduledPost> {
+    const post = await this.prisma.scheduledPost.findUnique({
+      where: { id: postId },
+    });
+    if (!post) throw new NotFoundException("Scheduled post not found");
     if (user.role !== UserRole.ADMIN && post.userId !== user.id) {
-      throw new ForbiddenException('You can only access your own scheduled posts');
+      throw new ForbiddenException(
+        "You can only access your own scheduled posts",
+      );
     }
     return post;
   }
 
   me() {
-    return this.api('/uploadposts/me');
+    return this.api("/uploadposts/me");
   }
 
   createUser(username: string) {
@@ -469,9 +551,9 @@ export class SocialMediaService {
 
   private async createOrReuseUploadPostProfile(username: string) {
     try {
-      const created = await this.api('/uploadposts/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const created = await this.api("/uploadposts/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username }),
       });
       return { success: true, profile: created, reused: false };
@@ -482,9 +564,12 @@ export class SocialMediaService {
           : null;
       const providerError = res?.error as Record<string, any> | undefined;
 
-      if (providerError?.error_code === 'PROFILE_LIMIT_REACHED' || Number(res?.statusCode) === 409) {
+      if (
+        providerError?.error_code === "PROFILE_LIMIT_REACHED" ||
+        Number(res?.statusCode) === 409
+      ) {
         // Try to continue with existing profile list
-        const list = await this.api('/uploadposts/users');
+        const list = await this.api("/uploadposts/users");
         const profiles = Array.isArray((list as any)?.profiles)
           ? (list as any).profiles
           : Array.isArray(list)
@@ -493,15 +578,20 @@ export class SocialMediaService {
 
         const existing = profiles.find((p: any) => p?.username === username);
         if (existing) {
-          return { success: true, profile: existing, reused: true, note: 'Existing profile reused due to plan limit.' };
+          return {
+            success: true,
+            profile: existing,
+            reused: true,
+            note: "Existing profile reused due to plan limit.",
+          };
         }
 
         throw new BadRequestException({
           message:
-            'Upload-Post profile limit reached. Upgrade plan or delete an existing provider profile, then retry.',
+            "Upload-Post profile limit reached. Upgrade plan or delete an existing provider profile, then retry.",
           provider: providerError,
           suggestion:
-            'Use one existing username per client, or upgrade from Default plan (limit: 2 profiles).',
+            "Use one existing username per client, or upgrade from Default plan (limit: 2 profiles).",
         });
       }
 
@@ -509,7 +599,46 @@ export class SocialMediaService {
     }
   }
 
-  async createConnectLinkForUser(user: User, payload: { redirectUrl: string; platform: string; showCalendar?: boolean }) {
+  private async disconnectProviderProfileByUsername(username: string) {
+    try {
+      const result = await this.api("/uploadposts/users", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username }),
+      });
+
+      return {
+        success: true,
+        username,
+        result,
+      };
+    } catch (error) {
+      const res =
+        error instanceof BadRequestException
+          ? (error.getResponse() as Record<string, any>)
+          : null;
+
+      // ✅ Handle already-deleted profile safely
+      if (Number(res?.statusCode) === 404) {
+        return {
+          success: true,
+          username,
+          alreadyDeleted: true,
+        };
+      }
+
+      throw new BadRequestException({
+        message: "Failed to delete Upload-Post profile",
+        username,
+        provider: res?.error,
+      });
+    }
+  }
+
+  async createConnectLinkForUser(
+    user: User,
+    payload: { redirectUrl: string; platform: string; showCalendar?: boolean },
+  ) {
     const platform = this.normalizePlatform(payload.platform);
     const prismaPlatform = this.toPrismaPlatform(platform);
 
@@ -524,9 +653,9 @@ export class SocialMediaService {
     const username = this.uploadPostUsername(user);
     await this.createOrReuseUploadPostProfile(username);
 
-    const linkResult = await this.api('/uploadposts/users/generate-jwt', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const linkResult = await this.api("/uploadposts/users/generate-jwt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         username,
         platforms: [platform],
@@ -560,6 +689,49 @@ export class SocialMediaService {
     };
   }
 
+  // async disconnectLinkForUser(user: User, payload: { platform: string }) {
+  //   const platform = this.normalizePlatform(payload.platform);
+  //   const prismaPlatform = this.toPrismaPlatform(platform);
+
+  //   const existing = await this.prisma.socialPlatformLink.findUnique({
+  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+  //   });
+
+  //   if (!existing) {
+  //     return {
+  //       success: true,
+  //       platform,
+  //       disconnected: false,
+  //       message: "Platform link was not connected.",
+  //     };
+  //   }
+
+  //   await this.disconnectProviderProfileByUsername(existing.platformUsername);
+
+  //   const previousLink = {
+  //     id: existing.id,
+  //     userId: existing.userId,
+  //     platform,
+  //     externalRef: existing.externalRef,
+  //     externalProfileUrl: existing.externalProfileUrl,
+  //     linkedAt: existing.linkedAt,
+  //     createdAt: existing.createdAt,
+  //     updatedAt: existing.updatedAt,
+  //   };
+
+  //   await this.prisma.socialPlatformLink.delete({
+  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+  //   });
+
+  //   return {
+  //     success: true,
+  //     platform,
+  //     disconnected: true,
+  //     message: "Platform disconnected successfully.",
+  //     link: previousLink,
+  //   };
+  // }
+
   async disconnectLinkForUser(user: User, payload: { platform: string }) {
     const platform = this.normalizePlatform(payload.platform);
     const prismaPlatform = this.toPrismaPlatform(platform);
@@ -573,9 +745,16 @@ export class SocialMediaService {
         success: true,
         platform,
         disconnected: false,
-        message: 'Platform link was not connected.',
+        message: "Platform link was not connected.",
       };
     }
+
+    // 🔢 Count BEFORE deleting
+    const totalLinks = await this.prisma.socialPlatformLink.count({
+      where: { userId: user.id },
+    });
+
+    const username = this.uploadPostUsername(user);
 
     const previousLink = {
       id: existing.id,
@@ -588,15 +767,22 @@ export class SocialMediaService {
       updatedAt: existing.updatedAt,
     };
 
+    // 🧹 Step 1: remove local link
     await this.prisma.socialPlatformLink.delete({
       where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
     });
+
+    // delete all provider profiles
+    await this.disconnectProviderProfileByUsername(username);
 
     return {
       success: true,
       platform,
       disconnected: true,
-      message: 'Platform disconnected successfully.',
+      message:
+        totalLinks === 1
+          ? "Platform disconnected and provider profile deleted."
+          : "Platform disconnected locally (provider profile retained).",
       link: previousLink,
     };
   }
@@ -634,7 +820,10 @@ export class SocialMediaService {
         userId: user.id,
         platform: prismaPlatform,
         title: published.title,
-        mediaUrl: published.mediaList.length > 1 ? JSON.stringify(published.mediaList) : (published.mediaList[0] ?? null),
+        mediaUrl:
+          published.mediaList.length > 1
+            ? JSON.stringify(published.mediaList)
+            : (published.mediaList[0] ?? null),
         scheduledAt: new Date(),
         status: ScheduledPostStatus.POSTED,
         externalReqId: ids.requestId,
@@ -657,18 +846,21 @@ export class SocialMediaService {
     },
   ) {
     if (!payload.username?.trim()) {
-      throw new BadRequestException('username is required');
+      throw new BadRequestException("username is required");
     }
 
     if (!payload.platform?.trim()) {
-      throw new BadRequestException('platform is required');
+      throw new BadRequestException("platform is required");
     }
 
     if (!payload.title?.trim()) {
-      throw new BadRequestException('title is required');
+      throw new BadRequestException("title is required");
     }
 
-    const uploadedUrls = await this.uploadMultipartFiles(user.id, payload.files);
+    const uploadedUrls = await this.uploadMultipartFiles(
+      user.id,
+      payload.files,
+    );
 
     return this.publishNowByUser(user, {
       username: payload.username.trim(),
@@ -680,7 +872,16 @@ export class SocialMediaService {
     });
   }
 
-  async schedulePost(user: User, payload: { platform: string; title: string; mediaUrl?: string; mediaUrls?: string[]; scheduledAt: string }) {
+  async schedulePost(
+    user: User,
+    payload: {
+      platform: string;
+      title: string;
+      mediaUrl?: string;
+      mediaUrls?: string[];
+      scheduledAt: string;
+    },
+  ) {
     const platform = this.normalizePlatform(payload.platform);
     const prismaPlatform = this.toPrismaPlatform(platform);
     await this.ensurePlatformLinked(user.id, prismaPlatform);
@@ -688,11 +889,11 @@ export class SocialMediaService {
     const scheduledAt = new Date(payload.scheduledAt);
 
     if (Number.isNaN(scheduledAt.getTime())) {
-      throw new BadRequestException('scheduledAt must be a valid ISO date');
+      throw new BadRequestException("scheduledAt must be a valid ISO date");
     }
 
     if (scheduledAt <= new Date()) {
-      throw new BadRequestException('scheduledAt must be in the future');
+      throw new BadRequestException("scheduledAt must be in the future");
     }
 
     await this.enforceScheduleLimit(user.id);
@@ -702,7 +903,13 @@ export class SocialMediaService {
         userId: user.id,
         platform: prismaPlatform,
         title: payload.title,
-        mediaUrl: (() => { const list = this.normalizeMediaUrls(payload.mediaUrl, payload.mediaUrls); return list.length > 1 ? JSON.stringify(list) : (list[0] ?? null); })(),
+        mediaUrl: (() => {
+          const list = this.normalizeMediaUrls(
+            payload.mediaUrl,
+            payload.mediaUrls,
+          );
+          return list.length > 1 ? JSON.stringify(list) : (list[0] ?? null);
+        })(),
         scheduledAt,
       },
     });
@@ -712,8 +919,9 @@ export class SocialMediaService {
     let to: Date | undefined;
 
     if (month) {
-      const [y, m] = month.split('-').map(Number);
-      if (!y || !m || m < 1 || m > 12) throw new BadRequestException('month format must be YYYY-MM');
+      const [y, m] = month.split("-").map(Number);
+      if (!y || !m || m < 1 || m > 12)
+        throw new BadRequestException("month format must be YYYY-MM");
       from = new Date(y, m - 1, 1);
       to = new Date(y, m, 1);
     }
@@ -723,62 +931,168 @@ export class SocialMediaService {
         userId,
         ...(from && to ? { scheduledAt: { gte: from, lt: to } } : {}),
       },
-      orderBy: { scheduledAt: 'asc' },
+      orderBy: { scheduledAt: "asc" },
     });
   }
 
   async getAdminClientCalendar(admin: User, clientId: string, month?: string) {
-    if (admin.role !== UserRole.ADMIN) throw new ForbiddenException('Admin only');
+    if (admin.role !== UserRole.ADMIN)
+      throw new ForbiddenException("Admin only");
     return this.getMyCalendar(clientId, month);
   }
 
-//   async getMyPlatformLinks(userId: string) {
-//     return this.prisma.socialPlatformLink.findMany({
-//       where: { userId },
-//       orderBy: { linkedAt: 'desc' },
-//       include: { user: true },
-//     });
-//   }
+  //   async getMyPlatformLinks(userId: string) {
+  //     return this.prisma.socialPlatformLink.findMany({
+  //       where: { userId },
+  //       orderBy: { linkedAt: 'desc' },
+  //       include: { user: true },
+  //     });
+  //   }
 
-async getMyPlatformLinks(userId: string) {
-  const links = await this.prisma.socialPlatformLink.findMany({
-    where: { userId },
-    orderBy: { linkedAt: 'desc' },
-    include: { user: true },
-  });
+  async getMyPlatformLinks(userId: string) {
+    const links = await this.prisma.socialPlatformLink.findMany({
+      where: { userId },
+      orderBy: { linkedAt: "desc" },
+      include: { user: true },
+    });
 
-  return links.map(link => {
-    const email = link.user?.email || '';
-    const username = email.split('@')[0]; // @ এর আগে part
+    return links.map((link) => {
+      const email = link.user?.email || "";
+      const username = email.split("@")[0]; // @ এর আগে part
 
-    return {
+      return {
         uploadPostUsername: username, // 👈 extra field
         ...link,
-    };
-  });
-}
-async getAllPlatformLinks() {
-  const links = await this.prisma.socialPlatformLink.findMany({
-    orderBy: { linkedAt: 'desc' },
-    include: { user: true },
-  });
+      };
+    });
+  }
+  async getAllPlatformLinks(
+    filter?: { email?: string; platforms?: SocialPlatform[] },
+    search?: string,
+    page = 1,
+    limit = 20,
+  ) {
+    const where: Prisma.SocialPlatformLinkWhereInput = {};
 
-  return links.map(link => {
-    const email = link.user?.email || '';
-    const username = email.split('@')[0]; // @ এর আগে part
+    // Exact email filter
+    if (filter?.email) {
+      where.user = { email: filter.email };
+    }
+
+    // Filter by platforms or search
+    if ((search && search.trim()) || filter?.platforms?.length) {
+      where.AND = [];
+
+      // Search in email or username (before @)
+      if (search?.trim()) {
+        const q = search.trim();
+        where.AND.push({
+          OR: [
+            { user: { email: { contains: q, mode: "insensitive" } } },
+            { user: { email: { startsWith: q, mode: "insensitive" } } },
+          ],
+        });
+      }
+
+      // Filter by platforms
+      if (filter?.platforms?.length) {
+        where.AND.push({
+          platform: { in: filter.platforms },
+        });
+      }
+    }
+
+    // Total count for pagination
+    const total = await this.prisma.socialPlatformLink.count({ where });
+
+    // Fetch paginated results
+    const links = await this.prisma.socialPlatformLink.findMany({
+      where,
+      orderBy: { linkedAt: "desc" },
+      include: { user: true },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    // Map extra field
+    const data = links.map((link) => {
+      const email = link.user?.email || "";
+      const username = email.split("@")[0];
+
+      return {
+        uploadPostUsername: username,
+        ...link,
+      };
+    });
 
     return {
-        uploadPostUsername: username, // 👈 extra field
-        ...link,
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
     };
-  });
-}
+  }
+
+  async getAllPost(
+    filter?: {
+      platform?: SocialPlatform;
+      status?: ScheduledPostStatus;
+    },
+    search?: string,
+    page = 1,
+    limit = 20,
+  ) {
+    // Limit maximum items per page
+    limit = Math.min(limit, 100);
+    const skip = (page - 1) * limit;
+
+    // Build Prisma where clause
+    const where: Prisma.ScheduledPostWhereInput = {};
+
+    if (filter?.platform) {
+      where.platform = filter.platform;
+    }
+
+    if (filter?.status) {
+      where.status = filter.status;
+    }
+
+    if (search) {
+      where.title = {
+        contains: search,
+        mode: "insensitive",
+      };
+    }
+
+    // Fetch posts and total count in parallel
+    const [posts, total] = await Promise.all([
+      prisma.scheduledPost.findMany({
+        where,
+        include: { user: true },
+        orderBy: { scheduledAt: "asc" },
+        skip,
+        take: limit,
+      }),
+      prisma.scheduledPost.count({ where }),
+    ]);
+
+    return {
+      data: posts,
+      total,
+      page,
+      lastPage: Math.ceil(total / limit),
+    };
+  }
 
   async updatePlan(admin: User, userId: string, plan: any) {
-    if (admin.role !== UserRole.ADMIN) throw new ForbiddenException('Admin only');
+    if (admin.role !== UserRole.ADMIN)
+      throw new ForbiddenException("Admin only");
     return this.prisma.user.update({
       where: { id: userId },
-      data: { ...( { socialPlan: plan } as any ) },
+      data: { ...({ socialPlan: plan } as any) },
     });
   }
 
@@ -789,7 +1103,7 @@ async getAllPlatformLinks() {
         scheduledAt: { lte: new Date() },
       },
       include: { user: true },
-      orderBy: { scheduledAt: 'asc' },
+      orderBy: { scheduledAt: "asc" },
       take: limit,
     });
 
@@ -836,7 +1150,7 @@ async getAllPlatformLinks() {
   async cancelScheduledPost(user: User, postId: string) {
     const post = await this.getOwnedPostOrThrow(postId, user);
     if (post.status !== ScheduledPostStatus.PENDING) {
-      throw new BadRequestException('Only PENDING posts can be canceled');
+      throw new BadRequestException("Only PENDING posts can be canceled");
     }
     return this.prisma.scheduledPost.update({
       where: { id: post.id },
@@ -847,14 +1161,14 @@ async getAllPlatformLinks() {
   async reschedulePost(user: User, postId: string, scheduledAtInput: string) {
     const post = await this.getOwnedPostOrThrow(postId, user);
     if (post.status !== ScheduledPostStatus.PENDING) {
-      throw new BadRequestException('Only PENDING posts can be rescheduled');
+      throw new BadRequestException("Only PENDING posts can be rescheduled");
     }
     const scheduledAt = new Date(scheduledAtInput);
     if (Number.isNaN(scheduledAt.getTime())) {
-      throw new BadRequestException('scheduledAt must be a valid ISO date');
+      throw new BadRequestException("scheduledAt must be a valid ISO date");
     }
     if (scheduledAt <= new Date()) {
-      throw new BadRequestException('scheduledAt must be in the future');
+      throw new BadRequestException("scheduledAt must be in the future");
     }
     return this.prisma.scheduledPost.update({
       where: { id: post.id },
@@ -864,14 +1178,21 @@ async getAllPlatformLinks() {
 
   async retryFailedPost(user: User, postId: string, scheduledAtInput?: string) {
     const post = await this.getOwnedPostOrThrow(postId, user);
-    if (post.status !== ScheduledPostStatus.FAILED && post.status !== ScheduledPostStatus.CANCELED) {
-      throw new BadRequestException('Only FAILED or CANCELED posts can be retried');
+    if (
+      post.status !== ScheduledPostStatus.FAILED &&
+      post.status !== ScheduledPostStatus.CANCELED
+    ) {
+      throw new BadRequestException(
+        "Only FAILED or CANCELED posts can be retried",
+      );
     }
     await this.enforceScheduleLimit(post.userId);
 
-    const scheduledAt = scheduledAtInput ? new Date(scheduledAtInput) : new Date(Date.now() + 60_000);
+    const scheduledAt = scheduledAtInput
+      ? new Date(scheduledAtInput)
+      : new Date(Date.now() + 60_000);
     if (Number.isNaN(scheduledAt.getTime()) || scheduledAt <= new Date()) {
-      throw new BadRequestException('scheduledAt must be a future ISO date');
+      throw new BadRequestException("scheduledAt must be a future ISO date");
     }
 
     return this.prisma.scheduledPost.create({
@@ -905,7 +1226,7 @@ async getAllPlatformLinks() {
     let to = query.to;
 
     if (query.month && !from && !to) {
-      const [y, m] = query.month.split('-').map(Number);
+      const [y, m] = query.month.split("-").map(Number);
       if (y && m >= 1 && m <= 12) {
         const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
         const end = new Date(Date.UTC(y, m, 1, 0, 0, 0));
@@ -914,15 +1235,17 @@ async getAllPlatformLinks() {
       }
     }
 
-    const platform = query.platform ? this.normalizePlatform(query.platform) : undefined;
+    const platform = query.platform
+      ? this.normalizePlatform(query.platform)
+      : undefined;
 
     const qs = new URLSearchParams();
-    qs.set('user', username);
-    qs.set('page', String(Number.isFinite(page) && page > 0 ? page : 1));
-    qs.set('limit', String(Number.isFinite(limit) && limit > 0 ? limit : 20));
-    if (platform) qs.set('platform', platform);
-    if (from) qs.set('from', from);
-    if (to) qs.set('to', to);
+    qs.set("user", username);
+    qs.set("page", String(Number.isFinite(page) && page > 0 ? page : 1));
+    qs.set("limit", String(Number.isFinite(limit) && limit > 0 ? limit : 20));
+    if (platform) qs.set("platform", platform);
+    if (from) qs.set("from", from);
+    if (to) qs.set("to", to);
 
     const paths = [
       `/uploadposts/history?${qs.toString()}`,
@@ -931,7 +1254,11 @@ async getAllPlatformLinks() {
       `/uploadposts/queue?${qs.toString()}`,
     ];
 
-    const attempts: Array<{ path: string; statusCode?: number; statusText?: string }> = [];
+    const attempts: Array<{
+      path: string;
+      statusCode?: number;
+      statusText?: string;
+    }> = [];
 
     for (const path of paths) {
       try {
@@ -960,22 +1287,22 @@ async getAllPlatformLinks() {
     }
 
     throw new BadRequestException({
-      message: 'Could not fetch provider calendar/history from Upload-Post.',
+      message: "Could not fetch provider calendar/history from Upload-Post.",
       attempts,
       suggestion:
-        'Check Upload-Post plan/docs and use the exact schedule/history endpoint for your account.',
+        "Check Upload-Post plan/docs and use the exact schedule/history endpoint for your account.",
     });
   }
   async getProviderCalendarLink(
     user: User,
     query: { platform?: string; redirectUrl?: string },
   ) {
-    const platform = this.normalizePlatform(query.platform ?? 'facebook');
+    const platform = this.normalizePlatform(query.platform ?? "facebook");
     const redirectUrl =
       query.redirectUrl?.trim() ||
-      this.configService.get<string>('UPLOAD_POST_CALENDAR_REDIRECT_URL') ||
-      this.configService.get<string>('FRONTEND_URL') ||
-      'http://localhost:5173/social/callback';
+      this.configService.get<string>("UPLOAD_POST_CALENDAR_REDIRECT_URL") ||
+      this.configService.get<string>("FRONTEND_URL") ||
+      "http://localhost:5173/social/callback";
 
     const result = await this.createConnectLinkForUser(user, {
       platform,
@@ -984,7 +1311,7 @@ async getAllPlatformLinks() {
     });
 
     const connectObj =
-      typeof result.connect === 'object' && result.connect
+      typeof result.connect === "object" && result.connect
         ? (result.connect as Record<string, unknown>)
         : {};
 
@@ -1005,7 +1332,7 @@ async getAllPlatformLinks() {
   }
   status(query: { jobId?: string; requestId?: string }) {
     if (!query.jobId && !query.requestId) {
-      throw new BadRequestException('Provide jobId or requestId');
+      throw new BadRequestException("Provide jobId or requestId");
     }
 
     const qs = query.jobId
@@ -1015,17 +1342,3 @@ async getAllPlatformLinks() {
     return this.api(`/uploadposts/status?${qs}`);
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-

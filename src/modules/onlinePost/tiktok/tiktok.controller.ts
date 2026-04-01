@@ -23,14 +23,33 @@ export class TiktokController {
   ) => {
     try {
       const data = this.parseMultipartPayload(req.body?.data);
-      const files = Array.isArray(req.files) ? req.files : [];
+      const file = req.file; // single file upload
+
+      if (!file) {
+        throw new ApiError(400, "A video file is required");
+      }
 
       return res.json(
         await this.tiktokService.publishTikTokMultipartByUserNow(req.user, {
           username: data.username as string,
           title: data.title as string,
           asyncUpload: data.asyncUpload as boolean,
-          files,
+          file, // pass single file
+        }),
+      );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  publishNowTikTok = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(
+        await this.tiktokService.publishNowTikTok(req.user, {
+          username: req.body?.username,
+          title: req.body?.title,
+          mediaUrl: req.body?.mediaUrl,
+          asyncUpload: req.body?.asyncUpload,
         }),
       );
     } catch (error) {

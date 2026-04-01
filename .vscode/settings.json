@@ -23,7 +23,11 @@
   "cSpell.words": [
     "apikey",
     "cuid",
+    "Talexia",
     "uploadposts"
   ],
-  "prisma.pinToPrisma6": true
+  "prisma.pinToPrisma6": true,
+  "[prisma]": {
+    "editor.defaultFormatter": "Prisma.prisma"
+  }
 }
