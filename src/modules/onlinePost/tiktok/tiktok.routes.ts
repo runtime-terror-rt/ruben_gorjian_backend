@@ -16,11 +16,13 @@ const multipartUpload = multer({
 });
 
 router.post(
-  "/publish-now",
+  "/publish-now/form-data",
   requireAuth,
   multipartUpload.single("file"),
   tikTokController.publishTikTokMultipartByUserNow,
 );
+
+router.post("/publish-now", requireAuth, tikTokController.publishNowTikTok);
 
 router.post(
   "/calendar/schedule",
