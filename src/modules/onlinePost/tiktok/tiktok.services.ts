@@ -256,15 +256,11 @@ export class TiktokService {
     });
 
     if (!link) {
-      throw new ForbiddenException('User must login/connect this platform first via API');
+      throw new ForbiddenException(
+        "User must login/connect this platform first via API",
+      );
     }
   }
-
-  private readonly allowedPlatforms = [
-    "facebook",
-    "instagram",
-    "linkedin",
-  ] as const;
 
   private planLimits: Record<
     string,
@@ -319,113 +315,45 @@ export class TiktokService {
     return Array.from(new Set(urls));
   }
 
-  // async publishTikTokMultipartByUser(
-  //   user: User,
-  //   payload: {
-  //     username?: string;
-  //     title?: string;
-  //     asyncUpload?: unknown;
-  //     files: Express.Multer.File[];
-  //   },
-  // ) {
-  //   // ✅ Validation
-  //   if (!payload.username?.trim()) {
-  //     throw new BadRequestException("username is required");
-  //   }
-
-  //   if (!payload.files || payload.files.length !== 1) {
-  //     throw new BadRequestException("TikTok requires exactly one video file");
-  //   }
-
-  //   const file = payload.files[0];
-
-  //   if (!file.mimetype.startsWith("video/")) {
-  //     throw new BadRequestException("File must be a video");
-  //   }
-
-  //   // ✅ Upload to S3
-  //   const uploadedUrls = await this.uploadMultipartFiles(
-  //     user.id,
-  //     payload.files,
-  //   );
-  //   const videoUrl = uploadedUrls[0];
-
-  //   // ✅ Build form (STRICTLY based on docs)
-  //   const form = new FormData();
-  //   form.append("user", payload.username.trim());
-  //   form.append("platform[]", "tiktok");
-  //   form.append("video", videoUrl);
-
-  //   if (payload.title?.trim()) {
-  //     form.append("title", payload.title.trim());
-  //     form.append("tiktok_title", payload.title.trim()); // optional override
-  //   }
-
-  //   form.append(
-  //     "async_upload",
-  //     String(this.normalizeBoolean(payload.asyncUpload, true)),
-  //   );
-
-  //   // TODO: need to check this
-  //   const result = await this.api("/upload", {
-  //     method: "POST",
-  //     body: form,
-  //   });
-
-  //   const ids = this.extractExternalIds(result);
-  //   const postUrl = this.extractPostUrl(result);
-
-  //   // ✅ Save
-  //   const savedPost = await this.prisma.scheduledPost.create({
-  //     data: {
-  //       userId: user.id,
-  //       platform: SocialPlatform.TIKTOK,
-  //       title: payload.title ?? "TikTok post",
-  //       mediaUrl: videoUrl,
-  //       scheduledAt: new Date(),
-  //       status: ScheduledPostStatus.POSTED,
-  //       externalReqId: ids.requestId,
-  //       externalJobId: ids.jobId,
-  //       externalPostUrl: postUrl,
-  //     },
-  //   });
-
-  //   return {
-  //     success: true,
-  //     result,
-  //     savedPost,
-  //   };
-  // }
-
   public async publishTikTokMultipartByUserNow(
     user: User,
     payload: {
       username: string;
-      files: Express.Multer.File[];
+      file: Express.Multer.File; // local file to upload to S3
       title?: string;
       asyncUpload?: boolean;
     },
   ) {
-    // --- Guard ---
+    // ✅ Ensure TikTok is linked
     await this.ensurePlatformLinked(user.id, SocialPlatform.TIKTOK);
 
-    // --- Upload to S3 ---
-    const uploadedUrls = await this.uploadMultipartFiles(
-      user.id,
-      payload.files,
-    );
-
-    if (!uploadedUrls || uploadedUrls.length === 0) {
-      throw new BadRequestException("No files uploaded");
+    if (!payload.username?.trim()) {
+      throw new BadRequestException("username is required");
     }
 
-    const videoUrl = uploadedUrls[0];
+    if (!payload.file) {
+      throw new BadRequestException("File is required");
+    }
 
-    // --- Prepare form ---
+    if (!payload.file.mimetype.startsWith("video/")) {
+      throw new BadRequestException("File must be a video");
+    }
+
+    // ✅ Upload to S3 and get URL
+    const uploadedUrls = await this.uploadMultipartFiles(user.id, [
+      payload.file,
+    ]);
+
+    if (!uploadedUrls.length)
+      throw new BadRequestException("Upload to S3 failed");
+
+    const videoUrl = uploadedUrls[0]; // only one file for TikTok
+
+    // ✅ Prepare form to Upload Post API
     const form = new FormData();
     form.append("user", payload.username.trim());
     form.append("platform[]", "tiktok");
-    form.append("video", videoUrl);
+    form.append("video", videoUrl); // send S3 URL here
 
     if (payload.title?.trim()) {
       form.append("title", payload.title.trim());
@@ -437,7 +365,6 @@ export class TiktokService {
       String(this.normalizeBoolean(payload.asyncUpload, true)),
     );
 
-    // --- Call Upload Post API safely ---
     let result: any;
     try {
       result = await this.api("/upload", {
@@ -445,22 +372,25 @@ export class TiktokService {
         body: form,
       });
     } catch (error) {
-      throw new BadRequestException({
-        message: "TikTok upload failed",
-        error,
-      });
+      console.error("TikTok upload error:", error);
+      throw new BadRequestException({ message: "TikTok upload failed", error });
     }
 
-    if (!result || typeof result !== "object") {
-      throw new BadRequestException("Invalid response from Upload Post API");
-    }
+    if (!result)
+      throw new BadRequestException("Empty response from Upload Post API");
 
-    // --- Extract IDs and post URL ---
     const ids = this.extractExternalIds(result);
     const postUrl = this.extractPostUrl(result);
 
-    // --- Save to DB ---
-    const savedPost = await prisma.scheduledPost.create({
+    if (!ids.requestId && !ids.jobId) {
+      throw new BadRequestException({
+        message: "Upload API did not return identifiers",
+        result,
+      });
+    }
+
+    // ✅ Save post in DB
+    const savedPost = await this.prisma.scheduledPost.create({
       data: {
         userId: user.id,
         platform: SocialPlatform.TIKTOK,
