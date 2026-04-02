@@ -9,8 +9,8 @@
   "typescript.tsdk": "node_modules/typescript/lib",
   "debug.openDebug": "neverOpen",
   "problems.autoReveal": true,
-  "terminal.integrated.hideOnStartup": "always",
-  "terminal.integrated.defaultProfile.windows": "Command Prompt",
+  // "terminal.integrated.hideOnStartup": "always",
+  // "terminal.integrated.defaultProfile.windows": "Command Prompt",
   "terminal.integrated.inheritEnv": false,
   "jestrunner.configPath": "jest.unit.config.cjs",
   "compile-hero.disable-compile-files-on-did-save-code": true,
@@ -23,7 +23,10 @@
   "cSpell.words": [
     "apikey",
     "cuid",
+    "fkey",
+    "presign",
     "Talexia",
+    "TOPUP",
     "uploadposts"
   ],
   "prisma.pinToPrisma6": true,
