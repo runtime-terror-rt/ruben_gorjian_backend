@@ -54,6 +54,18 @@ const limiter =
         res.status(options.statusCode ?? 429).json(msg);
       },
     })
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 100,
+      message: { error: "Too many requests from this IP, please try again later." },
+      standardHeaders: true,
+      legacyHeaders: false,
+      skip: (req) => req.path === "/health" || req.path === "/auth/me",
+      handler: (req, res, _next, options) => {
+        const msg = options.message ?? { error: "Too many requests" };
+        logger.warn("Rate limit hit", { path: req.path });
+        res.status(options.statusCode ?? 429).json(msg);
+      },
+    })
     : noopLimiter;
 
 
@@ -91,6 +103,8 @@ app.use("/ai", aiRouter);
 app.use(["/social", "/api/social"], socialRouter);
 app.use("/posts", postsRouter);
 app.use("/posts", enhancedPostsRouter);
+app.use("/scheduler", schedulerRouter);
+app.use("/api/scheduler", schedulerRouter);
 app.use("/scheduler", schedulerRouter);
 app.use("/api/scheduler", schedulerRouter);
 app.use("/api/admin", adminRouter);
