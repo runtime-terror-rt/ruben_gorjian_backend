@@ -31,10 +31,7 @@ import { logger } from "./lib/logger";
 import { uploadPostProviderRouter } from "./modules/providers/upload-post/routes";
 import { schedulerRouter } from "./modules/scheduler/routes";
 import { onlinePostRouter } from "./modules/onlinePost/onlinePost.route";
-<<<<<<< HEAD
-=======
 import { tiktokRoutes } from "./modules/onlinePost/tiktok/tiktok.routes";
->>>>>>> b22be671676a534933f746c1b1b2d537c611cb1f
 
 export const app = express();
 
@@ -115,8 +112,5 @@ if (env.NODE_ENV !== "production") {
 }
 app.use("/api/providers/upload-post", uploadPostProviderRouter);
 app.use('/api/social-media', onlinePostRouter);
-<<<<<<< HEAD
-=======
 app.use("/api/tiktok", tiktokRoutes); 
->>>>>>> b22be671676a534933f746c1b1b2d537c611cb1f
 app.use(errorHandler);
