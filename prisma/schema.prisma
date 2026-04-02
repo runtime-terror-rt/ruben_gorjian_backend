@@ -128,10 +128,6 @@ model Plan {
   videoSessionEnabled   Boolean        @default(false)
   photoSessionsPerPeriod Int           @default(0)
   videoSessionsPerPeriod Int           @default(0)
-  photoSessionEnabled   Boolean        @default(false)
-  videoSessionEnabled   Boolean        @default(false)
-  photoSessionsPerPeriod Int           @default(0)
-  videoSessionsPerPeriod Int           @default(0)
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
   subscriptions         Subscription[]
@@ -318,22 +314,17 @@ model SocialOAuthState {
 }
 
 model Post {
-  id               String        @id @default(cuid())
-  userId           String
-  assetId          String?
-  contentItemId    String?
-  status           PostStatus    @default(DRAFT)
-  scheduleType     ScheduleType   @default(POSTING)
-  sessionStatus    SessionStatus?
-  sessionTitle     String?
-  sessionNotes     String?
+  id                     String         @id @default(cuid())
+  userId                 String
+  assetId                String?
+  contentItemId          String?
+  status                 PostStatus     @default(DRAFT)
+  scheduleType           ScheduleType   @default(POSTING)
+  sessionStatus          SessionStatus?
+  sessionTitle           String?
+  sessionNotes           String?
   sessionDurationMinutes Int?
   sessionFailureReason String?
-  calendlySyncStatus CalendlySyncStatus?
-  calendlyEventUri String?
-  calendlyInviteeUri String?
-  calendlySyncError String?
-  calendlyLastSyncedAt DateTime?
   scheduledFor     DateTime?
   caption          String?
   hashtags         Json?
@@ -694,6 +685,7 @@ enum SocialPlatform {
   INSTAGRAM
   FACEBOOK
   LINKEDIN
+  TIKTOK
 }
 
 enum PostStatus {

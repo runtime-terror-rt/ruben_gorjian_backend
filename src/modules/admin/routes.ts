@@ -194,6 +194,7 @@ router.post("/users", async (req, res) => {
   const schema = z.object({
     name: z.string().min(1).optional(),
     email: z.string().email(),
+    password: z.string().min(8).optional(),
     role: z.enum(["USER", "ADMIN", "SUPER_ADMIN"]).optional(),
     planCode: z.string().optional(),
     sendVerification: z.boolean().optional().default(true),
@@ -204,7 +205,7 @@ router.post("/users", async (req, res) => {
     return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
-  const { name, email, role, planCode, sendVerification } = parsed.data;
+  const { name, email, password, role, planCode, sendVerification } = parsed.data;
   const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
   if (existing) {
     return res.status(409).json({ error: "Email already registered" });
@@ -217,10 +218,13 @@ router.post("/users", async (req, res) => {
     }
   }
 
+  const passwordHash = password ? await hashPassword(password) : null;
+
   const user = await prisma.user.create({
     data: {
       name,
       email: email.toLowerCase(),
+      passwordHash,
       role: role ?? "USER",
       pendingPlanCode: planCode,
       pendingPlanCodeSetAt: planCode ? new Date() : null,
@@ -338,7 +342,6 @@ router.get("/users/:id", async (req, res) => {
     user: serializeUser({ ...user, connectedPlatformsCount, scheduledPostsCount }),
     profile: user.profile,
     brandProfile: user.brandProfile,
-    subscriptions: user.subscriptions,
     posts,
     usageSummary: {
       scheduledPostsCount,
@@ -650,6 +653,10 @@ router.delete("/users/:id", async (req, res) => {
     return res.status(404).json({ error: "User not found" });
   }
 
+  if (user.status === "DELETED") {
+    return res.status(400).json({ error: `User ${user.email} is already deleted` });
+  }
+
   const updated = await prisma.user.update({
     where: { id },
     data: {
@@ -673,7 +680,11 @@ router.delete("/users/:id", async (req, res) => {
     },
   });
 
-  res.json(serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }));
+  res.json({
+    success: true,
+    message: `User ${user.email} has been successfully deleted.`,
+    user: serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }),
+  });
 });
 
 router.post("/users/:id/delete-with-password", async (req, res) => {
@@ -708,6 +719,10 @@ router.post("/users/:id/delete-with-password", async (req, res) => {
     return res.status(404).json({ error: "User not found" });
   }
 
+  if (user.status === "DELETED") {
+    return res.status(400).json({ error: `User ${user.email} is already deleted` });
+  }
+
   const updated = await prisma.user.update({
     where: { id },
     data: {
@@ -732,7 +747,55 @@ router.post("/users/:id/delete-with-password", async (req, res) => {
     },
   });
 
-  res.json(serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }));
+  res.json({
+    success: true,
+    message: `User ${user.email} has been successfully deleted (password verified).`,
+    user: serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }),
+  });
+});
+
+router.post("/users/:id/restore", async (req, res) => {
+  const { id } = req.params;
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  if (user.status !== "DELETED") {
+    return res.status(400).json({ error: `User ${user.email} is not deleted` });
+  }
+
+  const updated = await prisma.user.update({
+    where: { id },
+    data: {
+      status: "ACTIVE",
+      deletedAt: null,
+      blockedAt: null,
+      blockedReason: null,
+    },
+    select: ADMIN_USER_SELECT,
+  });
+
+  await createAuditLog({
+    actorId: req.user!.id,
+    actorEmail: req.user!.email,
+    action: "UPDATE_USER",
+    targetUserId: id,
+    metadata: { restoreUser: true, previousStatus: user.status },
+  });
+
+  const scheduledPostsCount = await prisma.post.count({
+    where: {
+      userId: id,
+      status: { in: ["SCHEDULED", "PUBLISHING"] },
+    },
+  });
+
+  res.json({
+    success: true,
+    message: `User ${user.email} has been restored successfully`,
+    user: serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }),
+  });
 });
 
 router.get("/users/:id/scheduled-items", async (req, res) => {
@@ -810,6 +873,12 @@ router.post("/users/:id/block", async (req, res) => {
   if (req.user!.id === id) {
     return res.status(400).json({ error: "Cannot block your own account" });
   }
+  if (user.status === "DELETED") {
+    return res.status(400).json({ error: `Cannot block a deleted user account` });
+  }
+  if (user.status === "BLOCKED") {
+    return res.status(400).json({ error: `User ${user.email} is already blocked` });
+  }
 
   const updated = await prisma.user.update({
     where: { id },
@@ -836,7 +905,11 @@ router.post("/users/:id/block", async (req, res) => {
     },
   });
 
-  res.json(serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }));
+  res.json({
+    success: true,
+    message: `User ${user.email} has been successfully blocked. Reason: ${parsed.data.reason}`,
+    user: serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }),
+  });
 });
 
 router.post("/users/:id/unblock", async (req, res) => {
@@ -846,7 +919,10 @@ router.post("/users/:id/unblock", async (req, res) => {
     return res.status(404).json({ error: "User not found" });
   }
   if (user.status === "DELETED") {
-    return res.status(400).json({ error: "Cannot unblock a deleted account" });
+    return res.status(400).json({ error: `Cannot unblock user ${user.email} - account is deleted` });
+  }
+  if (user.status !== "BLOCKED") {
+    return res.status(400).json({ error: `User ${user.email} is not currently blocked` });
   }
   const updated = await prisma.user.update({
     where: { id },
@@ -872,7 +948,11 @@ router.post("/users/:id/unblock", async (req, res) => {
     },
   });
 
-  res.json(serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }));
+  res.json({
+    success: true,
+    message: `User ${user.email} has been successfully unblocked`,
+    user: serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }),
+  });
 });
 
 router.post("/users/:id/resend-verification", async (req, res) => {

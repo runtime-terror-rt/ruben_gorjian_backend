@@ -62,7 +62,12 @@ temp_interactive_push.bat
 config.bat
 config.bat
 
-
+=======
 config.bat
-.env
 .env.example
+.vscode
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
+uploads/
+!uploads/.gitkeep
