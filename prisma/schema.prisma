@@ -321,6 +321,7 @@ model Post {
   status                 PostStatus     @default(DRAFT)
   scheduleType           ScheduleType   @default(POSTING)
   sessionStatus          SessionStatus?
+  calendlySyncStatus     CalendlySyncStatus?
   sessionTitle           String?
   sessionNotes           String?
   sessionDurationMinutes Int?
@@ -618,6 +619,9 @@ enum AuditAction {
   BLOCK_USER
   UNBLOCK_USER
   CANCEL_SUBSCRIPTION
+  SCHEDULE_CANCEL_SUBSCRIPTION
+  IMMEDIATE_CANCEL_SUBSCRIPTION
+  RESUME_SUBSCRIPTION
   RESEND_VERIFICATION
   REFRESH_SUBSCRIPTION
   POST_AS_USER_CREATE
