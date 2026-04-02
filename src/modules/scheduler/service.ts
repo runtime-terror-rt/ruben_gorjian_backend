@@ -2,10 +2,8 @@ import {
   Asset,
   PostStatus,
   PostTargetStatus,
-  PostTargetStatus,
   Prisma,
   ScheduleType,
-  SocialPlatform,
   SocialPlatform,
   SocialAccount,
   SessionStatus,
@@ -36,14 +34,6 @@ import {
 import { isAdmin, normalizeDateRange } from "./functions";
 
 const SCHEDULER_UPLOAD_CONTEXT = "SCHEDULER_POST";
-
-type SchedulerTargetAccount = {
-  id: string | null;
-  platform: SocialPlatform;
-  displayName: string | null;
-  externalAccountId: string | null;
-  expiresAt: Date | null;
-};
 
 type SchedulerTargetAccount = {
   id: string | null;
@@ -227,32 +217,29 @@ export class SchedulerService {
     socialAccountIds: string[],
     platformLimit: number | null
   ): Promise<SchedulerTargetAccount[]> {
-  ): Promise < SchedulerTargetAccount[] > {
-      const uniqueIds = Array.from(new Set(socialAccountIds));
-      const socialAccounts = await prisma.socialAccount.findMany({
-        where: {
-          id: { in: uniqueIds },
-          // TEMPORARY (testing): ownership check disabled.
-          // TODO: Re-enable strict `userId` validation before production rollout.
-        },
-        select: {
-          id: true,
-          platform: true,
-          displayName: true,
-          externalAccountId: true,
-          expiresAt: true,
-        },
-        orderBy: { createdAt: "asc" },
-      });
+    const uniqueIds = Array.from(new Set(socialAccountIds));
+    const socialAccounts = await prisma.socialAccount.findMany({
+      where: {
+        id: { in: uniqueIds },
+        // TEMPORARY (testing): ownership check disabled.
+        // TODO: Re-enable strict `userId` validation before production rollout.
+      },
+      select: {
+        id: true,
+        platform: true,
+        displayName: true,
+        externalAccountId: true,
+        expiresAt: true,
+      },
+      orderBy: { createdAt: "asc" },
+    });
 
-      // TEMPORARY (testing): skip strict "all selected IDs must belong to client" enforcement.
-      // Keep only a basic existence guard so we still have valid target platforms.
-      if(socialAccounts.length === 0) {
+    // TEMPORARY (testing): skip strict "all selected IDs must belong to client" enforcement.
+    // Keep only a basic existence guard so we still have valid target platforms.
+    if (socialAccounts.length === 0) {
       // TEMPORARY (testing): allow schedule flow even without connected accounts.
       // Creates fallback targets with nullable socialAccountId.
       return uniqueIds.map(() => ({
-        id: null,
-        platform: SocialPlatform.INSTAGRAM,
         id: null,
         platform: SocialPlatform.INSTAGRAM,
         displayName: null,
@@ -355,23 +342,19 @@ export class SchedulerService {
     // Photo sessions are open to all active subscribers in this phase.
     if (scheduleType !== "VIDEO_SESSION") {
       return;
-      // Photo sessions are open to all active subscribers in this phase.
-      if (scheduleType !== "VIDEO_SESSION") {
-        return;
-      }
+    }
 
-      if (!subscription.plan.videoSessionEnabled) {
-        if (!subscription.plan.videoSessionEnabled) {
-          throw new Error("Video session booking is not available for your current plan");
-        }
-      }
+    if (!subscription.plan.videoSessionEnabled) {
+      throw new Error("Video session booking is not available for your current plan");
+    }
+  }
 
   private async enforceSessionQuota(
-        userId: string,
-        scheduleType: Exclude<ScheduleType, "POSTING">,
-        subscription: Awaited<ReturnType<SchedulerService["getSchedulingSubscription"]>>,
-        excludePostId?: string
-      ) {
+    userId: string,
+    scheduleType: Exclude<ScheduleType, "POSTING">,
+    subscription: Awaited<ReturnType<SchedulerService["getSchedulingSubscription"]>>,
+    excludePostId?: string
+  ) {
     if (!subscription?.plan) {
       throw new Error("An active subscription is required to schedule sessions");
     }
@@ -382,15 +365,8 @@ export class SchedulerService {
     }
 
     const quota = subscription.plan.videoSessionsPerPeriod;
-    // Photo sessions have no quota restrictions in this phase.
-    if (scheduleType !== "VIDEO_SESSION") {
-      return;
-    }
-
-    const quota = subscription.plan.videoSessionsPerPeriod;
 
     if (!quota || quota <= 0) {
-      throw new Error("No remaining video sessions available in your plan");
       throw new Error("No remaining video sessions available in your plan");
     }
 
@@ -398,7 +374,6 @@ export class SchedulerService {
     const count = await prisma.post.count({
       where: {
         userId,
-        scheduleType: "VIDEO_SESSION",
         scheduleType: "VIDEO_SESSION",
         sessionStatus: { in: ["BOOKED", "COMPLETED"] },
         scheduledFor: {
@@ -411,7 +386,6 @@ export class SchedulerService {
 
     if (count >= quota) {
       throw new Error(`You have reached your video session limit for this billing period (${quota})`);
-      throw new Error(`You have reached your video session limit for this billing period (${quota})`);
     }
   }
 
@@ -421,102 +395,92 @@ export class SchedulerService {
   ) {
     const ownerSummary = isAdmin(actor)
       ? {
-        id: post.user.id,
-        email: post.user.email,
-        name: post.user.name,
-      }
-        id: post.user.id,
-      email: post.user.email,
+          id: post.user.id,
+          email: post.user.email,
         name: post.user.name,
       }
       : undefined;
 
-  const media = post.PostAsset.map((entry) => ({
-    id: entry.Asset.id,
-    storageKey: entry.Asset.storageKey,
-    url: env.STORAGE_BASE_URL
-      ? buildStorageUrl(env.STORAGE_BASE_URL, entry.Asset.storageKey)
-      : null,
-    mimeType: entry.Asset.contentType,
-    mediaType: entry.Asset.type,
-    source: entry.Asset.source,
-    uploadContext: entry.Asset.uploadContext,
-    createdAt: entry.Asset.createdAt,
-  }));
+    const media = post.PostAsset.map((entry) => ({
+      id: entry.Asset.id,
+      storageKey: entry.Asset.storageKey,
+      url: env.STORAGE_BASE_URL
+        ? buildStorageUrl(env.STORAGE_BASE_URL, entry.Asset.storageKey)
+        : null,
+      mimeType: entry.Asset.contentType,
+      mediaType: entry.Asset.type,
+      source: entry.Asset.source,
+      uploadContext: entry.Asset.uploadContext,
+      createdAt: entry.Asset.createdAt,
+    }));
 
-  const failureReason =
-    post.scheduleType === "POSTING"
-      ? post.targets.find((target) => target.errorMessage)?.errorMessage ??
-      (post.status === "FAILED" ? "One or more publish targets failed" : null)
-        (post.status === "FAILED" ? "One or more publish targets failed" : null)
-      : post.sessionFailureReason;
+    const failureReason =
+      post.scheduleType === "POSTING"
+        ? post.targets.find((target) => target.errorMessage)?.errorMessage ??
+          (post.status === "FAILED" ? "One or more publish targets failed" : null)
+        : post.sessionFailureReason;
 
     return {
-  id: post.id,
-  scheduleType: post.scheduleType,
-  caption: post.caption,
-  captionPreview: post.caption ? post.caption.slice(0, 140) : null,
-  hashtags: Array.isArray(post.hashtags) ? (post.hashtags as string[]) : [],
-  cta: post.cta,
-  shortDescription: post.shortDescription,
-  scheduledAt: post.scheduledFor,
-  timezone: null,
-  status: post.status,
-  schedulerStatus: this.toSchedulerStatus(post.status, post.scheduleType, post.sessionStatus),
-  session: post.scheduleType === "POSTING"
-    ? null
-    : {
-      title: post.sessionTitle,
-      notes: post.sessionNotes,
-      durationMinutes: post.sessionDurationMinutes,
-      status: post.sessionStatus,
-      failureReason: post.sessionFailureReason,
-      calendly: {
-        syncStatus: post.calendlySyncStatus,
-        eventUri: post.calendlyEventUri,
-        inviteeUri: post.calendlyInviteeUri,
-        syncError: post.calendlySyncError,
-        lastSyncedAt: post.calendlyLastSyncedAt,
-      },
-    },
-  failureReason,
-  selectedPlatforms: post.targets.map((target) => target.platform),
-  targets: post.targets.map((target) => ({
-    id: target.id,
-    platform: target.platform,
-    status: target.status,
-    scheduledAt: target.scheduledFor,
-    publishedAt: target.publishedAt,
-    failureReason: target.errorMessage,
-    socialAccount: target.socialAccount
-      ? {
-        id: target.socialAccount.id,
-        platform: target.socialAccount.platform,
-        displayName: target.socialAccount.displayName,
-        externalAccountId: target.socialAccount.externalAccountId,
-        expiresAt: target.socialAccount.expiresAt,
-      }
-            id: target.socialAccount.id,
-    platform: target.socialAccount.platform,
-    displayName: target.socialAccount.displayName,
-    externalAccountId: target.socialAccount.externalAccountId,
-    expiresAt: target.socialAccount.expiresAt,
-  }
+      id: post.id,
+      scheduleType: post.scheduleType,
+      caption: post.caption,
+      captionPreview: post.caption ? post.caption.slice(0, 140) : null,
+      hashtags: Array.isArray(post.hashtags) ? (post.hashtags as string[]) : [],
+      cta: post.cta,
+      shortDescription: post.shortDescription,
+      scheduledAt: post.scheduledFor,
+      timezone: null,
+      status: post.status,
+      schedulerStatus: this.toSchedulerStatus(post.status, post.scheduleType, post.sessionStatus),
+      session:
+        post.scheduleType === "POSTING"
+          ? null
+          : {
+              title: post.sessionTitle,
+              notes: post.sessionNotes,
+              durationMinutes: post.sessionDurationMinutes,
+              status: post.sessionStatus,
+              failureReason: post.sessionFailureReason,
+              calendly: {
+                syncStatus: post.calendlySyncStatus,
+                eventUri: post.calendlyEventUri,
+                inviteeUri: post.calendlyInviteeUri,
+                syncError: post.calendlySyncError,
+                lastSyncedAt: post.calendlyLastSyncedAt,
+              },
+            },
+      failureReason,
+      selectedPlatforms: post.targets.map((target) => target.platform),
+      targets: post.targets.map((target) => ({
+        id: target.id,
+        platform: target.platform,
+        status: target.status,
+        scheduledAt: target.scheduledFor,
+        publishedAt: target.publishedAt,
+        failureReason: target.errorMessage,
+        socialAccount: target.socialAccount
+          ? {
+              id: target.socialAccount.id,
+              platform: target.socialAccount.platform,
+              displayName: target.socialAccount.displayName,
+              externalAccountId: target.socialAccount.externalAccountId,
+              expiresAt: target.socialAccount.expiresAt,
+            }
           : null,
       })),
-media,
-  assets: media.map((item) => item.url).filter((url): url is string => Boolean(url)),
-    owner: ownerSummary,
+      media,
+      assets: media.map((item) => item.url).filter((url): url is string => Boolean(url)),
+      owner: ownerSummary,
       initiatedBy: post.initiatedBy,
-        admin: post.admin,
-          adminReason: post.adminReason,
-            createdAt: post.createdAt,
-              updatedAt: post.updatedAt,
-                events: post.events.map((event) => ({
-                  type: event.type,
-                  message: event.message,
-                  createdAt: event.createdAt,
-                })),
+      admin: post.admin,
+      adminReason: post.adminReason,
+      createdAt: post.createdAt,
+      updatedAt: post.updatedAt,
+      events: post.events.map((event) => ({
+        type: event.type,
+        message: event.message,
+        createdAt: event.createdAt,
+      })),
     };
   }
 
@@ -963,7 +927,6 @@ media,
         socialAccountId: account.id ?? null,
         platform: account.platform,
         status: PostTargetStatus.SCHEDULED,
-        status: PostTargetStatus.SCHEDULED,
         scheduledFor: input.scheduledAt,
       })),
     });
@@ -1091,7 +1054,6 @@ media,
         postId,
         socialAccountId: account.id ?? null,
         platform: account.platform,
-        status: PostTargetStatus.SCHEDULED,
         status: PostTargetStatus.SCHEDULED,
         scheduledFor: nextScheduledAt,
       })),
@@ -1517,52 +1479,33 @@ media,
       : {}),
     ...(range.start || range.end
       ? {
-        scheduledFor: {
-          ...(range.start ? { gte: range.start } : {}),
-          ...(range.end ? { lte: range.end } : {}),
-        },
-      }
           scheduledFor: {
-      ...(range.start ? { gte: range.start } : {}),
-      ...(range.end ? { lte: range.end } : {}),
-    },
-  }
-        : { }),
-      ...(filters.platform?.length
-    ? {
-      targets: {
-        some: {
-          platform: { in: filters.platform },
-        },
-      },
-    }
-          targets: {
-    some: {
-      platform: { in: filters.platform },
-    },
-  },
-}
-        : { }),
-      ...(filters.failure
-  ? {
-    OR: [
-      { status: "FAILED" },
-      { targets: { some: { status: "FAILED" } } },
-      { targets: { some: { errorMessage: { not: null } } } },
-      { sessionStatus: "FAILED" },
-      { sessionFailureReason: { not: null } },
-    ],
-  }
-          OR: [
-  { status: "FAILED" },
-  { targets: { some: { status: "FAILED" } } },
-  { targets: { some: { errorMessage: { not: null } } } },
-  { sessionStatus: "FAILED" },
-  { sessionFailureReason: { not: null } },
-],
+            ...(range.start ? { gte: range.start } : {}),
+            ...(range.end ? { lte: range.end } : {}),
+          },
         }
-        : { }),
-    };
+      : {}),
+    ...(filters.platform?.length
+      ? {
+          targets: {
+            some: {
+              platform: { in: filters.platform },
+            },
+          },
+        }
+      : {}),
+    ...(filters.failure
+      ? {
+          OR: [
+            { status: "FAILED" },
+            { targets: { some: { status: "FAILED" } } },
+            { targets: { some: { errorMessage: { not: null } } } },
+            { sessionStatus: "FAILED" },
+            { sessionFailureReason: { not: null } },
+          ],
+        }
+      : {}),
+  };
 
 const totalCount = await prisma.post.count({ where });
 const skip = (filters.page - 1) * filters.pageSize;

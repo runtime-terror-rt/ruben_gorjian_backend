@@ -42,30 +42,18 @@ const noopLimiter: express.RequestHandler = (_req, _res, next) => next();
 const limiter =
   env.NODE_ENV === "production"
     ? rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 100,
-      message: { error: "Too many requests from this IP, please try again later." },
-      standardHeaders: true,
-      legacyHeaders: false,
-      skip: (req) => req.path === "/health" || req.path === "/auth/me",
-      handler: (req, res, _next, options) => {
-        const msg = options.message ?? { error: "Too many requests" };
-        logger.warn("Rate limit hit", { path: req.path });
-        res.status(options.statusCode ?? 429).json(msg);
-      },
-    })
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 100,
-      message: { error: "Too many requests from this IP, please try again later." },
-      standardHeaders: true,
-      legacyHeaders: false,
-      skip: (req) => req.path === "/health" || req.path === "/auth/me",
-      handler: (req, res, _next, options) => {
-        const msg = options.message ?? { error: "Too many requests" };
-        logger.warn("Rate limit hit", { path: req.path });
-        res.status(options.statusCode ?? 429).json(msg);
-      },
-    })
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        max: 100,
+        message: { error: "Too many requests from this IP, please try again later." },
+        standardHeaders: true,
+        legacyHeaders: false,
+        skip: (req) => req.path === "/health" || req.path === "/auth/me",
+        handler: (req, res, _next, options) => {
+          const msg = options.message ?? { error: "Too many requests" };
+          logger.warn("Rate limit hit", { path: req.path });
+          res.status(options.statusCode ?? 429).json(msg);
+        },
+      })
     : noopLimiter;
 
 
