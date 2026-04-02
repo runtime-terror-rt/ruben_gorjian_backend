@@ -1,6 +1,10 @@
 import type { Request, Response } from "express";
 import { handleError } from "../../lib/errors";
 import { SocialMediaService } from "./onlinePost.service";
+<<<<<<< HEAD
+=======
+import { ScheduledPostStatus, SocialPlatform } from "@prisma/client";
+>>>>>>> b22be671676a534933f746c1b1b2d537c611cb1f
 
 type AuthedRequest = Request & { user?: any };
 
@@ -220,6 +224,7 @@ export class OnlinePostController {
       return handleError(error, res);
     }
   };
+<<<<<<< HEAD
   getAllPlatformLinks = async (req: AuthedRequest, res: Response) => {
     try {
       const result = await this.onlinePostService.getAllPlatformLinks();
@@ -231,6 +236,89 @@ export class OnlinePostController {
       };
 
       return res.status(200).json(response);
+=======
+
+  getAllPlatformLinks = async (req: AuthedRequest, res: Response) => {
+    try {
+      const { email, search, platforms, page, limit } = req.query;
+
+      const filter: { email?: string; platforms?: SocialPlatform[] } = {};
+
+      if (email && typeof email === "string") filter.email = email;
+
+      if (platforms) {
+        let platformArray: SocialPlatform[] = [];
+
+        if (typeof platforms === "string") {
+          // Split comma-separated and cast to enum
+          platformArray = platforms
+            .split(",")
+            .map((p) => p.trim().toUpperCase() as SocialPlatform)
+            .filter((p) => ["FACEBOOK", "INSTAGRAM", "TIKTOK"].includes(p));
+        } else if (Array.isArray(platforms)) {
+          platformArray = platforms
+            .map((p) => String(p).trim().toUpperCase() as SocialPlatform)
+            .filter((p) => ["FACEBOOK", "INSTAGRAM", "TIKTOK"].includes(p));
+        }
+
+        if (platformArray.length) filter.platforms = platformArray;
+      }
+
+      const pageNumber = page ? parseInt(page as string, 10) : 1;
+      const limitNumber = limit ? parseInt(limit as string, 10) : 20;
+
+      const result = await this.onlinePostService.getAllPlatformLinks(
+        filter,
+        typeof search === "string" ? search : undefined,
+        pageNumber,
+        limitNumber,
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "My connected links fetched successfully.",
+        data: result,
+      });
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  getAllPost = async (req: AuthedRequest, res: Response) => {
+    try {
+      const { platform, status, search, page, limit } = req.query;
+
+      // Build filter object
+      const filter: {
+        platform?: SocialPlatform;
+        status?: ScheduledPostStatus;
+      } = {};
+
+      if (
+        platform &&
+        Object.values(SocialPlatform).includes(platform as SocialPlatform)
+      ) {
+        filter.platform = platform as SocialPlatform;
+      }
+
+      if (
+        status &&
+        Object.values(ScheduledPostStatus).includes(
+          status as ScheduledPostStatus,
+        )
+      ) {
+        filter.status = status as ScheduledPostStatus;
+      }
+
+      const result = await this.onlinePostService.getAllPost(
+        filter,
+        search as string,
+        page ? parseInt(page as string, 10) : 1,
+        limit ? parseInt(limit as string, 10) : 20,
+      );
+
+      return res.json(result);
+>>>>>>> b22be671676a534933f746c1b1b2d537c611cb1f
     } catch (error) {
       return handleError(error, res);
     }

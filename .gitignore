@@ -30,12 +30,18 @@ lerna-debug.log*
 *.sublime-workspace
 
 # IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 
 # dotenv environment variable files
 .env.development.local
 .env.test.local
 .env.production.local
 .env.backup
+.env
 
 # temp directory
 .temp
@@ -62,3 +68,5 @@ config.bat
 config.bat
 .env.example
 >>>>>>> 5e1aacd8fafd64f548198ba5a6c4192efa223953
+pnpm-lock.yaml
+pnpm-workspace.yaml

@@ -1,10 +1,14 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> b22be671676a534933f746c1b1b2d537c611cb1f
 {
     "recommendations": [
         "myml.vscode-markdown-plantuml-preview",
         "esbenp.prettier-vscode",
         "jebbs.plantuml"
     ]
+<<<<<<< HEAD
 =======
 {
     "recommendations": [
@@ -13,4 +17,6 @@
         "jebbs.plantuml"
     ]
 >>>>>>> origin/dev
+=======
+>>>>>>> b22be671676a534933f746c1b1b2d537c611cb1f
 }
