@@ -2,16 +2,31 @@ import { Router } from "express";
 import { TiktokController } from "./tiktok.controller";
 import { requireAuth } from "../../../middleware/requireAuth";
 import multer from "multer";
+import { ApiError } from "../../../lib/errors";
 
 const router = Router();
 
 const tikTokController = new TiktokController();
 
 const multipartUpload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: "./uploads",
+    filename: (req, file, cb) => {
+      const uniqueName = `${Date.now()}-${file.originalname}`;
+      cb(null, uniqueName);
+    },
+  }),
+
   limits: {
-    files: 10,
-    fileSize: 100 * 1024 * 1024,
+    fileSize: 200 * 1024 * 1024, // 200MB
+  },
+
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("video/")) {
+      cb(null, true);
+    } else {
+      cb(new ApiError(400, "Only video files are allowed"));
+    }
   },
 });
 
