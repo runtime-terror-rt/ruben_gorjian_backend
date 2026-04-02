@@ -38,6 +38,7 @@ Behavior:
 - creates asset rows
 - links assets to post
 - creates post targets for selected social accounts
+- enqueues publish job to Redis/BullMQ with delay until `scheduledAt`
 
 ## 2) Update posting schedule
 
@@ -136,13 +137,21 @@ Canceled:
 }
 ```
 
-## 7) Delete schedule item
+## 7) Calendly resync (admin/super-admin only)
+
+`POST /scheduler/sessions/:id/calendly-resync`
+
+No body.
+
+Use this when a session has `calendly.syncStatus = FAILED` and you want to retry manually.
+
+## 8) Delete schedule item
 
 `DELETE /scheduler/posts/:id`
 
 Works for both posting and session records.
 
-## 8) Get single schedule item
+## 9) Get single schedule item
 
 `GET /scheduler/posts/:id`
 
@@ -150,9 +159,15 @@ Response contains:
 - `scheduleType`
 - posting fields and targets (for posting)
 - `session` object (for sessions)
+- `session.calendly` sync object for sessions:
+  - `syncStatus` (`PENDING|SYNCED|FAILED`)
+  - `eventUri`
+  - `inviteeUri`
+  - `syncError`
+  - `lastSyncedAt`
 - `schedulerStatus` (`pending|completed|failed`)
 
-## 9) Unified list/calendar with pagination
+## 10) Unified list/calendar with pagination
 
 `GET /scheduler/posts`
 
@@ -164,6 +179,7 @@ Query params:
 - `status=draft|scheduled|publishing|posted|failed`
 - `scheduleType=posting|photo_session|video_session`
 - `sessionStatus=booked|completed|failed|canceled`
+- `calendlySyncStatus=pending|synced|failed`
 - `failure=true|false`
 - `platform=instagram|facebook|linkedin`
 - `userId=<clientId>` (admin only)
@@ -198,3 +214,13 @@ Added to `Plan`:
 - `videoSessionEnabled`
 - `photoSessionsPerPeriod`
 - `videoSessionsPerPeriod`
+
+## Session email + sync behavior
+
+- Session create/update/status APIs trigger email notifications (client + admins) when SMTP is configured.
+- Calendly sync is non-blocking:
+  - API success does not depend on Calendly success.
+  - Sync result is stored in session calendly fields and post events.
+  - Calendly sync is enqueued to Redis/BullMQ per booking lifecycle action (create/reschedule/cancel) with retry.
+  - If Redis is unavailable, backend falls back to inline Calendly sync.
+  - Non-retriable Calendly 4xx errors (except 429) are marked failed without queue retry storm.

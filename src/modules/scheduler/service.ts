@@ -15,6 +15,10 @@ import { logger } from "../../lib/logger";
 import { getSubscriptionPeriod } from "../../lib/subscription-period";
 import { validatePostAsUserPermission } from "../../middleware/requireAdminPostPermission";
 import { SchedulerStorageService, validateSchedulerContentType } from "./storage";
+import { sendSchedulerEmail } from "./email";
+import { SchedulerCalendlyAction } from "./calendly";
+import { enqueueSchedulerEmail } from "../jobs/scheduler-email-queue";
+import { enqueuePostPublish } from "../jobs/post-queue";
 import {
   Actor,
   SchedulerCreateInput,
@@ -285,6 +289,11 @@ export class SchedulerService {
     const _selectedPlatforms = new Set(accounts.map((account) => account.platform));
     const _assets = assets;
 
+    const videoCount = assets.filter((asset) => asset.type === "VIDEO").length;
+    if (videoCount > 1) {
+      throw new Error("Only one video is allowed per scheduled post");
+    }
+
     if (assets.length > 0 && !env.STORAGE_BASE_URL) {
       throw new Error("STORAGE_BASE_URL must be configured before scheduling media posts");
     }
@@ -431,6 +440,13 @@ export class SchedulerService {
           durationMinutes: post.sessionDurationMinutes,
           status: post.sessionStatus,
           failureReason: post.sessionFailureReason,
+          calendly: {
+            syncStatus: post.calendlySyncStatus,
+            eventUri: post.calendlyEventUri,
+            inviteeUri: post.calendlyInviteeUri,
+            syncError: post.calendlySyncError,
+            lastSyncedAt: post.calendlyLastSyncedAt,
+          },
         },
       failureReason,
       selectedPlatforms: post.targets.map((target) => target.platform),
@@ -481,6 +497,212 @@ export class SchedulerService {
         payload: payload as Prisma.InputJsonValue,
       },
     });
+  }
+
+  private async enqueueScheduledPostPublish(postId: string, scheduledAt: Date | null | undefined) {
+    if (!scheduledAt) {
+      logger.info("Post publish enqueue skipped: no scheduledAt", { postId });
+      return;
+    }
+
+    const delay = Math.max(0, scheduledAt.getTime() - Date.now());
+    const enqueued = await enqueuePostPublish(postId, {
+      delay,
+    });
+
+    if (!enqueued) {
+      logger.warn("Post publish enqueue skipped (queue unavailable)", { postId });
+      return;
+    }
+
+    logger.info("Post publish enqueued", {
+      postId,
+      delayMs: delay,
+      scheduledAt: scheduledAt.toISOString(),
+    });
+  }
+
+  private async listAdminEmails() {
+    const admins = await prisma.user.findMany({
+      where: {
+        role: { in: ["ADMIN", "SUPER_ADMIN"] },
+        status: "ACTIVE",
+      },
+      select: {
+        email: true,
+      },
+    });
+
+    const emails = admins
+      .map((admin) => admin.email?.trim().toLowerCase())
+      .filter((email): email is string => Boolean(email));
+
+    if (env.ADMIN_EMAIL) {
+      emails.push(env.ADMIN_EMAIL.trim().toLowerCase());
+    }
+
+    return Array.from(new Set(emails));
+  }
+
+  private async createSessionInAppNotifications(
+    postId: string,
+    action: "booked" | "rescheduled" | "completed" | "failed" | "canceled"
+  ) {
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!post || post.scheduleType === "POSTING") {
+      return;
+    }
+
+    const sessionLabel = post.scheduleType === "PHOTO_SESSION" ? "photo session" : "video session";
+    const title = "Scheduler Session Update";
+    const message = `Your ${sessionLabel} has been ${action}.`;
+    const payload = {
+      postId: post.id,
+      scheduleType: post.scheduleType,
+      action,
+      scheduledAt: post.scheduledFor?.toISOString() ?? null,
+      sessionStatus: post.sessionStatus,
+    };
+
+    await prisma.notification.create({
+      data: {
+        userId: post.userId,
+        type: "ADMIN_POST_CREATED",
+        title,
+        message,
+        payload: payload as Prisma.InputJsonValue,
+      },
+    });
+
+    const admins = await prisma.user.findMany({
+      where: {
+        role: { in: ["ADMIN", "SUPER_ADMIN"] },
+        status: "ACTIVE",
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!admins.length) {
+      return;
+    }
+
+    await prisma.notification.createMany({
+      data: admins.map((admin) => ({
+        userId: admin.id,
+        type: "ADMIN_POST_CREATED",
+        title,
+        message: `${post.user.name || post.user.email}'s ${sessionLabel} has been ${action}.`,
+        payload: payload as Prisma.InputJsonValue,
+      })),
+    });
+  }
+
+  private async sendSessionLifecycleEmails(
+    postId: string,
+    action:
+      | "booked"
+      | "rescheduled"
+      | "status_completed"
+      | "status_failed"
+      | "status_canceled"
+  ) {
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!post || post.scheduleType === "POSTING" || !post.user?.email) {
+      return;
+    }
+
+    const sessionLabel = post.scheduleType === "PHOTO_SESSION" ? "Photo Session" : "Video Session";
+    const when = post.scheduledFor ? post.scheduledFor.toISOString() : "TBD";
+
+    const subjectMap: Record<typeof action, string> = {
+      booked: `${sessionLabel} booked`,
+      rescheduled: `${sessionLabel} rescheduled`,
+      status_completed: `${sessionLabel} completed`,
+      status_failed: `${sessionLabel} failed`,
+      status_canceled: `${sessionLabel} canceled`,
+    };
+
+    const userBody =
+      `Hello ${post.user.name || "there"},\n\n` +
+      `Your ${sessionLabel.toLowerCase()} has been ${action.replace("status_", "").replace("_", " ")}.\n` +
+      `Session ID: ${post.id}\n` +
+      `Schedule: ${when}\n` +
+      `Duration (minutes): ${post.sessionDurationMinutes ?? "N/A"}\n` +
+      `${post.sessionFailureReason ? `Failure reason: ${post.sessionFailureReason}\n` : ""}` +
+      `\nRegards,\nTalexia`;
+
+    const adminBody =
+      `Scheduler session update\n\n` +
+      `Action: ${action}\n` +
+      `Session: ${sessionLabel}\n` +
+      `Session ID: ${post.id}\n` +
+      `User: ${post.user.email}\n` +
+      `Schedule: ${when}\n` +
+      `Duration (minutes): ${post.sessionDurationMinutes ?? "N/A"}\n` +
+      `${post.sessionFailureReason ? `Failure reason: ${post.sessionFailureReason}\n` : ""}`;
+
+    const userEmailPayload = {
+      to: post.user.email,
+      subject: subjectMap[action],
+      body: userBody,
+      context: "scheduler-session-lifecycle-user",
+      postId: post.id,
+      action,
+    };
+    const userEnqueued = await enqueueSchedulerEmail(userEmailPayload);
+    if (!userEnqueued) {
+      await sendSchedulerEmail(userEmailPayload);
+    }
+
+    const adminEmails = await this.listAdminEmails();
+    await Promise.all(
+      adminEmails.map(async (email) => {
+        const payload = {
+          to: email,
+          subject: `[Admin] ${subjectMap[action]}`,
+          body: adminBody,
+          context: "scheduler-session-lifecycle-admin",
+          postId: post.id,
+          action,
+        };
+        const enqueued = await enqueueSchedulerEmail(payload);
+        if (!enqueued) {
+          await sendSchedulerEmail(payload);
+        }
+      })
+    );
+  }
+
+  private async syncSessionCalendly(postId: string, action: SchedulerCalendlyAction) {
+    // Calendly integration is temporarily disabled.
+    logger.info("Calendly sync is temporarily disabled; skipping", { postId, action });
+    return;
   }
 
   async createMediaUploads(actor: Actor, data: SchedulerUploadInput) {
@@ -730,6 +952,11 @@ export class SchedulerService {
       );
     }
 
+    await Promise.allSettled([
+      this.enqueueScheduledPostPublish(postId, input.scheduledAt),
+      this.syncSessionCalendly(postId, "create"),
+    ]);
+
     return this.getScheduledPost(actor, postId);
   }
 
@@ -853,6 +1080,11 @@ export class SchedulerService {
       );
     }
 
+    await Promise.allSettled([
+      this.enqueueScheduledPostPublish(postId, nextScheduledAt),
+      this.syncSessionCalendly(postId, "reschedule"),
+    ]);
+
     return this.getScheduledPost(actor, postId);
   }
 
@@ -919,6 +1151,11 @@ export class SchedulerService {
           sessionNotes: input.sessionNotes ?? null,
           sessionDurationMinutes: input.sessionDurationMinutes,
           sessionFailureReason: null,
+          calendlySyncStatus: env.CALENDLY_API_ENDPOINT ? "PENDING" : null,
+          calendlyEventUri: null,
+          calendlyInviteeUri: null,
+          calendlySyncError: null,
+          calendlyLastSyncedAt: null,
           initiatedBy: isAdmin(actor) && userId !== actor.id ? "ADMIN" : "USER",
           adminId: isAdmin(actor) && userId !== actor.id ? actor.id : null,
           adminReason: isAdmin(actor) && userId !== actor.id ? input.adminReason ?? null : null,
@@ -946,6 +1183,17 @@ export class SchedulerService {
         { postId, scheduleType: input.scheduleType, scheduledAt: input.scheduledAt.toISOString() }
       );
     }
+
+    await Promise.allSettled([
+      this.createSessionInAppNotifications(postId, "booked"),
+      this.sendSessionLifecycleEmails(postId, "booked"),
+      this.syncSessionCalendly(postId, "create"),
+    ]);
+    logger.info("Session lifecycle hooks processed", {
+      postId,
+      scheduleType: input.scheduleType,
+      lifecycleAction: "booked",
+    });
 
     return this.getScheduledPost(actor, postId);
   }
@@ -1010,6 +1258,17 @@ export class SchedulerService {
               : "Session updated by owner",
         },
       });
+    });
+
+    await Promise.allSettled([
+      this.createSessionInAppNotifications(postId, "rescheduled"),
+      this.sendSessionLifecycleEmails(postId, "rescheduled"),
+      this.syncSessionCalendly(postId, "reschedule"),
+    ]);
+    logger.info("Session lifecycle hooks processed", {
+      postId,
+      scheduleType: existingPost.scheduleType,
+      lifecycleAction: "rescheduled",
     });
 
     return this.getScheduledPost(actor, postId);
@@ -1078,6 +1337,52 @@ export class SchedulerService {
       });
     });
 
+    const lifecycleAction =
+      input.status === "completed"
+        ? "completed"
+        : input.status === "failed"
+          ? "failed"
+          : "canceled";
+
+    await Promise.allSettled([
+      this.createSessionInAppNotifications(postId, lifecycleAction),
+      this.sendSessionLifecycleEmails(
+        postId,
+        input.status === "completed"
+          ? "status_completed"
+          : input.status === "failed"
+            ? "status_failed"
+            : "status_canceled"
+      ),
+      ...(input.status === "canceled" ? [this.syncSessionCalendly(postId, "cancel")] : []),
+    ]);
+    logger.info("Session lifecycle hooks processed", {
+      postId,
+      scheduleType: existingPost.scheduleType,
+      lifecycleAction,
+    });
+
+    return this.getScheduledPost(actor, postId);
+  }
+
+  async resyncSessionCalendly(actor: Actor, postId: string) {
+    if (!isAdmin(actor)) {
+      throw new Error("Only admin or super admin can resync Calendly");
+    }
+
+    const post = await this.getOwnedPost(actor, postId);
+    const action: SchedulerCalendlyAction =
+      post.scheduleType !== "POSTING" && post.sessionStatus === "CANCELED"
+        ? "cancel"
+        : post.calendlyEventUri
+          ? "reschedule"
+          : "create";
+
+    logger.info("Calendly resync requested but integration is disabled", {
+      postId,
+      action,
+      actorId: actor.id,
+    });
     return this.getScheduledPost(actor, postId);
   }
 
@@ -1168,6 +1473,9 @@ export class SchedulerService {
       ...(filters.status?.length ? { status: { in: filters.status } } : {}),
       ...(filters.scheduleType?.length ? { scheduleType: { in: filters.scheduleType } } : {}),
       ...(filters.sessionStatus?.length ? { sessionStatus: { in: filters.sessionStatus } } : {}),
+      ...(filters.calendlySyncStatus?.length
+        ? { calendlySyncStatus: { in: filters.calendlySyncStatus } }
+        : {}),
       ...(range.start || range.end
         ? {
           scheduledFor: {
@@ -1260,6 +1568,7 @@ export class SchedulerService {
         status: filters.status ?? [],
         scheduleType: filters.scheduleType ?? [],
         sessionStatus: filters.sessionStatus ?? [],
+        calendlySyncStatus: filters.calendlySyncStatus ?? [],
         failure: filters.failure ?? false,
         userId: targetUserId,
         platform: filters.platform ?? [],

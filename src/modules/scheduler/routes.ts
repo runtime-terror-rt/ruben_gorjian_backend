@@ -3,6 +3,7 @@ import multer from "multer";
 import { PostStatus, ScheduleType, SessionStatus, SocialPlatform } from "@prisma/client";
 import { requireAuth } from "../../middleware/requireAuth";
 import { SchedulerService } from "./service";
+import type { SchedulerCalendlySyncStatus } from "./interfaces";
 import { parseEnumQueryList } from "./functions";
 import {
   schedulerCreateSessionSchema,
@@ -51,6 +52,12 @@ const sessionStatusMap: Record<string, SessionStatus> = {
   completed: SessionStatus.COMPLETED,
   failed: SessionStatus.FAILED,
   canceled: SessionStatus.CANCELED,
+};
+
+const calendlySyncStatusMap: Record<string, SchedulerCalendlySyncStatus> = {
+  pending: "PENDING",
+  synced: "SYNCED",
+  failed: "FAILED",
 };
 
 function resolveSessionErrorStatus(message: string) {
@@ -265,6 +272,17 @@ router.patch("/sessions/:id/status", async (req, res) => {
   }
 });
 
+router.post("/sessions/:id/calendly-resync", async (req, res) => {
+  try {
+    const session = await schedulerService.resyncSessionCalendly(req.user!, req.params.id);
+    return res.json({ session });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to resync Calendly";
+    const statusCode = resolveSessionErrorStatus(message);
+    return res.status(statusCode).json({ error: message });
+  }
+});
+
 router.get("/posts", async (req, res) => {
   const parsed = schedulerListQuerySchema.safeParse(req.query);
   if (!parsed.success) {
@@ -277,6 +295,11 @@ router.get("/posts", async (req, res) => {
     const statuses = parseEnumQueryList(parsed.data.status, postStatusMap, "status");
     const scheduleTypes = parseEnumQueryList(parsed.data.scheduleType, scheduleTypeMap, "scheduleType");
     const sessionStatuses = parseEnumQueryList(parsed.data.sessionStatus, sessionStatusMap, "sessionStatus");
+    const calendlySyncStatuses = parseEnumQueryList(
+      parsed.data.calendlySyncStatus,
+      calendlySyncStatusMap,
+      "calendlySyncStatus"
+    );
     const platforms = parseEnumQueryList(parsed.data.platform, platformMap, "platform");
     const result = await schedulerService.listScheduledPosts(req.user!, {
       view: parsed.data.view,
@@ -286,6 +309,7 @@ router.get("/posts", async (req, res) => {
       status: statuses,
       scheduleType: scheduleTypes,
       sessionStatus: sessionStatuses,
+      calendlySyncStatus: calendlySyncStatuses,
       failure: parsed.data.failure,
       userId: parsed.data.userId,
       platform: platforms,

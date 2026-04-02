@@ -325,6 +325,11 @@ model Post {
   sessionNotes     String?
   sessionDurationMinutes Int?
   sessionFailureReason String?
+  calendlySyncStatus CalendlySyncStatus?
+  calendlyEventUri String?
+  calendlyInviteeUri String?
+  calendlySyncError String?
+  calendlyLastSyncedAt DateTime?
   scheduledFor     DateTime?
   caption          String?
   hashtags         Json?
@@ -347,6 +352,7 @@ model Post {
   @@index([scheduledFor])
   @@index([scheduleType])
   @@index([sessionStatus])
+  @@index([calendlySyncStatus])
   @@index([adminId])
   @@index([initiatedBy])
 }
@@ -705,6 +711,12 @@ enum SessionStatus {
   COMPLETED
   FAILED
   CANCELED
+}
+
+enum CalendlySyncStatus {
+  PENDING
+  SYNCED
+  FAILED
 }
 
 enum PostInitiator {
