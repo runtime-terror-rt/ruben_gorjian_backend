@@ -30,23 +30,12 @@ lerna-debug.log*
 *.sublime-workspace
 
 # IDE - VSCode
-<<<<<<< HEAD
-=======
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
->>>>>>> origin/dev
 
 # dotenv environment variable files
 .env.development.local
 .env.test.local
 .env.production.local
 .env.backup
-<<<<<<< HEAD
-=======
->>>>>>> origin/dev
 
 # temp directory
 .temp
