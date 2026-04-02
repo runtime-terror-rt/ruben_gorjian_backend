@@ -5,6 +5,8 @@ import { ApiError } from "../../../lib/errors";
 import { prisma } from "../../../lib/prisma";
 import { env } from "../../../config/env";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { Upload } from "@aws-sdk/lib-storage";
+import fs from "fs";
 
 // Express routes should use `handleError()` to convert these into proper HTTP responses.
 class BadRequestException extends ApiError {
@@ -95,6 +97,36 @@ export class TiktokService {
     return `${baseUrl.replace(/\/+$/, "")}/${storageKey.replace(/^\/+/, "")}`;
   }
 
+  // private async uploadMultipartFiles(
+  //   userId: string,
+  //   files: Express.Multer.File[],
+  // ): Promise<string[]> {
+  //   if (!files.length) return [];
+
+  //   if (!this.s3Client || !env.S3_BUCKET) {
+  //     throw new BadRequestException("S3 upload is not configured");
+  //   }
+
+  //   const uploadedUrls: string[] = [];
+
+  //   for (const file of files) {
+  //     const storageKey = `attachments/media/${Date.now()}_${userId}_${this.sanitizeFilename(file.originalname)}`;
+
+  //     await this.s3Client.send(
+  //       new PutObjectCommand({
+  //         Bucket: env.S3_BUCKET,
+  //         Key: storageKey,
+  //         Body: file.buffer,
+  //         ContentType: file.mimetype || "application/octet-stream",
+  //       }),
+  //     );
+
+  //     uploadedUrls.push(this.buildStorageUrl(storageKey));
+  //   }
+
+  //   return uploadedUrls;
+  // }
+
   private async uploadMultipartFiles(
     userId: string,
     files: Express.Multer.File[],
@@ -110,16 +142,24 @@ export class TiktokService {
     for (const file of files) {
       const storageKey = `attachments/media/${Date.now()}_${userId}_${this.sanitizeFilename(file.originalname)}`;
 
-      await this.s3Client.send(
-        new PutObjectCommand({
+      const fileStream = fs.createReadStream(file.path);
+
+      const upload = new Upload({
+        client: this.s3Client,
+        params: {
           Bucket: env.S3_BUCKET,
           Key: storageKey,
-          Body: file.buffer,
+          Body: fileStream,
           ContentType: file.mimetype || "application/octet-stream",
-        }),
-      );
+        },
+      });
+
+      await upload.done();
 
       uploadedUrls.push(this.buildStorageUrl(storageKey));
+
+      // ✅ cleanup file after upload
+      fs.unlinkSync(file.path);
     }
 
     return uploadedUrls;
@@ -354,7 +394,6 @@ export class TiktokService {
   public async publishTikTokMultipartByUserNow(
     user: User,
     payload: {
-      username: string;
       file: Express.Multer.File;
       title?: string;
       asyncUpload?: boolean;
@@ -363,9 +402,7 @@ export class TiktokService {
     // ✅ Ensure TikTok is linked
     await this.ensurePlatformLinked(user.id, SocialPlatform.TIKTOK);
 
-    if (!payload.username?.trim()) {
-      throw new BadRequestException("username is required");
-    }
+    const username = user.email.split("@")[0];
 
     if (!payload.file) {
       throw new BadRequestException("File is required");
@@ -387,7 +424,7 @@ export class TiktokService {
 
     // ✅ Prepare form to Upload Post API
     const form = new FormData();
-    form.append("user", payload.username.trim());
+    form.append("user", username.trim());
     form.append("platform[]", "tiktok");
     form.append("video", videoUrl); // send S3 URL here
 
@@ -407,6 +444,11 @@ export class TiktokService {
         method: "POST",
         body: form,
       });
+
+      console.log(
+        "🚀 ~ tiktok.services.ts:404 ~ TiktokService ~ publishTikTokMultipartByUserNow ~ result:",
+        result,
+      );
     } catch (error) {
       console.error("TikTok upload error:", error);
       throw new BadRequestException({ message: "TikTok upload failed", error });
@@ -448,7 +490,7 @@ export class TiktokService {
     payload: {
       username: string;
       title?: string;
-      mediaUrl: string; 
+      mediaUrl: string;
       asyncUpload?: boolean;
     },
   ) {
