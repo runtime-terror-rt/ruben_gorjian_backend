@@ -1,10 +1,12 @@
 # Unified Scheduler API
 
 Base paths:
+
 - `/scheduler`
 - `/api/scheduler`
 
 One scheduler domain, two flows:
+
 - Posting flow (`scheduleType=POSTING`)
 - Session flow (`scheduleType=PHOTO_SESSION | VIDEO_SESSION`)
 
@@ -16,10 +18,12 @@ Calendly and video checkout are intentionally not included in this phase.
 Content-Type: `multipart/form-data`
 
 Form fields:
+
 - `data` (required JSON string)
 - `files` (optional, repeatable)
 
 `data` JSON:
+
 ```json
 {
   "userId": "optional_client_id_for_admin",
@@ -34,6 +38,7 @@ Form fields:
 ```
 
 Behavior:
+
 - backend uploads files to S3 if provided
 - creates asset rows
 - links assets to post
@@ -43,6 +48,7 @@ Behavior:
 ## 2) Update posting schedule
 
 `PATCH /scheduler/posts/:id`
+
 ```json
 {
   "caption": "Updated caption",
@@ -57,6 +63,7 @@ Behavior:
 `PATCH /scheduler/posts/:id/publish-status`
 
 Completed:
+
 ```json
 {
   "status": "completed",
@@ -65,6 +72,7 @@ Completed:
 ```
 
 Failed:
+
 ```json
 {
   "status": "failed",
@@ -91,6 +99,7 @@ Content-Type: `application/json`
 ```
 
 Rules:
+
 - must have active subscription
 - plan must allow selected session type
 - session quota per billing period must allow booking
@@ -98,6 +107,7 @@ Rules:
 ## 5) Update session booking
 
 `PATCH /scheduler/sessions/:id`
+
 ```json
 {
   "scheduledAt": "2026-05-21T12:00:00+06:00",
@@ -113,6 +123,7 @@ Rules:
 `PATCH /scheduler/sessions/:id/status`
 
 Completed:
+
 ```json
 {
   "status": "completed",
@@ -121,6 +132,7 @@ Completed:
 ```
 
 Failed:
+
 ```json
 {
   "status": "failed",
@@ -130,6 +142,7 @@ Failed:
 ```
 
 Canceled:
+
 ```json
 {
   "status": "canceled",
@@ -156,6 +169,7 @@ Works for both posting and session records.
 `GET /scheduler/posts/:id`
 
 Response contains:
+
 - `scheduleType`
 - posting fields and targets (for posting)
 - `session` object (for sessions)
@@ -172,6 +186,7 @@ Response contains:
 `GET /scheduler/posts`
 
 Query params:
+
 - `view=day|week|month|list`
 - `date=YYYY-MM-DD`
 - `from=ISO_DATETIME`
@@ -187,6 +202,7 @@ Query params:
 - `pageSize=20`
 
 Response:
+
 - `items`
 - `filters`
 - `meta` with:
@@ -201,6 +217,7 @@ Response:
 ## Status mapping
 
 For UI:
+
 - posting: derived from post status
 - sessions:
   - `BOOKED` => `schedulerStatus=pending`
@@ -210,6 +227,7 @@ For UI:
 ## Plan entitlement fields (DB)
 
 Added to `Plan`:
+
 - `photoSessionEnabled`
 - `videoSessionEnabled`
 - `photoSessionsPerPeriod`
