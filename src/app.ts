@@ -31,10 +31,7 @@ import { logger } from "./lib/logger";
 import { uploadPostProviderRouter } from "./modules/providers/upload-post/routes";
 import { schedulerRouter } from "./modules/scheduler/routes";
 import { onlinePostRouter } from "./modules/onlinePost/onlinePost.route";
-<<<<<<< HEAD
-=======
 import { tiktokRoutes } from "./modules/onlinePost/tiktok/tiktok.routes";
->>>>>>> b22be671676a534933f746c1b1b2d537c611cb1f
 
 export const app = express();
 
@@ -45,6 +42,18 @@ const noopLimiter: express.RequestHandler = (_req, _res, next) => next();
 const limiter =
   env.NODE_ENV === "production"
     ? rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 100,
+      message: { error: "Too many requests from this IP, please try again later." },
+      standardHeaders: true,
+      legacyHeaders: false,
+      skip: (req) => req.path === "/health" || req.path === "/auth/me",
+      handler: (req, res, _next, options) => {
+        const msg = options.message ?? { error: "Too many requests" };
+        logger.warn("Rate limit hit", { path: req.path });
+        res.status(options.statusCode ?? 429).json(msg);
+      },
+    })
       windowMs: 15 * 60 * 1000, // 15 minutes
       max: 100,
       message: { error: "Too many requests from this IP, please try again later." },
@@ -96,6 +105,8 @@ app.use("/posts", postsRouter);
 app.use("/posts", enhancedPostsRouter);
 app.use("/scheduler", schedulerRouter);
 app.use("/api/scheduler", schedulerRouter);
+app.use("/scheduler", schedulerRouter);
+app.use("/api/scheduler", schedulerRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/admin", adminPostRouter);
 app.use("/admin", adminRouter);
@@ -115,8 +126,5 @@ if (env.NODE_ENV !== "production") {
 }
 app.use("/api/providers/upload-post", uploadPostProviderRouter);
 app.use('/api/social-media', onlinePostRouter);
-<<<<<<< HEAD
-=======
 app.use("/api/tiktok", tiktokRoutes); 
->>>>>>> b22be671676a534933f746c1b1b2d537c611cb1f
 app.use(errorHandler);

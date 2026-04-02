@@ -1,10 +1,7 @@
 import type { Request, Response } from "express";
 import { handleError } from "../../lib/errors";
 import { SocialMediaService } from "./onlinePost.service";
-<<<<<<< HEAD
-=======
 import { ScheduledPostStatus, SocialPlatform } from "@prisma/client";
->>>>>>> b22be671676a534933f746c1b1b2d537c611cb1f
 
 type AuthedRequest = Request & { user?: any };
 
@@ -224,19 +221,6 @@ export class OnlinePostController {
       return handleError(error, res);
     }
   };
-<<<<<<< HEAD
-  getAllPlatformLinks = async (req: AuthedRequest, res: Response) => {
-    try {
-      const result = await this.onlinePostService.getAllPlatformLinks();
-
-      const response = {
-        success: true,
-        message: "My connected links get successfully..",
-        data: result,
-      };
-
-      return res.status(200).json(response);
-=======
 
   getAllPlatformLinks = async (req: AuthedRequest, res: Response) => {
     try {
@@ -318,7 +302,6 @@ export class OnlinePostController {
       );
 
       return res.json(result);
->>>>>>> b22be671676a534933f746c1b1b2d537c611cb1f
     } catch (error) {
       return handleError(error, res);
     }

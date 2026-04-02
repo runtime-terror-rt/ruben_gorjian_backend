@@ -31,7 +31,7 @@ export class TiktokController {
 
       return res.json(
         await this.tiktokService.publishTikTokMultipartByUserNow(req.user, {
-          username: data.username as string,
+         
           title: data.title as string,
           asyncUpload: data.asyncUpload as boolean,
           file, // pass single file
