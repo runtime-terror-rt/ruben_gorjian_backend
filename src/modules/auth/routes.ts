@@ -471,6 +471,75 @@ router.post("/reset-password", async (req, res) => {
   return res.json({ success: true });
 });
 
+router.post("/change-password", requireAuth, async (req, res) => {
+  const schema = z.object({
+    "current-password": z.string().min(1),
+    "new-password": z.string().min(8),
+    "confirm-password": z.string().min(8),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const currentPassword = parsed.data["current-password"];
+  const newPassword = parsed.data["new-password"];
+  const confirmPassword = parsed.data["confirm-password"];
+
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ error: "New password and confirm password do not match" });
+  }
+
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ error: "New password must be different from current password" });
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: req.user!.id },
+    select: {
+      id: true,
+      passwordHash: true,
+      status: true,
+    },
+  });
+
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  if (user.status === UserStatus.BLOCKED) {
+    return res.status(403).json({ error: "Account is blocked" });
+  }
+
+  if (user.status === UserStatus.DELETED) {
+    return res.status(403).json({ error: "Account is deleted" });
+  }
+
+  if (!user.passwordHash) {
+    return res.status(400).json({ error: "Password change is unavailable for this account" });
+  }
+
+  const isCurrentPasswordValid = await comparePassword(currentPassword, user.passwordHash);
+  if (!isCurrentPasswordValid) {
+    return res.status(400).json({ error: "Current password is incorrect" });
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: user.id },
+      data: { passwordHash },
+    });
+    await tx.passwordResetToken.deleteMany({
+      where: { userId: user.id, usedAt: null },
+    });
+  });
+
+  return res.json({ success: true, message: "Password changed successfully" });
+});
+
 router.post("/google", async (req, res) => {
   const schema = z.object({
     idToken: z.string(),
