@@ -173,7 +173,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-// PUT /admin/coupons/:couponId
+// PATCH /admin/coupons/:couponId
 router.patch("/:couponId", async (req, res) => {
   try {
     const { couponId } = req.params;
