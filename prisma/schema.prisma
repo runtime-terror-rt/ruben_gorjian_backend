@@ -53,6 +53,8 @@ model User {
   adminInitiatedPosts               Post[]                   @relation("AdminInitiatedPosts")
   adminPostPermissions              AdminPostPermission?
   grantedAdminPostPermissions       AdminPostPermission[]    @relation("AdminPostPermissionGrantedBy")
+  adminRoutePermissions             AdminRoutePermission[]    @relation("AdminRoutePermissions")
+  grantedAdminRoutePermissions      AdminRoutePermission[]    @relation("AdminRoutePermissionsGrantedBy")
   adminUploadedAssets               Asset[]                  @relation("AdminUploadedAssets")
   notifications                     Notification[]
   enhancedDeliveries                EnhancedDelivery[]       @relation("EnhancedDeliveriesByAdmin")
@@ -874,6 +876,26 @@ model AdminPostPermission {
 
   @@index([userId])
   @@index([grantedByAdminId])
+}
+
+model AdminRoutePermission {
+  id               String   @id @default(cuid())
+  adminUserId      String
+  method           String
+  pathPattern      String
+  description      String?
+  active           Boolean  @default(true)
+  grantedByAdminId String
+  grantedAt        DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  adminUser        User     @relation("AdminRoutePermissions", fields: [adminUserId], references: [id], onDelete: Cascade)
+  grantedBy        User     @relation("AdminRoutePermissionsGrantedBy", fields: [grantedByAdminId], references: [id])
+
+  @@index([adminUserId])
+  @@index([grantedByAdminId])
+  @@index([method])
+  @@index([pathPattern])
 }
 
 model Notification {

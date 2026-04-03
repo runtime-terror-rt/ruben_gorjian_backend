@@ -32,6 +32,7 @@ import { uploadPostProviderRouter } from "./modules/providers/upload-post/routes
 import { schedulerRouter } from "./modules/scheduler/routes";
 import { onlinePostRouter } from "./modules/onlinePost/onlinePost.route";
 import { tiktokRoutes } from "./modules/onlinePost/tiktok/tiktok.routes";
+import { virtualAdminRouter } from "./modules/admin/virtual-admin-routes";
 
 export const app = express();
 
@@ -99,6 +100,8 @@ app.use("/api/admin", adminRouter);
 app.use("/api/admin", adminPostRouter);
 app.use("/admin", adminRouter);
 app.use("/admin", adminPostRouter);
+app.use("/api/admin/virtual-admins", virtualAdminRouter);
+app.use("/admin/virtual-admins", virtualAdminRouter);
 app.use("/api/notifications", notificationsRouter);
 app.use("/api/contact-submissions", contactRouter);
 app.use("/onboarding", onboardingRouter);
