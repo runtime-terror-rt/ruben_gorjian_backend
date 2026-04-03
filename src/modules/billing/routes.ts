@@ -152,6 +152,41 @@ async function resolveOrCreateYearlyPrice(params: {
   return created;
 }
 
+async function resolveStandardMonthlyPrice(params: {
+  product: Stripe.Product;
+  fallbackPrice: Stripe.Price | null;
+  planStandardCents?: number | null;
+}): Promise<Stripe.Price | null> {
+  if (!stripeClient) {
+    return params.fallbackPrice;
+  }
+
+  const prices = await stripeClient.prices.list({
+    product: params.product.id,
+    active: true,
+    limit: 100,
+  });
+
+  const monthlyPrices = prices.data.filter((p) => p.recurring?.interval === "month");
+  const standardFromMetadata = params.product.metadata.priceStandardCents
+    ? parseInt(params.product.metadata.priceStandardCents)
+    : null;
+  const targetStandardCents = standardFromMetadata ?? params.planStandardCents ?? params.fallbackPrice?.unit_amount ?? null;
+
+  if (targetStandardCents !== null && !Number.isNaN(targetStandardCents)) {
+    const matched = monthlyPrices.find((p) => p.unit_amount === targetStandardCents);
+    if (matched) {
+      return matched;
+    }
+  }
+
+  if (params.fallbackPrice?.recurring?.interval === "month") {
+    return params.fallbackPrice;
+  }
+
+  return monthlyPrices[0] ?? params.fallbackPrice;
+}
+
 async function resolvePriceForPlanAndCycle(params: {
   normalizedPlanCode: string;
   billingCycle: BillingCycle;
@@ -212,49 +247,27 @@ async function resolvePriceForPlanAndCycle(params: {
     throw new Error("Plan has no price configured");
   }
 
-  let selectedPrice: Stripe.Price = defaultPrice;
+  const standardMonthlyPrice = await resolveStandardMonthlyPrice({
+    product,
+    fallbackPrice: defaultPrice,
+    planStandardCents: planFromDb?.priceStandardCents,
+  });
+  if (!standardMonthlyPrice) {
+    throw new Error("Plan has no monthly standard price configured");
+  }
+
+  let selectedPrice: Stripe.Price = standardMonthlyPrice;
   if (interval === "year") {
     selectedPrice = await resolveOrCreateYearlyPrice({
       product,
-      defaultPrice,
+      defaultPrice: standardMonthlyPrice,
       normalizedPlanCode: params.normalizedPlanCode,
     });
   }
 
   const eligibleForFounder = await isFounderEligible(params.userId);
   const priceType = eligibleForFounder ? PriceType.FOUNDER : PriceType.STANDARD;
-  let selectedPriceId = selectedPrice.id;
-
-  const founderCentsKey = interval === "year" ? "priceFounderYearlyCents" : "priceFounderCents";
-  const founderCentsRaw = product.metadata[founderCentsKey];
-
-  if (priceType === PriceType.FOUNDER && founderCentsRaw) {
-    const founderPriceCents = parseInt(String(founderCentsRaw));
-    const existingPrices = await stripeClient.prices.list({
-      product: product.id,
-      active: true,
-    });
-
-    const founderPrice = existingPrices.data.find(
-      (p) => p.unit_amount === founderPriceCents && p.recurring?.interval === interval
-    );
-
-    if (founderPrice) {
-      selectedPriceId = founderPrice.id;
-    } else {
-      const newFounderPrice = await stripeClient.prices.create(
-        {
-          product: product.id,
-          unit_amount: founderPriceCents,
-          currency: "usd",
-          recurring: { interval },
-          metadata: { priceType: "founder" },
-        },
-        { idempotencyKey: `founder-price-${product.id}-${interval}-${founderPriceCents}` }
-      );
-      selectedPriceId = newFounderPrice.id;
-    }
-  }
+  const selectedPriceId = selectedPrice.id;
 
   return {
     product,
@@ -440,13 +453,21 @@ router.post("/checkout", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Plan has no price configured" });
   }
 
-  // Resolve the price to use for checkout (monthly or yearly)
-  let price: Stripe.Price = defaultPrice;
+  const standardMonthlyPrice = await resolveStandardMonthlyPrice({
+    product,
+    fallbackPrice: defaultPrice,
+    planStandardCents: planFromDb?.priceStandardCents,
+  });
+  if (!standardMonthlyPrice) {
+    return res.status(400).json({ error: "Plan has no monthly standard price configured" });
+  }
+
+  let price: Stripe.Price = standardMonthlyPrice;
   if (interval === "year") {
     try {
       price = await resolveOrCreateYearlyPrice({
         product,
-        defaultPrice,
+        defaultPrice: standardMonthlyPrice,
         normalizedPlanCode,
       });
     } catch (error) {
@@ -471,37 +492,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
   }
   const applicableCoupon = couponResult.coupon;
 
-  // Use founder price if eligible and available (for the selected interval)
   let priceId = price.id;
-  const founderCentsKey = interval === "year" ? "priceFounderYearlyCents" : "priceFounderCents";
-  const founderCentsRaw = product.metadata[founderCentsKey];
-  if (priceType === PriceType.FOUNDER && founderCentsRaw) {
-    const founderPriceCents = parseInt(String(founderCentsRaw));
-    const existingPrices = await stripeClient.prices.list({
-      product: product.id,
-      active: true,
-    });
-
-    const founderPrice = existingPrices.data.find(
-      (p) => p.unit_amount === founderPriceCents && p.recurring?.interval === interval
-    );
-
-    if (founderPrice) {
-      priceId = founderPrice.id;
-    } else {
-      const newFounderPrice = await stripeClient.prices.create(
-        {
-          product: product.id,
-          unit_amount: founderPriceCents,
-          currency: "usd",
-          recurring: { interval },
-          metadata: { priceType: "founder" },
-        },
-        { idempotencyKey: `founder-price-${product.id}-${interval}-${founderPriceCents}` }
-      );
-      priceId = newFounderPrice.id;
-    }
-  }
 
   // Ensure plan exists in local DB for FK (always use monthly/default price for plan record)
   const planPayload = {
@@ -514,11 +505,11 @@ router.post("/checkout", requireAuth, async (req, res) => {
     basePostQuota: product.metadata.basePostQuota ? parseInt(product.metadata.basePostQuota) : null,
     postLimitType: toPostLimitType(product.metadata.postLimitType),
     schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
-    priceStandardCents: defaultPrice.unit_amount ?? 0,
+    priceStandardCents: standardMonthlyPrice.unit_amount ?? 0,
     priceFounderCents: product.metadata.priceFounderCents
       ? parseInt(product.metadata.priceFounderCents)
-      : defaultPrice.unit_amount ?? 0,
-    stripePriceStandardId: defaultPrice.id,
+      : standardMonthlyPrice.unit_amount ?? 0,
+    stripePriceStandardId: standardMonthlyPrice.id,
   };
 
   await prisma.plan.upsert({
