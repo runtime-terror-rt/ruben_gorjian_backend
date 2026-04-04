@@ -66,16 +66,16 @@ router.post("/", async (req, res) => {
   return res.json({ success: true, data: { submissionId: submission.id } });
 });
 
-router.get("/my-submissions", requireAuth, async (req, res) => {
-  const userEmail = (req.user as any).email;
+// router.get("/my-submissions", requireAuth, async (req, res) => {
+//   const userEmail = (req.user as any).email;
 
-  const submissions = await prisma.contactSubmission.findMany({
-    where: { email: userEmail },
-    orderBy: { createdAt: "desc" },
-  });
+//   const submissions = await prisma.contactSubmission.findMany({
+//     where: { email: userEmail },
+//     orderBy: { createdAt: "desc" },
+//   });
 
-  return res.json({ success: true, data: submissions });
-});
+//   return res.json({ success: true, data: submissions });
+// });
 
 const newsletterSchema = z.object({
   email: z.string().email(),
