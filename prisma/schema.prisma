@@ -495,11 +495,18 @@ model ContactSubmission {
   postsPerMonth String?
   message       String?
   source        String?
+  status        String   @default("PENDING")
+  repliedBy     String?
+  replyMessage  String?
+  repliedAt     DateTime?
+  isResolved    Boolean  @default(false)
+  resolvedAt    DateTime?
   createdAt     DateTime @default(now())
   createdIp     String?
 
   @@index([email])
   @@index([createdAt])
+  @@index([status])
 }
 
 model RecentActivity {

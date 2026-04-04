@@ -111,7 +111,7 @@ app.use("/admin/overview", adminOverviewRouter);
 app.use("/api/admin/virtual-admins", virtualAdminRouter);
 app.use("/admin/virtual-admins", virtualAdminRouter);
 app.use("/api/notifications", notificationsRouter);
-app.use("/api/contact-submissions", contactRouter);
+app.use("/api/contact", contactRouter);
 app.use("/onboarding", onboardingRouter);
 app.use("/brand", brandRouter);
 app.use("/dashboard", dashboardRouter);
