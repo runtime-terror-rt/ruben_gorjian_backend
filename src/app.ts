@@ -36,7 +36,7 @@ import { virtualAdminRouter } from "./modules/admin/virtual-admin-routes";
 
 export const app = express();
 
-app.set('trust proxy', 1)
+// app.set('trust proxy', 1)
 const noopLimiter: express.RequestHandler = (_req, _res, next) => next();
 
 // Rate limiting (disabled in development)
@@ -45,7 +45,9 @@ const limiter =
     ? rateLimit({
         windowMs: 15 * 60 * 1000, // 15 minutes
         max: 100,
-        message: { error: "Too many requests from this IP, please try again later." },
+        message: {
+          error: "Too many requests from this IP, please try again later.",
+        },
         standardHeaders: true,
         legacyHeaders: false,
         skip: (req) => req.path === "/health" || req.path === "/auth/me",
@@ -57,16 +59,19 @@ const limiter =
       })
     : noopLimiter;
 
-
 // Stripe webhook needs raw body
-app.post("/billing/webhook", express.raw({ type: "application/json" }), billingWebhook);
+app.post(
+  "/billing/webhook",
+  express.raw({ type: "application/json" }),
+  billingWebhook,
+);
 
 app.use(helmet());
 app.use(
   cors({
     origin: env.FRONTEND_URL || "http://localhost:3000",
     credentials: true,
-  })
+  }),
 );
 app.use(cookieParser());
 app.use(express.json());
@@ -116,6 +121,6 @@ if (env.NODE_ENV !== "production") {
   app.use("/api/debug", debugRouter);
 }
 app.use("/api/providers/upload-post", uploadPostProviderRouter);
-app.use('/api/social-media', onlinePostRouter);
-app.use("/api/tiktok", tiktokRoutes); 
+app.use("/api/social-media", onlinePostRouter);
+app.use("/api/tiktok", tiktokRoutes);
 app.use(errorHandler);

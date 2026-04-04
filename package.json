@@ -64,6 +64,7 @@
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.5",
+    "@types/multer": "^2.1.0",
     "@types/node": "^24.10.1",
     "@types/nodemailer": "^7.0.4",
     "nodemon": "^3.1.11",
