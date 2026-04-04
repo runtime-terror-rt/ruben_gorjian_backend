@@ -34,6 +34,12 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<PagePermissionKey, RoutePermissionInput[
 	OVERVIEW: [
 		{ method: "GET", pathPattern: "/api/admin/summary", description: "Admin overview summary" },
 		{ method: "GET", pathPattern: "/admin/summary", description: "Admin overview summary (legacy mount)" },
+		{ method: "GET", pathPattern: "/api/admin/overview/stats", description: "Admin overview stats" },
+		{ method: "GET", pathPattern: "/api/admin/overview/revenue", description: "Admin overview revenue" },
+		{ method: "GET", pathPattern: "/api/admin/overview/activity", description: "Admin overview activity" },
+		{ method: "GET", pathPattern: "/admin/overview/stats", description: "Admin overview stats (legacy mount)" },
+		{ method: "GET", pathPattern: "/admin/overview/revenue", description: "Admin overview revenue (legacy mount)" },
+		{ method: "GET", pathPattern: "/admin/overview/activity", description: "Admin overview activity (legacy mount)" },
 	],
 	USER_MANAGE: [
 		{ method: "ALL", pathPattern: "/api/admin/users*", description: "Manage users" },
