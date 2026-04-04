@@ -785,58 +785,101 @@ export class SocialMediaService {
   //   };
   // }
 
-  async disconnectLinkForUser(user: User, payload: { platform: string }) {
-    const platform = this.normalizePlatform(payload.platform);
-    const prismaPlatform = this.toPrismaPlatform(platform);
+  // async disconnectLinkForUser(user: User, payload: { platform: string }) {
+  //   const platform = this.normalizePlatform(payload.platform);
+  //   const prismaPlatform = this.toPrismaPlatform(platform);
 
-    const existing = await this.prisma.socialPlatformLink.findUnique({
-      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
-    });
+  //   const existing = await this.prisma.socialPlatformLink.findUnique({
+  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+  //   });
 
-    if (!existing) {
-      return {
-        success: true,
-        platform,
-        disconnected: false,
-        message: "Platform link was not connected.",
-      };
-    }
+  //   if (!existing) {
+  //     return {
+  //       success: true,
+  //       platform,
+  //       disconnected: false,
+  //       message: "Platform link was not connected.",
+  //     };
+  //   }
 
-    // 🔢 Count BEFORE deleting
-    const totalLinks = await this.prisma.socialPlatformLink.count({
+  //   // 🔢 Count BEFORE deleting
+  //   const totalLinks = await this.prisma.socialPlatformLink.count({
+  //     where: { userId: user.id },
+  //   });
+
+  //   const username = this.uploadPostUsername(user);
+
+  //   const previousLink = {
+  //     id: existing.id,
+  //     userId: existing.userId,
+  //     platform,
+  //     externalRef: existing.externalRef,
+  //     externalProfileUrl: existing.externalProfileUrl,
+  //     linkedAt: existing.linkedAt,
+  //     createdAt: existing.createdAt,
+  //     updatedAt: existing.updatedAt,
+  //   };
+
+  //   // 🧹 Step 1: remove local link
+  //   await this.prisma.socialPlatformLink.delete({
+  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+  //   });
+
+  //   // delete all provider profiles
+  //   await this.disconnectProviderProfileByUsername(username);
+
+  //   return {
+  //     success: true,
+  //     platform,
+  //     disconnected: true,
+  //     message:
+  //       totalLinks === 1
+  //         ? "Platform disconnected and provider profile deleted."
+  //         : "Platform disconnected locally (provider profile retained).",
+  //     link: previousLink,
+  //   };
+  // }
+
+  async disconnectLinkForUser(user: User) {
+    // 1️⃣ Get all links
+    const existingLinks = await this.prisma.socialPlatformLink.findMany({
       where: { userId: user.id },
     });
 
-    const username = this.uploadPostUsername(user);
+    if (!existingLinks.length) {
+      return {
+        success: true,
+        disconnected: false,
+        message: "No platform links found.",
+      };
+    }
 
-    const previousLink = {
-      id: existing.id,
-      userId: existing.userId,
-      platform,
-      externalRef: existing.externalRef,
-      externalProfileUrl: existing.externalProfileUrl,
-      linkedAt: existing.linkedAt,
-      createdAt: existing.createdAt,
-      updatedAt: existing.updatedAt,
-    };
+    // 2️⃣ Save previous links (optional)
+    const previousLinks = existingLinks.map((link) => ({
+      id: link.id,
+      userId: link.userId,
+      platform: link.platform,
+      externalRef: link.externalRef,
+      externalProfileUrl: link.externalProfileUrl,
+      linkedAt: link.linkedAt,
+      createdAt: link.createdAt,
+      updatedAt: link.updatedAt,
+    }));
 
-    // 🧹 Step 1: remove local link
-    await this.prisma.socialPlatformLink.delete({
-      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+    // 3️⃣ Delete ALL links
+    await this.prisma.socialPlatformLink.deleteMany({
+      where: { userId: user.id },
     });
 
-    // delete all provider profiles
+    // 4️⃣ Delete provider profile
+    const username = this.uploadPostUsername(user);
     await this.disconnectProviderProfileByUsername(username);
 
     return {
       success: true,
-      platform,
       disconnected: true,
-      message:
-        totalLinks === 1
-          ? "Platform disconnected and provider profile deleted."
-          : "Platform disconnected locally (provider profile retained).",
-      link: previousLink,
+      message: "All platforms disconnected and provider profile deleted.",
+      links: previousLinks,
     };
   }
 
