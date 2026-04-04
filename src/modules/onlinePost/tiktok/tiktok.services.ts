@@ -397,12 +397,13 @@ export class TiktokService {
       file: Express.Multer.File;
       title?: string;
       asyncUpload?: boolean;
+      username: string;
     },
   ) {
     // ✅ Ensure TikTok is linked
     await this.ensurePlatformLinked(user.id, SocialPlatform.TIKTOK);
 
-    const username = user.email.split("@")[0];
+
 
     if (!payload.file) {
       throw new BadRequestException("File is required");
@@ -424,7 +425,7 @@ export class TiktokService {
 
     // ✅ Prepare form to Upload Post API
     const form = new FormData();
-    form.append("user", username.trim());
+    form.append("user", payload.username.trim());
     form.append("platform[]", "tiktok");
     form.append("video", videoUrl); // send S3 URL here
 
@@ -445,10 +446,7 @@ export class TiktokService {
         body: form,
       });
 
-      console.log(
-        "🚀 ~ tiktok.services.ts:404 ~ TiktokService ~ publishTikTokMultipartByUserNow ~ result:",
-        result,
-      );
+    
     } catch (error) {
       console.error("TikTok upload error:", error);
       throw new BadRequestException({ message: "TikTok upload failed", error });

@@ -12,7 +12,7 @@ function firstQuery(value: unknown): string | undefined {
 }
 
 export class OnlinePostController {
-  constructor(private readonly onlinePostService = new SocialMediaService()) { }
+  constructor(private readonly onlinePostService = new SocialMediaService()) {}
 
   private parseMultipartPayload(raw: unknown): Record<string, unknown> {
     if (typeof raw !== "string" || !raw.trim()) return {};
@@ -58,9 +58,7 @@ export class OnlinePostController {
   disconnectLinkForLoggedUser = async (req: AuthedRequest, res: Response) => {
     try {
       return res.json(
-        await this.onlinePostService.disconnectLinkForUser(req.user, {
-          platform: req.body?.platform,
-        }),
+        await this.onlinePostService.disconnectLinkForUser(req.user),
       );
     } catch (error) {
       return handleError(error, res);
