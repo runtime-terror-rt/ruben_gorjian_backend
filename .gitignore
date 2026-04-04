@@ -41,6 +41,7 @@ lerna-debug.log*
 .env.test.local
 .env.production.local
 .env.backup
+.env
 
 # temp directory
 .temp
@@ -70,4 +71,3 @@ pnpm-workspace.yaml
 
 uploads/
 !uploads/.gitkeep
-.env
