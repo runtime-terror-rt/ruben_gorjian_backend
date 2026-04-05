@@ -42,6 +42,124 @@ const googleClient = env.GOOGLE_CLIENT_ID
 const PASSWORD_RESET_EXPIRY_MS = 1000 * 60 * 60; // 1 hour
 const EMAIL_VERIFICATION_EXPIRY_MS = 1000 * 60 * 60 * 24; // 24 hours
 
+const PAGE_PERMISSION_KEYS = [
+  "OVERVIEW",
+  "USER_MANAGE",
+  "SUBSCRIPTION_MANAGE",
+  "SCHEDULE_MANAGE",
+  "POST_MANAGE",
+  "COUPON_MANAGE",
+  "SUPPORT",
+  "VIRTUAL_ADMIN_MANAGE",
+  "PROFILE",
+] as const;
+
+type PagePermissionKey = (typeof PAGE_PERMISSION_KEYS)[number];
+
+const PAGE_ROUTE_PERMISSION_MAP: Record<
+  PagePermissionKey,
+  Array<{ method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "ALL"; pathPattern: string }>
+> = {
+  OVERVIEW: [
+    { method: "GET", pathPattern: "/api/admin/summary" },
+    { method: "GET", pathPattern: "/admin/summary" },
+    { method: "GET", pathPattern: "/api/admin/overview/stats" },
+    { method: "GET", pathPattern: "/api/admin/overview/revenue" },
+    { method: "GET", pathPattern: "/api/admin/overview/activity" },
+    { method: "GET", pathPattern: "/admin/overview/stats" },
+    { method: "GET", pathPattern: "/admin/overview/revenue" },
+    { method: "GET", pathPattern: "/admin/overview/activity" },
+  ],
+  USER_MANAGE: [
+    { method: "ALL", pathPattern: "/api/admin/users*" },
+    { method: "ALL", pathPattern: "/admin/users*" },
+  ],
+  SUBSCRIPTION_MANAGE: [
+    { method: "GET", pathPattern: "/api/admin/subscriptions" },
+    { method: "GET", pathPattern: "/admin/subscriptions" },
+    { method: "POST", pathPattern: "/api/admin/users/:id/cancel-subscription-schedule" },
+    { method: "POST", pathPattern: "/api/admin/users/:id/cancel-subscription-immediately" },
+    { method: "POST", pathPattern: "/api/admin/users/:id/resume-subscription" },
+    { method: "POST", pathPattern: "/api/admin/users/:id/refresh-subscription" },
+    { method: "GET", pathPattern: "/api/admin/users/:id/invoices" },
+    { method: "POST", pathPattern: "/admin/users/:id/cancel-subscription-schedule" },
+    { method: "POST", pathPattern: "/admin/users/:id/cancel-subscription-immediately" },
+    { method: "POST", pathPattern: "/admin/users/:id/resume-subscription" },
+    { method: "POST", pathPattern: "/admin/users/:id/refresh-subscription" },
+    { method: "GET", pathPattern: "/admin/users/:id/invoices" },
+  ],
+  SCHEDULE_MANAGE: [
+    { method: "GET", pathPattern: "/api/admin/users/:id/scheduled-items" },
+    { method: "GET", pathPattern: "/api/admin/calendars" },
+    { method: "GET", pathPattern: "/admin/users/:id/scheduled-items" },
+    { method: "GET", pathPattern: "/admin/calendars" },
+  ],
+  POST_MANAGE: [
+    { method: "ALL", pathPattern: "/api/admin/users/:userId/posts*" },
+    { method: "ALL", pathPattern: "/api/admin/:userId/posts/:postId/approve" },
+    { method: "ALL", pathPattern: "/api/admin/users/:userId/media*" },
+    { method: "GET", pathPattern: "/api/admin/users/:userId/connected-platforms" },
+    { method: "ALL", pathPattern: "/admin/users/:userId/posts*" },
+    { method: "ALL", pathPattern: "/admin/:userId/posts/:postId/approve" },
+    { method: "ALL", pathPattern: "/admin/users/:userId/media*" },
+    { method: "GET", pathPattern: "/admin/users/:userId/connected-platforms" },
+  ],
+  COUPON_MANAGE: [
+    { method: "ALL", pathPattern: "/api/admin/coupons*" },
+    { method: "ALL", pathPattern: "/admin/coupons*" },
+  ],
+  SUPPORT: [
+    { method: "ALL", pathPattern: "/api/contact/admin/submissions*" },
+  ],
+  VIRTUAL_ADMIN_MANAGE: [
+    { method: "ALL", pathPattern: "/api/admin/virtual-admins*" },
+    { method: "ALL", pathPattern: "/admin/virtual-admins*" },
+  ],
+  PROFILE: [
+    { method: "GET", pathPattern: "/auth/me" },
+    { method: "ALL", pathPattern: "/user/settings*" },
+  ],
+};
+
+function normalizePathPattern(pathPattern: string) {
+  const trimmed = pathPattern.trim();
+  if (!trimmed) return "/";
+  const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return withSlash.replace(/\s+/g, "");
+}
+
+function expandPagePermissions(pagePermissions: PagePermissionKey[]) {
+  const expanded = pagePermissions.flatMap((permissionKey) => PAGE_ROUTE_PERMISSION_MAP[permissionKey]);
+  const unique = new Map<string, { method: string; pathPattern: string }>();
+
+  for (const permission of expanded) {
+    const method = permission.method;
+    const pathPattern = normalizePathPattern(permission.pathPattern);
+    const key = `${method}|${pathPattern}`;
+    if (!unique.has(key)) {
+      unique.set(key, {
+        method,
+        pathPattern,
+      });
+    }
+  }
+
+  return Array.from(unique.values());
+}
+
+function inferPagePermissions(adminRoutePermissions: Array<{ method: string; pathPattern: string; active: boolean }>) {
+  const activePermissionKeys = new Set(
+    adminRoutePermissions
+      .filter((permission) => permission.active)
+      .map((permission) => `${permission.method.toUpperCase()}|${normalizePathPattern(permission.pathPattern)}`)
+  );
+
+  return PAGE_PERMISSION_KEYS.filter((pageKey) => {
+    const requiredPermissions = expandPagePermissions([pageKey]);
+    return requiredPermissions.every((permission) => activePermissionKeys.has(`${permission.method}|${permission.pathPattern}`));
+  });
+}
+
 async function ensurePlanAvailable(planCode: string) {
   const existing = await prisma.plan.findUnique({ where: { code: planCode } });
   if (existing) {
@@ -288,6 +406,13 @@ router.get("/me", requireAuth, async (req, res) => {
           updatedAt: true,
         },
       },
+      adminRoutePermissions: {
+        select: {
+          method: true,
+          pathPattern: true,
+          active: true,
+        },
+      },
     },
   });
   if (!user) {
@@ -392,9 +517,15 @@ router.get("/me", requireAuth, async (req, res) => {
       }
       : null;
 
+  const permissions =
+    user.role === "ADMIN" || user.role === "SUPER_ADMIN"
+      ? inferPagePermissions(user.adminRoutePermissions)
+      : [];
+
   return res.json({
     ...safeUser(user), // safeUser already includes pendingPlanCode
     subscription: subscriptionObj,
+    permissions,
   });
 });
 

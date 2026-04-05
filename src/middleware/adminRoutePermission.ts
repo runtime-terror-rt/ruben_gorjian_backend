@@ -18,7 +18,7 @@ function extractRequestPath(req: Request) {
 
 function pathPatternToRegExp(pathPattern: string) {
   const escaped = pathPattern
-    .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     .replace(/\\\*/g, ".*")
     .replace(/:[A-Za-z0-9_]+/g, "[^/]+");
 
@@ -41,8 +41,7 @@ export function normalizeRouteMethod(method: string) {
 
 export async function hasAdminRoutePermission(req: Request) {
   if (!req.user) return false;
-  if (req.user.role === "SUPER_ADMIN") return true;
-  if (req.user.role !== "ADMIN") return false;
+  if (req.user.role !== "ADMIN" && req.user.role !== "SUPER_ADMIN") return false;
 
   const requestMethod = req.method.toUpperCase();
   const requestPath = extractRequestPath(req);

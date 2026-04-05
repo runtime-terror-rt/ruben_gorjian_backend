@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/requireAuth";
 import { hashPassword } from "../../utils/password";
-import { normalizeRouteMethod } from "../../middleware/adminRoutePermission";
+import { hasAdminRoutePermission, normalizeRouteMethod } from "../../middleware/adminRoutePermission";
 
 const router = express.Router();
 
@@ -15,6 +15,7 @@ const PAGE_PERMISSION_KEYS = [
 	"SCHEDULE_MANAGE",
 	"POST_MANAGE",
 	"COUPON_MANAGE",
+	"SUPPORT",
 	"VIRTUAL_ADMIN_MANAGE",
 	"PROFILE",
 ] as const;
@@ -79,9 +80,12 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<PagePermissionKey, RoutePermissionInput[
 		{ method: "ALL", pathPattern: "/api/admin/coupons*", description: "Manage coupons" },
 		{ method: "ALL", pathPattern: "/admin/coupons*", description: "Manage coupons (legacy mount)" },
 	],
+	SUPPORT: [
+		{ method: "ALL", pathPattern: "/api/contact/admin/submissions*", description: "Manage support submissions" },
+	],
 	VIRTUAL_ADMIN_MANAGE: [
 		{ method: "ALL", pathPattern: "/api/admin/virtual-admins*", description: "Manage virtual admins" },
-		{ method: "ALL", pathPattern: "/virtual-admin*", description: "Manage virtual admins (legacy mount)" },
+		{ method: "ALL", pathPattern: "/admin/virtual-admins*", description: "Manage virtual admins (legacy mount)" },
 	],
 	PROFILE: [
 		{ method: "GET", pathPattern: "/auth/me", description: "View profile" },
@@ -94,6 +98,16 @@ router.use(requireAuth);
 router.use((req, res, next) => {
 	if (!req.user || req.user.role !== "SUPER_ADMIN") {
 		return res.status(403).json({ error: "Super admin privileges are required." });
+	}
+	return next();
+});
+
+router.use(async (req, res, next) => {
+	const allowed = await hasAdminRoutePermission(req);
+	if (!allowed) {
+		return res.status(403).json({
+			error: "You do not have permission to access this route",
+		});
 	}
 	return next();
 });
