@@ -323,7 +323,7 @@ model Post {
   status                 PostStatus     @default(DRAFT)
   scheduleType           ScheduleType   @default(POSTING)
   sessionStatus          SessionStatus?
-  calendlySyncStatus     CalendlySyncStatus?
+  // calendlySyncStatus     CalendlySyncStatus?
   sessionTitle           String?
   sessionNotes           String?
   sessionDurationMinutes Int?
@@ -350,7 +350,7 @@ model Post {
   @@index([scheduledFor])
   @@index([scheduleType])
   @@index([sessionStatus])
-  @@index([calendlySyncStatus])
+  // @@index([calendlySyncStatus])
   @@index([adminId])
   @@index([initiatedBy])
 }
