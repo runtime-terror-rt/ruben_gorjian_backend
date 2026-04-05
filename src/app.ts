@@ -115,6 +115,7 @@ app.use("/api/contact", contactRouter);
 app.use("/onboarding", onboardingRouter);
 app.use("/brand", brandRouter);
 app.use("/dashboard", dashboardRouter);
+app.use("/api/dashboard", dashboardRouter);
 app.use("/user/settings", settingsRouter);
 app.use("/smtp-test", smtpTestRouter);
 app.use("/api/submissions", submissionsRouter);
