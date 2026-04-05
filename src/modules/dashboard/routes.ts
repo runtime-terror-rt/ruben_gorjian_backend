@@ -1,47 +1,406 @@
 import express from "express";
+import { PostStatus, SocialPlatform, SubmissionStatus, SubscriptionStatus } from "@prisma/client";
+import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/requireAuth";
+import { getActiveSubscription } from "../billing/subscription-service";
+import { getSubscriptionPeriod } from "../../lib/subscription-period";
 
 const router = express.Router();
 
 router.use(requireAuth);
 
+const activityQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(10),
+});
+
+const upcomingQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(60).optional().default(7),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(5),
+});
+
+async function getLatestSubscription(userId: string) {
+  const active = await getActiveSubscription(userId);
+  if (active) {
+    return active;
+  }
+
+  return prisma.subscription.findFirst({
+    where: { userId },
+    include: { plan: true },
+    orderBy: { updatedAt: "desc" },
+  });
+}
+
+function getDaysLeft(currentPeriodEnd?: Date | null) {
+  if (!currentPeriodEnd) {
+    return null;
+  }
+  const msLeft = currentPeriodEnd.getTime() - Date.now();
+  return Math.max(0, Math.ceil(msLeft / (1000 * 60 * 60 * 24)));
+}
+
+function groupSocialAccounts(accounts: Array<{ platform: SocialPlatform; expiresAt: Date | null }>) {
+  const byPlatform: Record<SocialPlatform, number> = {
+    INSTAGRAM: 0,
+    FACEBOOK: 0,
+    LINKEDIN: 0,
+    TIKTOK: 0,
+  };
+
+  for (const account of accounts) {
+    byPlatform[account.platform] += 1;
+  }
+
+  const now = Date.now();
+  const in7Days = now + 7 * 24 * 60 * 60 * 1000;
+  const expiringSoon = accounts.filter((account) => {
+    if (!account.expiresAt) {
+      return false;
+    }
+    const ts = account.expiresAt.getTime();
+    return ts >= now && ts <= in7Days;
+  }).length;
+
+  return { byPlatform, expiringSoon };
+}
+
+function buildAlerts(params: {
+  onboardingCompleted: boolean;
+  postsUsed: number;
+  postQuota: number | null;
+  visualsUsed: number;
+  visualQuota: number | null;
+  failedPosts: number;
+  expiringSocialAccounts: number;
+  subscriptionStatus?: SubscriptionStatus;
+  subscriptionDaysLeft: number | null;
+  submissionsNeedChanges: number;
+}) {
+  const alerts: Array<{
+    type: "info" | "warning" | "error";
+    code: string;
+    message: string;
+  }> = [];
+
+  if (params.postQuota && params.postQuota > 0) {
+    const postUsagePercent = Math.floor((params.postsUsed / params.postQuota) * 100);
+    if (postUsagePercent >= 80) {
+      alerts.push({
+        type: "warning",
+        code: "POST_QUOTA_HIGH",
+        message: `You have used ${postUsagePercent}% of your post quota.`,
+      });
+    }
+  }
+
+  if (params.visualQuota && params.visualQuota > 0) {
+    const visualUsagePercent = Math.floor((params.visualsUsed / params.visualQuota) * 100);
+    if (visualUsagePercent >= 80) {
+      alerts.push({
+        type: "warning",
+        code: "VISUAL_QUOTA_HIGH",
+        message: `You have used ${visualUsagePercent}% of your visual quota.`,
+      });
+    }
+  }
+
+  if (params.subscriptionStatus === SubscriptionStatus.PAST_DUE) {
+    alerts.push({
+      type: "error",
+      code: "SUBSCRIPTION_PAST_DUE",
+      message: "Your subscription payment is past due.",
+    });
+  }
+
+  if (params.subscriptionDaysLeft !== null && params.subscriptionDaysLeft <= 7) {
+    alerts.push({
+      type: "warning",
+      code: "SUBSCRIPTION_RENEWAL_SOON",
+      message: `Your subscription renews in ${params.subscriptionDaysLeft} day(s).`,
+    });
+  }
+
+  if (params.failedPosts > 0) {
+    alerts.push({
+      type: "warning",
+      code: "FAILED_POSTS",
+      message: `${params.failedPosts} post(s) failed and need your attention.`,
+    });
+  }
+
+  if (params.expiringSocialAccounts > 0) {
+    alerts.push({
+      type: "warning",
+      code: "SOCIAL_RECONNECT_SOON",
+      message: `${params.expiringSocialAccounts} social account(s) need reconnection soon.`,
+    });
+  }
+
+  if (params.submissionsNeedChanges > 0) {
+    alerts.push({
+      type: "info",
+      code: "SUBMISSIONS_NEED_CHANGES",
+      message: `${params.submissionsNeedChanges} submission(s) need changes.`,
+    });
+  }
+
+  if (!params.onboardingCompleted) {
+    alerts.push({
+      type: "info",
+      code: "ONBOARDING_INCOMPLETE",
+      message: "Complete onboarding to unlock all dashboard capabilities.",
+    });
+  }
+
+  return alerts;
+}
+
 router.get("/overview", async (req, res) => {
   const userId = req.user!.id;
+  const now = new Date();
 
-  const recentActivity = await prisma.recentActivity.findMany({
-    where: { userId },
-    orderBy: { createdAt: "desc" },
-    take: 10,
+  const subscription = await getLatestSubscription(userId);
+  const { periodStart, periodEnd } = getSubscriptionPeriod(subscription ?? null, now);
+
+  const [usage, socialAccounts] = await Promise.all([
+    prisma.usageMonthly.findFirst({
+      where: {
+        userId,
+        periodStart: { lte: now },
+        periodEnd: { gte: now },
+      },
+      orderBy: { periodStart: "desc" },
+    }),
+    prisma.socialAccount.findMany({
+      where: { userId },
+      select: {
+        platform: true,
+        expiresAt: true,
+      },
+    }),
+  ]);
+
+  const postQuota = subscription?.plan?.basePostQuota ?? null;
+  const visualQuota = subscription?.plan?.baseVisualQuota ?? null;
+  const platformLimit =
+    subscription?.plan?.platformLimit !== null && subscription?.plan?.platformLimit !== undefined
+      ? subscription.plan.platformLimit + (subscription.addonPlatformQty ?? 0)
+      : null;
+
+  const postsUsed = usage?.postsUsed ?? 0;
+  const visualsUsed = usage?.visualsUsed ?? 0;
+  const visualsBonus = usage?.visualsBonus ?? 0;
+  const platformsUsed = usage?.platformsUsed ?? socialAccounts.length;
+
+  const postsRemaining = postQuota !== null ? Math.max(postQuota - postsUsed, 0) : null;
+  const visualsRemaining = visualQuota !== null ? Math.max(visualQuota + visualsBonus - visualsUsed, 0) : null;
+  const platformsRemaining = platformLimit !== null ? Math.max(platformLimit - platformsUsed, 0) : null;
+
+  const { byPlatform, expiringSoon } = groupSocialAccounts(socialAccounts);
+  const subscriptionDaysLeft = getDaysLeft(subscription?.currentPeriodEnd ?? null);
+
+  return res.json({
+    success: true,
+    data: {
+      plan: subscription
+        ? {
+          planCode: subscription.planCode,
+          planCategory: subscription.plan?.category ?? null,
+          status: subscription.status,
+          priceType: subscription.priceType,
+          billingCycle: subscription.billingCycle,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          daysLeft: subscriptionDaysLeft,
+          postLimitType: subscription.plan?.postLimitType ?? null,
+          postQuota,
+          visualQuota,
+          platformLimit,
+        }
+        : null,
+      usage: {
+        periodStart,
+        periodEnd,
+        postsUsed,
+        postsRemaining,
+        visualsUsed,
+        visualsRemaining,
+        visualsBonus,
+        platformsUsed,
+        platformsRemaining,
+      },
+      socialAccounts: {
+        connectedTotal: socialAccounts.length,
+        byPlatform,
+        expiringSoon,
+      },
+    },
+  });
+});
+
+router.get("/overview/recent-activity", async (req, res) => {
+  const userId = req.user!.id;
+  const parsed = activityQuerySchema.safeParse(req.query);
+
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() });
+  }
+
+  const { page, limit } = parsed.data;
+  const skip = (page - 1) * limit;
+
+  const [total, items] = await Promise.all([
+    prisma.recentActivity.count({ where: { userId } }),
+    prisma.recentActivity.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+    }),
+  ]);
+
+  const totalPages = Math.ceil(total / limit);
+
+  return res.json({
+    success: true,
+    data: {
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1,
+      items,
+    },
+  });
+});
+
+router.get("/overview/upcoming-posts", async (req, res) => {
+  const userId = req.user!.id;
+  const parsed = upcomingQuerySchema.safeParse(req.query);
+
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() });
+  }
+
+  const now = new Date();
+  const until = new Date(now.getTime() + parsed.data.days * 24 * 60 * 60 * 1000);
+
+  const items = await prisma.post.findMany({
+    where: {
+      userId,
+      status: PostStatus.SCHEDULED,
+      scheduledFor: {
+        gte: now,
+        lte: until,
+      },
+    },
+    orderBy: { scheduledFor: "asc" },
+    take: parsed.data.limit,
+    select: {
+      id: true,
+      status: true,
+      scheduledFor: true,
+      targets: {
+        select: {
+          platform: true,
+          status: true,
+        },
+      },
+    },
   });
 
-  // Seed a minimal activity if none exists yet to avoid empty UI.
-  const activity =
-    recentActivity.length > 0
-      ? recentActivity
-      : [
-          {
-            id: "seed",
-            userId,
-            type: "login",
-            title: "Welcome to Talexia",
-            description: "Your workspace is ready.",
-            createdAt: new Date(),
-          },
-        ];
-
-  res.json({
-    metrics: {
-      leadsThisWeek: 0,
-      conversionRate: 0,
+  return res.json({
+    success: true,
+    data: {
+      days: parsed.data.days,
+      limit: parsed.data.limit,
+      items: items.map((item) => ({
+        postId: item.id,
+        status: item.status,
+        scheduledFor: item.scheduledFor,
+        targets: item.targets,
+      })),
     },
-    recentActivity: activity.map((a: any) => ({
-      id: a.id,
-      type: a.type as any,
-      title: a.title,
-      description: a.description ?? "",
-      createdAt: a.createdAt.toISOString(),
-    })),
+  });
+});
+
+router.get("/overview/post-pipeline", async (req, res) => {
+  const userId = req.user!.id;
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(startOfWeek.getDate() - 7);
+
+  const [draft, scheduled, publishing, failed, postedThisWeek] = await Promise.all([
+    prisma.post.count({ where: { userId, status: PostStatus.DRAFT } }),
+    prisma.post.count({ where: { userId, status: PostStatus.SCHEDULED } }),
+    prisma.post.count({ where: { userId, status: PostStatus.PUBLISHING } }),
+    prisma.post.count({ where: { userId, status: PostStatus.FAILED } }),
+    prisma.post.count({ where: { userId, status: PostStatus.POSTED, updatedAt: { gte: startOfWeek } } }),
+  ]);
+
+  return res.json({
+    success: true,
+    data: {
+      draft,
+      scheduled,
+      publishing,
+      failed,
+      postedThisWeek,
+    },
+  });
+});
+
+router.get("/overview/system-alerts", async (req, res) => {
+  const userId = req.user!.id;
+  const now = new Date();
+
+  const [user, subscription, usage, failedPosts, socialAccounts, submissionsNeedsChanges] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        onboardingCompleted: true,
+      },
+    }),
+    getLatestSubscription(userId),
+    prisma.usageMonthly.findFirst({
+      where: {
+        userId,
+        periodStart: { lte: now },
+        periodEnd: { gte: now },
+      },
+      orderBy: { periodStart: "desc" },
+    }),
+    prisma.post.count({ where: { userId, status: PostStatus.FAILED } }),
+    prisma.socialAccount.findMany({ where: { userId }, select: { expiresAt: true, platform: true } }),
+    prisma.submission.count({ where: { userId, status: SubmissionStatus.NEEDS_CHANGES } }),
+  ]);
+
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const { expiringSoon } = groupSocialAccounts(socialAccounts);
+  const alerts = buildAlerts({
+    onboardingCompleted: user.onboardingCompleted,
+    postsUsed: usage?.postsUsed ?? 0,
+    postQuota: subscription?.plan?.basePostQuota ?? null,
+    visualsUsed: usage?.visualsUsed ?? 0,
+    visualQuota: subscription?.plan?.baseVisualQuota ?? null,
+    failedPosts,
+    expiringSocialAccounts: expiringSoon,
+    subscriptionStatus: subscription?.status,
+    subscriptionDaysLeft: getDaysLeft(subscription?.currentPeriodEnd ?? null),
+    submissionsNeedChanges: submissionsNeedsChanges,
+  });
+
+  return res.json({
+    success: true,
+    data: {
+      count: alerts.length,
+      items: alerts,
+    },
   });
 });
 
