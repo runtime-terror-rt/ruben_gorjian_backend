@@ -38,6 +38,8 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<PagePermissionKey, RoutePermissionInput[
 		{ method: "GET", pathPattern: "/api/admin/overview/stats", description: "Admin overview stats" },
 		{ method: "GET", pathPattern: "/api/admin/overview/revenue", description: "Admin overview revenue" },
 		{ method: "GET", pathPattern: "/api/admin/overview/activity", description: "Admin overview activity" },
+		{ method: "GET", pathPattern: "/api/admin/upload-post/health", description: "Upload-Post health (admin alias)" },
+		{ method: "GET", pathPattern: "/api/providers/upload-post/health", description: "Upload-Post health" },
 		{ method: "GET", pathPattern: "/admin/overview/stats", description: "Admin overview stats (legacy mount)" },
 		{ method: "GET", pathPattern: "/admin/overview/revenue", description: "Admin overview revenue (legacy mount)" },
 		{ method: "GET", pathPattern: "/admin/overview/activity", description: "Admin overview activity (legacy mount)" },

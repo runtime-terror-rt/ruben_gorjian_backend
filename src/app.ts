@@ -124,6 +124,7 @@ if (env.NODE_ENV !== "production") {
   app.use("/api/debug", debugRouter);
 }
 app.use("/api/providers/upload-post", uploadPostProviderRouter);
+app.use("/api/admin/upload-post", uploadPostProviderRouter);
 app.use("/api/social-media", onlinePostRouter);
 app.use("/api/tiktok", tiktokRoutes);
 app.use(errorHandler);

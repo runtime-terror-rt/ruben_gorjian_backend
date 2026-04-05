@@ -66,6 +66,8 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
     { method: "GET", pathPattern: "/api/admin/overview/stats" },
     { method: "GET", pathPattern: "/api/admin/overview/revenue" },
     { method: "GET", pathPattern: "/api/admin/overview/activity" },
+    { method: "GET", pathPattern: "/api/admin/upload-post/health" },
+    { method: "GET", pathPattern: "/api/providers/upload-post/health" },
     { method: "GET", pathPattern: "/admin/overview/stats" },
     { method: "GET", pathPattern: "/admin/overview/revenue" },
     { method: "GET", pathPattern: "/admin/overview/activity" },
