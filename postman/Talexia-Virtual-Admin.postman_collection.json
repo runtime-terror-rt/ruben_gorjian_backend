@@ -154,7 +154,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"New Admin\",\n  \"email\": \"new-admin@example.com\",\n  \"password\": \"ChangeMe123!\",\n  \"role\": \"ADMIN\",\n  \"permissions\": [\n    \"OVERVIEW\",\n    \"USER_MANAGE\",\n    \"POST_MANAGE\"\n  ]\n}"
+              "raw": "{\n  \"name\": \"New Admin\",\n  \"email\": \"new-admin@example.com\",\n  \"password\": \"ChangeMe123!\",\n  \"role\": \"ADMIN\",\n  \"permissions\": [\n    \"OVERVIEW\",\n    \"USER_MANAGE\",\n    \"POST_MANAGE\",\n    \"SUBMISSIONS\"\n  ]\n}"
             },
             "auth": {
               "type": "bearer",
@@ -215,7 +215,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Updated Admin Name\",\n  \"role\": \"SUPER_ADMIN\",\n  \"replacePermissions\": [\n    \"OVERVIEW\",\n    \"USER_MANAGE\",\n    \"SUBSCRIPTION_MANAGE\",\n    \"SCHEDULE_MANAGE\",\n    \"POST_MANAGE\",\n    \"COUPON_MANAGE\",\n    \"VIRTUAL_ADMIN_MANAGE\",\n    \"PROFILE\"\n  ]\n}"
+              "raw": "{\n  \"name\": \"Updated Admin Name\",\n  \"role\": \"SUPER_ADMIN\",\n  \"replacePermissions\": [\n    \"OVERVIEW\",\n    \"USER_MANAGE\",\n    \"SUBSCRIPTION_MANAGE\",\n    \"SCHEDULE_MANAGE\",\n    \"POST_MANAGE\",\n    \"COUPON_MANAGE\",\n    \"SUBMISSIONS\",\n    \"VIRTUAL_ADMIN_MANAGE\",\n    \"PROFILE\"\n  ]\n}"
             },
             "auth": {
               "type": "bearer",

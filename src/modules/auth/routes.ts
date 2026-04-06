@@ -50,6 +50,7 @@ const PAGE_PERMISSION_KEYS = [
   "POST_MANAGE",
   "COUPON_MANAGE",
   "SUPPORT",
+  "SUBMISSIONS",
   "VIRTUAL_ADMIN_MANAGE",
   "PROFILE",
 ] as const;
@@ -112,6 +113,10 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
   ],
   SUPPORT: [
     { method: "ALL", pathPattern: "/api/contact/admin/submissions*" },
+  ],
+  SUBMISSIONS: [
+    { method: "ALL", pathPattern: "/api/admin/submissions*" },
+    { method: "ALL", pathPattern: "/admin/submissions*" },
   ],
   VIRTUAL_ADMIN_MANAGE: [
     { method: "ALL", pathPattern: "/api/admin/virtual-admins*" },

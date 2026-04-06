@@ -1,0 +1,572 @@
+{
+  "info": {
+    "_postman_id": "talexia-submissions-2026",
+    "name": "Talexia Submissions",
+    "description": "All user and admin APIs for the submissions module: quota, creation, uploads, status management, enhanced deliveries, and file downloads.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{authToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "User APIs",
+      "item": [
+        {
+          "name": "Submissions - Quota Snapshot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/submissions/quota",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "submissions",
+                "quota"
+              ]
+            },
+            "description": "Get the current visual quota snapshot for the authenticated user."
+          },
+          "response": []
+        },
+        {
+          "name": "Submissions - Create Submission",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userNote\": \"Please review these files\",\n  \"files\": [\n    {\n      \"fileName\": \"design-brief.pdf\",\n      \"fileType\": \"application/pdf\",\n      \"fileSize\": 5242880\n    },\n    {\n      \"fileName\": \"reference-image.png\",\n      \"fileType\": \"image/png\",\n      \"fileSize\": 3145728\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/submissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "submissions"
+              ]
+            },
+            "description": "Create a submission and receive presigned upload URLs for the files."
+          },
+          "response": []
+        },
+        {
+          "name": "Submissions - Complete File Uploads",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"files\": [\n    {\n      \"fileName\": \"design-brief.pdf\",\n      \"fileType\": \"application/pdf\",\n      \"fileSize\": 5242880,\n      \"storageKey\": \"submissions/{{userId}}/sample-file-1\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/submissions/{{submissionId}}/files/complete",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "submissions",
+                "{{submissionId}}",
+                "files",
+                "complete"
+              ]
+            },
+            "description": "Confirm uploaded files and attach them to an existing submission."
+          },
+          "response": []
+        },
+        {
+          "name": "Submissions - Presign Single File Retry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"files\": [\n    {\n      \"fileName\": \"design-brief.pdf\",\n      \"fileType\": \"application/pdf\",\n      \"fileSize\": 5242880\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/submissions/{{submissionId}}/presign-single",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "submissions",
+                "{{submissionId}}",
+                "presign-single"
+              ]
+            },
+            "description": "Generate a fresh presigned upload URL for a single file retry."
+          },
+          "response": []
+        },
+        {
+          "name": "Submissions - List My Submissions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/submissions?limit=20&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "submissions"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "List submissions for the authenticated user with pagination."
+          },
+          "response": []
+        },
+        {
+          "name": "Submissions - Get Submission Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/submissions/{{submissionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "submissions",
+                "{{submissionId}}"
+              ]
+            },
+            "description": "Get one submission with files and status events."
+          },
+          "response": []
+        },
+        {
+          "name": "Submissions - List Enhanced Deliveries",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/submissions/{{submissionId}}/enhanced-deliveries",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "submissions",
+                "{{submissionId}}",
+                "enhanced-deliveries"
+              ]
+            },
+            "description": "List enhanced deliveries attached to a submission."
+          },
+          "response": []
+        },
+        {
+          "name": "Submissions - Download Enhanced Delivery File",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/submissions/{{submissionId}}/enhanced-deliveries/{{deliveryId}}/files/{{fileId}}/download",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "submissions",
+                "{{submissionId}}",
+                "enhanced-deliveries",
+                "{{deliveryId}}",
+                "files",
+                "{{fileId}}",
+                "download"
+              ]
+            },
+            "description": "Get a signed download URL for an enhanced delivery file."
+          },
+          "response": []
+        },
+        {
+          "name": "Submissions - Download Completed Submission File",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/submissions/{{submissionId}}/files/{{fileId}}/download",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "submissions",
+                "{{submissionId}}",
+                "files",
+                "{{fileId}}",
+                "download"
+              ]
+            },
+            "description": "Get a signed download URL for a completed submission file."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin APIs",
+      "item": [
+        {
+          "name": "Admin - List All Submissions",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAuthToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/submissions?status=SUBMITTED&sort=date&order=desc&limit=20&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "submissions"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "SUBMITTED"
+                },
+                {
+                  "key": "sort",
+                  "value": "date"
+                },
+                {
+                  "key": "order",
+                  "value": "desc"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "List all submissions with filters, sorting, and pagination."
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Get Submission Detail",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAuthToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/submissions/{{submissionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "submissions",
+                "{{submissionId}}"
+              ]
+            },
+            "description": "Get one submission with full user, file, and event details."
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Update Submission Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAuthToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"IN_REVIEW\",\n  \"adminNote\": \"Checked and in progress\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/submissions/{{submissionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "submissions",
+                "{{submissionId}}"
+              ]
+            },
+            "description": "Update the submission status and attach an admin note."
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - List Enhanced Deliveries",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAuthToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/submissions/{{submissionId}}/enhanced-deliveries",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "submissions",
+                "{{submissionId}}",
+                "enhanced-deliveries"
+              ]
+            },
+            "description": "List enhanced deliveries for a submission from the admin side."
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Create Enhanced Delivery",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAuthToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Here is the enhanced delivery package\",\n  \"files\": [\n    {\n      \"fileName\": \"enhanced-delivery.pdf\",\n      \"mimeType\": \"application/pdf\",\n      \"size\": 2097152\n    },\n    {\n      \"fileName\": \"asset-bundle.zip\",\n      \"mimeType\": \"application/zip\",\n      \"size\": 5242880\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/submissions/{{submissionId}}/enhanced-deliveries",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "submissions",
+                "{{submissionId}}",
+                "enhanced-deliveries"
+              ]
+            },
+            "description": "Create an enhanced delivery and receive presigned upload URLs for admin files."
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Complete Enhanced Delivery",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAuthToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"files\": [\n    {\n      \"fileName\": \"enhanced-delivery.pdf\",\n      \"mimeType\": \"application/pdf\",\n      \"size\": 2097152,\n      \"storageKey\": \"submissions/{{submissionId}}/enhanced/{{adminId}}/sample-file-1\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/submissions/{{submissionId}}/enhanced-deliveries/{{deliveryId}}/complete",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "submissions",
+                "{{submissionId}}",
+                "enhanced-deliveries",
+                "{{deliveryId}}",
+                "complete"
+              ]
+            },
+            "description": "Confirm enhanced delivery uploads, attach files, and move the submission to ENHANCED_SENT."
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Download Submission File",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAuthToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/submissions/{{submissionId}}/files/{{fileId}}/download",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "submissions",
+                "{{submissionId}}",
+                "files",
+                "{{fileId}}",
+                "download"
+              ]
+            },
+            "description": "Generate a signed download URL for a submission file from the admin side."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "your_user_token_here",
+      "type": "string"
+    },
+    {
+      "key": "adminAuthToken",
+      "value": "your_admin_token_here",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "your_user_id_here",
+      "type": "string"
+    },
+    {
+      "key": "adminId",
+      "value": "your_admin_id_here",
+      "type": "string"
+    },
+    {
+      "key": "submissionId",
+      "value": "your_submission_id_here",
+      "type": "string"
+    },
+    {
+      "key": "deliveryId",
+      "value": "your_delivery_id_here",
+      "type": "string"
+    },
+    {
+      "key": "fileId",
+      "value": "your_file_id_here",
+      "type": "string"
+    }
+  ]
+}
