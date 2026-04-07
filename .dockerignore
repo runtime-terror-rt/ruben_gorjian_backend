@@ -22,6 +22,4 @@ uploads
 .DS_Store
 .github
 vitest.config.ts
-tsconfig.json
-tsconfig.scripts.json
 README.md
