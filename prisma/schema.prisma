@@ -133,6 +133,84 @@ model Plan {
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
   subscriptions         Subscription[]
+  planTermsVersions     PlanTermsVersion[]
+  billingQuotes         BillingQuote[]
+}
+
+model PlanTermsVersion {
+  id        String   @id @default(cuid())
+  planCode  String
+  version   String
+  title     String
+  content   String
+  isActive  Boolean  @default(true)
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plan Plan @relation(fields: [planCode], references: [code], onDelete: Cascade)
+
+  @@unique([planCode, version])
+  @@index([planCode])
+  @@index([planCode, isActive])
+}
+
+model Addon {
+  id          String       @id @default(cuid())
+  code        String       @unique
+  name        String
+  description String?
+  type        AddonType
+  isActive    Boolean      @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  prices      AddonPrice[]
+
+  @@index([type])
+  @@index([isActive])
+}
+
+model AddonPrice {
+  id              String      @id @default(cuid())
+  addonId         String
+  billingCycle    BillingCycle
+  unitAmountCents Int
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  addon Addon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+
+  @@unique([addonId, billingCycle])
+  @@index([billingCycle])
+  @@index([isActive])
+}
+
+model BillingQuote {
+  id                    String             @id @default(cuid())
+  userId                String
+  planCode              String
+  billingCycle          BillingCycle
+  acceptedTermsJson     Json
+  additionalPlatformQty Int
+  subtotalCents         Int
+  discountCents         Int
+  taxCents              Int
+  totalCents            Int
+  taxRatePercent        String
+  currency              String             @default("usd")
+  status                BillingQuoteStatus @default(PENDING)
+  expiresAt             DateTime
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  plan Plan @relation(fields: [planCode], references: [code])
+
+  @@index([userId])
+  @@index([planCode])
+  @@index([status])
+  @@index([expiresAt])
 }
 
 model Subscription {
@@ -174,6 +252,7 @@ model PlanChangeLog {
 }
 
 model ProcessedWebhookEvent {
+
   id        String   @id @default(cuid())
   eventId   String   @unique
   type      String
@@ -184,11 +263,14 @@ model ProcessedWebhookEvent {
 
 enum PostLimitType {
   NONE
+
   SOFT
+
   HARD
 }
 
 enum SchedulerRole {
+
   CLIENT
   ADMIN
 }
@@ -200,9 +282,11 @@ enum BillingCycle {
 
 model Founder {
   id        String   @id @default(cuid())
+
   userId    String   @unique
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
+
 }
 
 model BrandProfile {
@@ -211,11 +295,14 @@ model BrandProfile {
   productTypes                 String?
   businessType                 String?
   tone                         String?
+
   audience                     String?
+
   competitors                  String?
   ctaPreferences               String?
   hashtagPreferences           String?
   website                      String?
+
   socials                      Json?
   // Plan-specific onboarding data stored as JSON
   calendarOnboardingData       Json?
@@ -233,7 +320,9 @@ model BrandFile {
   fileName           String
   fileType           String?
   storageKey         String
+
   createdAt          DateTime      @default(now())
+
   brandProfileUserId String?
   BrandProfile       BrandProfile? @relation(fields: [brandProfileUserId], references: [userId])
   user               User          @relation(fields: [userId], references: [id], map: "BrandFile_brandProfile_fkey")
@@ -269,10 +358,12 @@ model Asset {
 model ContentItem {
   id               String        @id @default(cuid())
   userId           String
+
   assetId          String
   captionVariants  Json?
   hashtags         Json?
   ctas             Json?
+
   shortDescription String?
   status           ContentStatus @default(DRAFT)
   createdAt        DateTime      @default(now())
@@ -323,7 +414,7 @@ model Post {
   status                 PostStatus     @default(DRAFT)
   scheduleType           ScheduleType   @default(POSTING)
   sessionStatus          SessionStatus?
-  // calendlySyncStatus     CalendlySyncStatus?
+  calendlySyncStatus     CalendlySyncStatus?
   sessionTitle           String?
   sessionNotes           String?
   sessionDurationMinutes Int?
@@ -345,12 +436,16 @@ model Post {
   PostAsset        PostAsset[]
   events           PostEvent[]
   targets          PostTarget[]
+  calendlyEventUri      String?
+  calendlyInviteeUri    String?
+  calendlySyncError     String?
+  calendlyLastSyncedAt  DateTime?
 
   @@index([userId])
   @@index([scheduledFor])
   @@index([scheduleType])
   @@index([sessionStatus])
-  // @@index([calendlySyncStatus])
+  @@index([calendlySyncStatus])
   @@index([adminId])
   @@index([initiatedBy])
 }
@@ -660,6 +755,19 @@ enum SubscriptionStatus {
 enum PriceType {
   STANDARD
   FOUNDER
+}
+
+enum AddonType {
+  RECURRING
+  ONE_TIME
+}
+
+enum BillingQuoteStatus {
+  PENDING
+  CHECKOUT_CREATED
+  COMPLETED
+  EXPIRED
+  CANCELED
 }
 
 enum CouponStatus {

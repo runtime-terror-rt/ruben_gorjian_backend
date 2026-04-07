@@ -4,6 +4,12 @@ import { logger } from "../../../lib/logger";
 import { UploadPostClient } from "./client";
 import { env } from "../../../config/env";
 
+type SupportedSocialPlatform = Exclude<SocialPlatform, "TIKTOK">;
+
+function isSupportedSocialPlatform(platform: SocialPlatform): platform is SupportedSocialPlatform {
+  return platform === "INSTAGRAM" || platform === "FACEBOOK" || platform === "LINKEDIN";
+}
+
 const client = new UploadPostClient();
 let missingExternalPublishJobTableWarned = false;
 
@@ -46,6 +52,9 @@ export class UploadPostService {
   }
 
   async getConnectUrl(userId: string, platform: SocialPlatform, redirectUrl: string) {
+    if (!isSupportedSocialPlatform(platform)) {
+      throw new Error("Upload-Post is not supported for TikTok");
+    }
     const profile = await this.ensureProfile(userId);
     const options: Parameters<typeof client.getConnectUrl>[3] = {};
     if (env.UPLOAD_POST_CONNECT_LOGO_URL) options.logo_image = env.UPLOAD_POST_CONNECT_LOGO_URL;
@@ -55,7 +64,7 @@ export class UploadPostService {
     return client.getConnectUrl(profile.username, platform, redirectUrl, Object.keys(options).length > 0 ? options : undefined);
   }
 
-  private normalizePlatformValue(value: string): SocialPlatform | null {
+  private normalizePlatformValue(value: string): SupportedSocialPlatform | null {
     const normalized = value.trim().toUpperCase();
     if (normalized === "INSTAGRAM") return "INSTAGRAM";
     if (normalized === "FACEBOOK") return "FACEBOOK";
@@ -69,8 +78,8 @@ export class UploadPostService {
    * { success, profile: { social_accounts: { instagram: {...}|null, facebook: {...}|null, ... } } }.
    * See https://docs.upload-post.com/api/user-profiles/
    */
-  private extractConnectedPlatforms(payload: any): { platforms: Set<SocialPlatform>; confident: boolean } {
-    const connected = new Set<SocialPlatform>();
+  private extractConnectedPlatforms(payload: any): { platforms: Set<SupportedSocialPlatform>; confident: boolean } {
+    const connected = new Set<SupportedSocialPlatform>();
     let confident = false;
 
     // Documented shape: profile.social_accounts is an object; key = platform (lowercase), value = details object when connected, null or "" when not
@@ -180,6 +189,9 @@ export class UploadPostService {
     caption: string;
     mediaUrls: Array<{ url: string; type: "image" | "video" }>;
   }) {
+    if (!isSupportedSocialPlatform(params.platform)) {
+      throw new Error("Upload-Post is not supported for TikTok");
+    }
     const profile = await this.ensureProfile(params.userId);
     const result = await client.publish({
       username: profile.username,

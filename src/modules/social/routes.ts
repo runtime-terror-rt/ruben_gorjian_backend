@@ -440,7 +440,7 @@ router.post("/disconnect", requireAuth, async (req, res) => {
 // Refresh token endpoint (for manual refresh)
 router.post("/refresh/:socialAccountId", requireAuth, async (req, res) => {
   try {
-    const account = await socialService.refreshTokenIfNeeded(req.params.socialAccountId);
+    const account = await socialService.refreshTokenIfNeeded(req.params.socialAccountId as string);
     if (!account) {
       return res.status(404).json({ error: "Social account not found" });
     }

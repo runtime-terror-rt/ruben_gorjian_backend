@@ -56,6 +56,12 @@ export class SocialOAuthService {
         // openid + profile + email replace r_liteprofile + r_emailaddress.
         // w_member_social remains required for posting on behalf of members.
         scopes: ["openid", "profile", "email", "w_member_social"]
+      },
+      TIKTOK: {
+        clientId: process.env.TIKTOK_CLIENT_ID || "",
+        clientSecret: process.env.TIKTOK_CLIENT_SECRET || "",
+        redirectUri: `${this.baseUrl}/social/callback/tiktok`,
+        scopes: ["user.info.basic", "video.list", "video.publish"]
       }
     };
     
@@ -84,7 +90,8 @@ export class SocialOAuthService {
       // Instagram Business uses Meta OAuth dialog
       INSTAGRAM: "https://www.facebook.com/v18.0/dialog/oauth",
       FACEBOOK: "https://www.facebook.com/v18.0/dialog/oauth",
-      LINKEDIN: "https://www.linkedin.com/oauth/v2/authorization"
+      LINKEDIN: "https://www.linkedin.com/oauth/v2/authorization",
+      TIKTOK: "https://www.tiktok.com/v2/auth/authorize/"
     };
 
     return `${baseUrls[platform]}?${params.toString()}`;
@@ -97,7 +104,8 @@ export class SocialOAuthService {
       // Use Meta token endpoint for both Instagram (business) and Facebook
       INSTAGRAM: "https://graph.facebook.com/v18.0/oauth/access_token",
       FACEBOOK: "https://graph.facebook.com/v18.0/oauth/access_token",
-      LINKEDIN: "https://www.linkedin.com/oauth/v2/accessToken"
+      LINKEDIN: "https://www.linkedin.com/oauth/v2/accessToken",
+      TIKTOK: "https://open.tiktokapis.com/v2/oauth/token/"
     };
 
     const params = new URLSearchParams({
@@ -170,7 +178,8 @@ export class SocialOAuthService {
     const profileUrls = {
       INSTAGRAM: "https://graph.facebook.com/v18.0/me/accounts?fields=id,name,access_token,instagram_business_account{username,id}",
       FACEBOOK: "https://graph.facebook.com/v18.0/me/accounts?fields=id,name,access_token",
-      LINKEDIN: "https://api.linkedin.com/v2/userinfo"
+      LINKEDIN: "https://api.linkedin.com/v2/userinfo",
+      TIKTOK: "https://open.tiktokapis.com/v2/user/info/"
     };
     const appSecretProof =
       platform === "FACEBOOK" || platform === "INSTAGRAM"
@@ -267,7 +276,8 @@ export class SocialOAuthService {
 
     const tokenUrls = {
       FACEBOOK: "https://graph.facebook.com/v18.0/oauth/access_token",
-      LINKEDIN: "https://www.linkedin.com/oauth/v2/accessToken"
+      LINKEDIN: "https://www.linkedin.com/oauth/v2/accessToken",
+      TIKTOK: "https://open.tiktokapis.com/v2/oauth/token/"
     };
 
     const response = await fetch(tokenUrls[platform], {

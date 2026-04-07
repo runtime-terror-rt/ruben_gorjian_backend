@@ -3,6 +3,9 @@ import { TiktokController } from "./tiktok.controller";
 import { requireAuth } from "../../../middleware/requireAuth";
 import multer from "multer";
 import { ApiError } from "../../../lib/errors";
+import type { Request } from "express";
+
+type MulterFileFilterCallback = (error: Error | null, acceptFile?: boolean) => void;
 
 const router = Router();
 
@@ -11,7 +14,7 @@ const tikTokController = new TiktokController();
 const multipartUpload = multer({
   storage: multer.diskStorage({
     destination: "./uploads",
-    filename: (req, file, cb) => {
+    filename: (_req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
       const uniqueName = `${Date.now()}-${file.originalname}`;
       cb(null, uniqueName);
     },
@@ -21,7 +24,7 @@ const multipartUpload = multer({
     fileSize: 200 * 1024 * 1024, // 200MB
   },
 
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req: Request, file: Express.Multer.File, cb: MulterFileFilterCallback) => {
     if (file.mimetype.startsWith("video/")) {
       cb(null, true);
     } else {

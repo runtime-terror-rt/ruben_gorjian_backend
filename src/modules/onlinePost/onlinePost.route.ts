@@ -1,9 +1,12 @@
 import express from "express";
 import multer from "multer";
+import type { Request } from "express";
 import { requireAuth } from "../../middleware/requireAuth";
 import { requireAdmin } from "../../middleware/requireAdmin";
 import { OnlinePostController } from "./onlinePost.controller";
 import { ApiError } from "../../lib/errors";
+
+type MulterFileFilterCallback = (error: Error | null, acceptFile?: boolean) => void;
 
 const router = express.Router();
 const controller = new OnlinePostController();
@@ -20,7 +23,7 @@ const multipartUpload = multer({
   limits: {
     files: 10, // max 10 files
   },
-  fileFilter: (_req, file, cb) => {
+  fileFilter: (_req: Request, file: Express.Multer.File, cb: MulterFileFilterCallback) => {
     // Define allowed MIME types
     const imageMimes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
     const videoMimes = [

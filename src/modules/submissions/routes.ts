@@ -164,7 +164,7 @@ router.post("/:id/files/complete", fileUploadRateLimiter, async (req, res) => {
       throw Errors.badRequest("Invalid payload", parsed.error.flatten());
     }
 
-    const submissionId = req.params.id;
+    const submissionId = req.params.id as string;
     const userId = req.user!.id;
 
     // Verify submission belongs to user
@@ -275,7 +275,7 @@ router.post("/:id/presign-single", fileUploadRateLimiter, async (req, res) => {
       throw Errors.badRequest("Invalid payload", parsed.error.flatten());
     }
 
-    const submissionId = req.params.id;
+    const submissionId = req.params.id as string;
     const userId = req.user!.id;
 
     // Verify submission belongs to user
@@ -375,7 +375,7 @@ router.get("/", async (req, res) => {
  */
 router.get("/:id", async (req, res) => {
   try {
-    const submissionId = req.params.id;
+    const submissionId = req.params.id as string;
     const userId = req.user!.id;
 
     const submission = await getSubmissionById(submissionId, userId);
@@ -454,7 +454,7 @@ router.get("/:id/enhanced-deliveries", async (req, res) => {
  */
 router.get("/:id/enhanced-deliveries/:deliveryId/files/:fileId/download", async (req, res) => {
   try {
-    const { id: submissionId, deliveryId, fileId } = req.params;
+    const { id: submissionId, deliveryId, fileId } = req.params as { id: string; deliveryId: string; fileId: string };
     const userId = req.user!.id;
 
     const submission = await getSubmissionById(submissionId, userId);

@@ -1,7 +1,9 @@
 import { Request } from "express";
 import { prisma } from "../lib/prisma";
 
-const METHOD_SET = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "ALL"]);
+export type AdminRouteMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "ALL";
+
+const METHOD_SET = new Set<AdminRouteMethod>(["GET", "POST", "PUT", "PATCH", "DELETE", "ALL"]);
 
 function normalizePath(path: string) {
   const base = path.trim();
@@ -31,8 +33,8 @@ function hasPathMatch(pathPattern: string, requestPath: string) {
   return regex.test(requestPath);
 }
 
-export function normalizeRouteMethod(method: string) {
-  const upper = method.toUpperCase();
+export function normalizeRouteMethod(method: string): AdminRouteMethod {
+  const upper = method.toUpperCase() as AdminRouteMethod;
   if (!METHOD_SET.has(upper)) {
     throw new Error(`Unsupported method: ${method}`);
   }

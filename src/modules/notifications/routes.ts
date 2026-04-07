@@ -13,8 +13,8 @@ router.get("/", requireAuth, async (req, res) => {
   try {
     const userId = req.user!.id;
     
-    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
-    const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 50;
+    const offset = req.query.offset ? parseInt(String(req.query.offset), 10) : 0;
 
     const result = await getUserNotifications(userId, { limit, offset });
 
@@ -48,7 +48,7 @@ router.get("/unread-count", requireAuth, async (req, res) => {
 router.patch("/:id/read", requireAuth, async (req, res) => {
   try {
     const userId = req.user!.id;
-    const notificationId = req.params.id;
+    const notificationId = req.params.id as string;
 
     const notification = await markNotificationRead(notificationId, userId);
 

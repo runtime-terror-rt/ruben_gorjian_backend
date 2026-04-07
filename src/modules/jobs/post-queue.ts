@@ -1,14 +1,15 @@
-import { Queue, Worker, JobsOptions } from "bullmq";
+import { Queue, Worker, JobsOptions, type ConnectionOptions } from "bullmq";
 import { getRedis } from "../../lib/redis";
 import { PostService } from "../posts/service";
 import { logger } from "../../lib/logger";
 
 const redis = getRedis();
+const bullmqConnection = redis as unknown as ConnectionOptions;
 
 export const postQueue =
   redis &&
   new Queue("post-publish", {
-    connection: redis,
+    connection: bullmqConnection,
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: "exponential", delay: 5000 },
@@ -34,7 +35,7 @@ export function startPostQueueWorker(concurrency = 2) {
       return result;
     },
     {
-      connection: redis,
+      connection: bullmqConnection,
       concurrency,
     }
   );

@@ -52,7 +52,7 @@ router.post("/:postId/duplicate", requireAuth, async (req, res) => {
   try {
     const result = await postService.duplicatePost(
       req.user!.id, 
-      req.params.postId, 
+      req.params.postId as string, 
       parsed.data.scheduledFor
     );
     return res.status(201).json(result);
@@ -78,7 +78,7 @@ router.put("/:postId/move", requireAuth, async (req, res) => {
   try {
     const post = await postService.movePost(
       req.user!.id, 
-      req.params.postId, 
+      req.params.postId as string, 
       parsed.data.scheduledFor
     );
     return res.json({ post });

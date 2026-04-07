@@ -1,6 +1,6 @@
 import express from "express";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
+import { Prisma, Role, UserStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/requireAuth";
 import { hashPassword } from "../../utils/password";
@@ -199,8 +199,8 @@ function toAdminResponse(admin: {
 	id: string;
 	name: string | null;
 	email: string;
-	role: "ADMIN" | "SUPER_ADMIN";
-	status: "ACTIVE" | "BLOCKED" | "DELETED";
+	role: Role;
+	status: UserStatus;
 	createdAt: Date;
 	updatedAt: Date;
 	adminRoutePermissions: Array<{

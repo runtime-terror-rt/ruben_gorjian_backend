@@ -70,7 +70,7 @@ router.get("/calendar", requireAuth, async (req, res) => {
 // Get a single post by id
 router.get("/:postId", requireAuth, async (req, res) => {
   try {
-    const post = await postService.getPost(req.user!.id, req.params.postId);
+    const post = await postService.getPost(req.user!.id, req.params.postId as string);
     if (!post) {
       return res.status(404).json({ error: "Post not found" });
     }
@@ -143,7 +143,7 @@ router.put("/:postId", requireAuth, async (req, res) => {
   }
 
   try {
-    const post = await postService.updatePost(req.user!.id, req.params.postId, parsed.data);
+    const post = await postService.updatePost(req.user!.id, req.params.postId as string, parsed.data);
     return res.json({ post });
   } catch (error) {
     logger.error("Error updating post", error);
@@ -169,7 +169,7 @@ router.put("/:postId", requireAuth, async (req, res) => {
 // Delete post
 router.delete("/:postId", requireAuth, async (req, res) => {
   try {
-    await postService.deletePost(req.user!.id, req.params.postId);
+    await postService.deletePost(req.user!.id, req.params.postId as string);
     return res.json({ success: true });
   } catch (error) {
     logger.error("Error deleting post", error);
@@ -182,7 +182,7 @@ router.delete("/:postId", requireAuth, async (req, res) => {
 // Schedule post (change from draft to scheduled)
 router.post("/:postId/schedule", requireAuth, async (req, res) => {
   try {
-    await postService.schedulePost(req.user!.id, req.params.postId);
+    await postService.schedulePost(req.user!.id, req.params.postId as string);
     return res.json({ success: true });
   } catch (error) {
     logger.error("Error scheduling post", error);
@@ -195,7 +195,7 @@ router.post("/:postId/schedule", requireAuth, async (req, res) => {
 // Publish post immediately (for testing)
 router.post("/:postId/publish", requireAuth, async (req, res) => {
   try {
-    const result = await postService.publishPost(req.params.postId);
+    const result = await postService.publishPost(req.params.postId as string);
     return res.json(result);
   } catch (error) {
     logger.error("Error publishing post", error);
@@ -226,7 +226,7 @@ router.get("/due", requireAuth, requireAdmin, async (req, res) => {
 // Get post with detailed target errors (for user-facing error display)
 router.get("/:postId/errors", requireAuth, async (req, res) => {
   try {
-    const post = await postService.getPostWithErrors(req.user!.id, req.params.postId);
+    const post = await postService.getPostWithErrors(req.user!.id, req.params.postId as string);
     if (!post) {
       return res.status(404).json({ error: "Post not found" });
     }

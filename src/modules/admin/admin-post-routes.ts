@@ -177,7 +177,7 @@ router.post("/users/:userId/posts", createPostLimiter, async (req, res) => {
       });
     }
 
-    const { userId } = req.params;
+    const { userId } = req.params as { userId: string };
     const adminId = req.user!.id;
     const data = parsed.data;
 
