@@ -1,0 +1,238 @@
+{
+  "info": {
+    "_postman_id": "contact-support-system-2026",
+    "name": "Talexia Contact Support System",
+    "description": "Contact submission, admin management, and reply notification system",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{authToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "User - Submit Contact Form",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fullName\": \"Arjun Kumar\",\n  \"businessName\": \"A+ Digital Agency\",\n  \"email\": \"arjun@aplus.in\",\n  \"websiteOrHandle\": \"@aplusplusdigital\",\n  \"interests\": [\"full-management\", \"ai-visuals\"],\n  \"postsPerMonth\": \"100\",\n  \"message\": \"We have 50 clients. Can we manage different brand setup for each?\",\n  \"source\": \"google-search\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/contact",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "contact"
+          ]
+        },
+        "description": "Submit a new contact form. Sends confirmation email to user and notification to admin."
+      },
+      "response": []
+    },
+    {
+      "name": "User - View My Submissions",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/contact/my-submissions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "contact",
+            "my-submissions"
+          ]
+        },
+        "description": "View all contact submissions for the authenticated user (sorted by date)"
+      },
+      "response": []
+    },
+    {
+      "name": "Newsletter - Subscribe",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"subscriber@example.com\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/contact/newsletter",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "contact",
+            "newsletter"
+          ]
+        },
+        "description": "Subscribe to newsletter"
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - List All Submissions",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/contact/admin/submissions?page=1&limit=20&status=PENDING",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "contact",
+            "admin",
+            "submissions"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Page number (default: 1)"
+            },
+            {
+              "key": "limit",
+              "value": "20",
+              "description": "Items per page (default: 20, max: 100)"
+            },
+            {
+              "key": "status",
+              "value": "PENDING",
+              "description": "Filter by status: PENDING, REPLIED, RESOLVED, CLOSED (optional)"
+            }
+          ]
+        },
+        "description": "List all contact submissions with pagination. Admin only."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Get Submission Details",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/contact/admin/submissions/{{submissionId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "contact",
+            "admin",
+            "submissions",
+            "{{submissionId}}"
+          ]
+        },
+        "description": "Get detailed information about a specific submission. Admin only."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Send Reply to User",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"replyMessage\": \"Hello Arjun,\\n\\nThank you for reaching out. We can definitely support multiple brand setups for your 50 clients. Our full-management plan includes white-label solutions with custom brand profiles for each client.\\n\\nOur team will contact you shortly to discuss implementation details and pricing.\\n\\nBest regards,\\nTalexia Support\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/contact/admin/submissions/{{submissionId}}/reply",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "contact",
+            "admin",
+            "submissions",
+            "{{submissionId}}",
+            "reply"
+          ]
+        },
+        "description": "Send a reply to user's contact submission. Automatically sets status to REPLIED and sends email notification to user. Admin only."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Update Submission Status",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"RESOLVED\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/contact/admin/submissions/{{submissionId}}/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "contact",
+            "admin",
+            "submissions",
+            "{{submissionId}}",
+            "status"
+          ]
+        },
+        "description": "Update submission status. Valid values: PENDING, REPLIED, RESOLVED, CLOSED. If status is RESOLVED or CLOSED, resolvedAt timestamp is set. Admin only."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "your_admin_token_here",
+      "type": "string"
+    },
+    {
+      "key": "submissionId",
+      "value": "submission_id_from_list_endpoint",
+      "type": "string"
+    }
+  ]
+}

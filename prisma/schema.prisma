@@ -53,6 +53,8 @@ model User {
   adminInitiatedPosts               Post[]                   @relation("AdminInitiatedPosts")
   adminPostPermissions              AdminPostPermission?
   grantedAdminPostPermissions       AdminPostPermission[]    @relation("AdminPostPermissionGrantedBy")
+  adminRoutePermissions             AdminRoutePermission[]    @relation("AdminRoutePermissions")
+  grantedAdminRoutePermissions      AdminRoutePermission[]    @relation("AdminRoutePermissionsGrantedBy")
   adminUploadedAssets               Asset[]                  @relation("AdminUploadedAssets")
   notifications                     Notification[]
   enhancedDeliveries                EnhancedDelivery[]       @relation("EnhancedDeliveriesByAdmin")
@@ -109,28 +111,28 @@ enum ScheduledPostStatus {
 }
 
 model Plan {
-  id                     String         @id @default(cuid())
-  code                   String         @unique
-  name                   String
-  category               PlanCategory
-  isJewelry              Boolean        @default(false)
-  platformLimit          Int?
-  baseVisualQuota        Int?
-  basePostQuota          Int?
-  postLimitType          PostLimitType  @default(NONE)
-  schedulerRole          SchedulerRole  @default(CLIENT)
-  priceStandardCents     Int
-  priceFounderCents      Int
-  stripePriceStandardId  String?
-  stripePriceFounderId   String?
-  hasYearlyPrice         Boolean        @default(false)
-  photoSessionEnabled    Boolean        @default(false)
-  videoSessionEnabled    Boolean        @default(false)
-  photoSessionsPerPeriod Int            @default(0)
-  videoSessionsPerPeriod Int            @default(0)
-  createdAt              DateTime       @default(now())
-  updatedAt              DateTime       @updatedAt
-  subscriptions          Subscription[]
+  id                    String         @id @default(cuid())
+  code                  String         @unique
+  name                  String
+  category              PlanCategory
+  isJewelry             Boolean        @default(false)
+  platformLimit         Int?
+  baseVisualQuota       Int?
+  basePostQuota         Int?
+  postLimitType         PostLimitType  @default(NONE)
+  schedulerRole         SchedulerRole  @default(CLIENT)
+  priceStandardCents    Int
+  priceFounderCents     Int
+  stripePriceStandardId String?
+  stripePriceFounderId  String?
+  hasYearlyPrice        Boolean        @default(false)
+  photoSessionEnabled   Boolean        @default(false)
+  videoSessionEnabled   Boolean        @default(false)
+  photoSessionsPerPeriod Int           @default(0)
+  videoSessionsPerPeriod Int           @default(0)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  subscriptions         Subscription[]
 }
 
 model Subscription {
@@ -321,32 +323,34 @@ model Post {
   status                 PostStatus     @default(DRAFT)
   scheduleType           ScheduleType   @default(POSTING)
   sessionStatus          SessionStatus?
+  // calendlySyncStatus     CalendlySyncStatus?
   sessionTitle           String?
   sessionNotes           String?
   sessionDurationMinutes Int?
-  sessionFailureReason   String?
-  scheduledFor           DateTime?
-  caption                String?
-  hashtags               Json?
-  cta                    String?
-  shortDescription       String?
-  initiatedBy            PostInitiator  @default(USER)
-  adminId                String?
-  adminReason            String?
-  createdAt              DateTime       @default(now())
-  updatedAt              DateTime       @updatedAt
-  asset                  Asset?         @relation(fields: [assetId], references: [id])
-  contentItem            ContentItem?   @relation(fields: [contentItemId], references: [id])
-  user                   User           @relation(fields: [userId], references: [id])
-  admin                  User?          @relation("AdminInitiatedPosts", fields: [adminId], references: [id])
-  PostAsset              PostAsset[]
-  events                 PostEvent[]
-  targets                PostTarget[]
+  sessionFailureReason String?
+  scheduledFor     DateTime?
+  caption          String?
+  hashtags         Json?
+  cta              String?
+  shortDescription String?
+  initiatedBy      PostInitiator @default(USER)
+  adminId          String?
+  adminReason      String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  asset            Asset?        @relation(fields: [assetId], references: [id])
+  contentItem      ContentItem?  @relation(fields: [contentItemId], references: [id])
+  user             User          @relation(fields: [userId], references: [id])
+  admin            User?         @relation("AdminInitiatedPosts", fields: [adminId], references: [id])
+  PostAsset        PostAsset[]
+  events           PostEvent[]
+  targets          PostTarget[]
 
   @@index([userId])
   @@index([scheduledFor])
   @@index([scheduleType])
   @@index([sessionStatus])
+  // @@index([calendlySyncStatus])
   @@index([adminId])
   @@index([initiatedBy])
 }
@@ -491,11 +495,18 @@ model ContactSubmission {
   postsPerMonth String?
   message       String?
   source        String?
+  status        String   @default("PENDING")
+  repliedBy     String?
+  replyMessage  String?
+  repliedAt     DateTime?
+  isResolved    Boolean  @default(false)
+  resolvedAt    DateTime?
   createdAt     DateTime @default(now())
   createdIp     String?
 
   @@index([email])
   @@index([createdAt])
+  @@index([status])
 }
 
 model RecentActivity {
@@ -617,6 +628,9 @@ enum AuditAction {
   BLOCK_USER
   UNBLOCK_USER
   CANCEL_SUBSCRIPTION
+  SCHEDULE_CANCEL_SUBSCRIPTION
+  IMMEDIATE_CANCEL_SUBSCRIPTION
+  RESUME_SUBSCRIPTION
   RESEND_VERIFICATION
   REFRESH_SUBSCRIPTION
   POST_AS_USER_CREATE
@@ -706,6 +720,12 @@ enum SessionStatus {
   COMPLETED
   FAILED
   CANCELED
+}
+
+enum CalendlySyncStatus {
+  PENDING
+  SYNCED
+  FAILED
 }
 
 enum PostInitiator {
@@ -863,6 +883,26 @@ model AdminPostPermission {
 
   @@index([userId])
   @@index([grantedByAdminId])
+}
+
+model AdminRoutePermission {
+  id               String   @id @default(cuid())
+  adminUserId      String
+  method           String
+  pathPattern      String
+  description      String?
+  active           Boolean  @default(true)
+  grantedByAdminId String
+  grantedAt        DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  adminUser        User     @relation("AdminRoutePermissions", fields: [adminUserId], references: [id], onDelete: Cascade)
+  grantedBy        User     @relation("AdminRoutePermissionsGrantedBy", fields: [grantedByAdminId], references: [id])
+
+  @@index([adminUserId])
+  @@index([grantedByAdminId])
+  @@index([method])
+  @@index([pathPattern])
 }
 
 model Notification {

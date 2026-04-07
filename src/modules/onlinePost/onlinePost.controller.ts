@@ -58,9 +58,7 @@ export class OnlinePostController {
   disconnectLinkForLoggedUser = async (req: AuthedRequest, res: Response) => {
     try {
       return res.json(
-        await this.onlinePostService.disconnectLinkForUser(req.user, {
-          platform: req.body?.platform,
-        }),
+        await this.onlinePostService.disconnectLinkForUser(req.user),
       );
     } catch (error) {
       return handleError(error, res);

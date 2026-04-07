@@ -32,40 +32,47 @@ import { uploadPostProviderRouter } from "./modules/providers/upload-post/routes
 import { schedulerRouter } from "./modules/scheduler/routes";
 import { onlinePostRouter } from "./modules/onlinePost/onlinePost.route";
 import { tiktokRoutes } from "./modules/onlinePost/tiktok/tiktok.routes";
+import { virtualAdminRouter } from "./modules/admin/virtual-admin-routes";
+import { adminOverviewRouter } from "./modules/admin/overview/routes";
 
 export const app = express();
 
-app.set('trust proxy', 1)
+// app.set('trust proxy', 1)
 const noopLimiter: express.RequestHandler = (_req, _res, next) => next();
 
 // Rate limiting (disabled in development)
 const limiter =
   env.NODE_ENV === "production"
     ? rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 100,
-      message: { error: "Too many requests from this IP, please try again later." },
-      standardHeaders: true,
-      legacyHeaders: false,
-      skip: (req) => req.path === "/health" || req.path === "/auth/me",
-      handler: (req, res, _next, options) => {
-        const msg = options.message ?? { error: "Too many requests" };
-        logger.warn("Rate limit hit", { path: req.path });
-        res.status(options.statusCode ?? 429).json(msg);
-      },
-    })
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        max: 100,
+        message: {
+          error: "Too many requests from this IP, please try again later.",
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        skip: (req) => req.path === "/health" || req.path === "/auth/me",
+        handler: (req, res, _next, options) => {
+          const msg = options.message ?? { error: "Too many requests" };
+          logger.warn("Rate limit hit", { path: req.path });
+          res.status(options.statusCode ?? 429).json(msg);
+        },
+      })
     : noopLimiter;
 
-
 // Stripe webhook needs raw body
-app.post("/billing/webhook", express.raw({ type: "application/json" }), billingWebhook);
+app.post(
+  "/billing/webhook",
+  express.raw({ type: "application/json" }),
+  billingWebhook,
+);
 
 app.use(helmet());
 app.use(
   cors({
     origin: env.FRONTEND_URL || "http://localhost:3000",
     credentials: true,
-  })
+  }),
 );
 app.use(cookieParser());
 app.use(express.json());
@@ -93,15 +100,22 @@ app.use("/posts", postsRouter);
 app.use("/posts", enhancedPostsRouter);
 app.use("/scheduler", schedulerRouter);
 app.use("/api/scheduler", schedulerRouter);
+app.use("/scheduler", schedulerRouter);
+app.use("/api/scheduler", schedulerRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/admin", adminPostRouter);
+app.use("/api/admin/overview", adminOverviewRouter);
 app.use("/admin", adminRouter);
 app.use("/admin", adminPostRouter);
+app.use("/admin/overview", adminOverviewRouter);
+app.use("/api/admin/virtual-admins", virtualAdminRouter);
+app.use("/admin/virtual-admins", virtualAdminRouter);
 app.use("/api/notifications", notificationsRouter);
-app.use("/api/contact-submissions", contactRouter);
+app.use("/api/contact", contactRouter);
 app.use("/onboarding", onboardingRouter);
 app.use("/brand", brandRouter);
 app.use("/dashboard", dashboardRouter);
+app.use("/api/dashboard", dashboardRouter);
 app.use("/user/settings", settingsRouter);
 app.use("/smtp-test", smtpTestRouter);
 app.use("/api/submissions", submissionsRouter);
@@ -111,6 +125,7 @@ if (env.NODE_ENV !== "production") {
   app.use("/api/debug", debugRouter);
 }
 app.use("/api/providers/upload-post", uploadPostProviderRouter);
-app.use('/api/social-media', onlinePostRouter);
-app.use("/api/tiktok", tiktokRoutes); 
+app.use("/api/admin/upload-post", uploadPostProviderRouter);
+app.use("/api/social-media", onlinePostRouter);
+app.use("/api/tiktok", tiktokRoutes);
 app.use(errorHandler);

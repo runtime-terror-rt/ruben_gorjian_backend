@@ -50,18 +50,19 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
-<<<<<<< HEAD
-<<<<<<< HEAD
+
 temp_auto_push.bat
 temp_interactive_push.bat
 .gitignore
 config.bat
-=======
 config.bat
->>>>>>> origin/dev
+
 =======
 config.bat
 .env.example
->>>>>>> 5e1aacd8fafd64f548198ba5a6c4192efa223953
+.vscode
 pnpm-lock.yaml
 pnpm-workspace.yaml
+
+uploads/
+!uploads/.gitkeep

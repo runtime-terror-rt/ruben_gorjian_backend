@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
 import { logger } from "../lib/logger";
+import { hasAdminRoutePermission } from "./adminRoutePermission";
 
 /**
  * Middleware to check if admin has permission to post on behalf of users
@@ -14,6 +15,13 @@ export async function requireAdminPostPermission(
   // Must be authenticated and an admin first
   if (!req.user || (req.user.role !== "ADMIN" && req.user.role !== "SUPER_ADMIN")) {
     return res.status(403).json({ error: "Admin access required" });
+  }
+
+  const allowed = await hasAdminRoutePermission(req);
+  if (!allowed) {
+    return res.status(403).json({
+      error: "You do not have permission to access this route",
+    });
   }
 
   // SUPER_ADMIN always has permission

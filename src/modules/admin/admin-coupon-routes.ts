@@ -173,18 +173,20 @@ router.post("/", async (req, res) => {
   }
 });
 
-// PUT /admin/coupons/:couponId
+// PATCH /admin/coupons/:couponId
 router.patch("/:couponId", async (req, res) => {
   try {
     const { couponId } = req.params;
+
     const schema = z.object({
+      code: z.string().min(3).max(50).optional(),
       discountType: z.enum(["fixed", "percentage"]).optional(),
       discountValue: z.number().positive().optional(),
       maxUses: z.number().int().positive().nullable().optional(),
       maxUsesPerClient: z.number().int().positive().optional(),
       description: z.string().max(500).optional(),
       expiresAt: z.string().datetime().nullable().optional(),
-      applicablePlans: applicablePlansUpdateSchema,
+      applicablePlans: applicablePlansUpdateSchema.optional(),
     });
 
     const parsed = schema.safeParse(req.body);
@@ -197,47 +199,55 @@ router.patch("/:couponId", async (req, res) => {
       });
     }
 
-    const adminId = req.user!.id;
+    const data = parsed.data;
+
+    if (data.discountType === "percentage" && data.discountValue && data.discountValue > 100) {
+      return res.status(400).json({
+        success: false,
+        message: "Percentage discount cannot exceed 100",
+      });
+    }
+
+    const updateData: Prisma.CouponUpdateInput = {};
+
+    if (data.code !== undefined) updateData.code = data.code.toUpperCase();
+    if (data.discountType !== undefined) updateData.discountType = data.discountType;
+    if (data.discountValue !== undefined) updateData.discountValue = data.discountValue;
+    if (data.maxUses !== undefined) updateData.maxUses = data.maxUses;
+    if (data.maxUsesPerClient !== undefined) updateData.maxUsesPerClient = data.maxUsesPerClient;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.expiresAt !== undefined) updateData.expiresAt = data.expiresAt ? new Date(data.expiresAt) : null;
+    if (data.applicablePlans !== undefined) updateData.applicablePlans = data.applicablePlans ?? [];
 
     const coupon = await prisma.coupon.update({
       where: { id: couponId },
-      data: {
-        ...(parsed.data.discountType !== undefined && { discountType: parsed.data.discountType }),
-        ...(parsed.data.discountValue !== undefined && { discountValue: parsed.data.discountValue }),
-        ...(parsed.data.maxUses !== undefined && { maxUses: parsed.data.maxUses }),
-        ...(parsed.data.maxUsesPerClient !== undefined && { maxUsesPerClient: parsed.data.maxUsesPerClient }),
-        ...(parsed.data.description !== undefined && { description: parsed.data.description }),
-        ...(parsed.data.expiresAt !== undefined && {
-          expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null,
-        }),
-        ...(parsed.data.applicablePlans !== undefined && {
-          applicablePlans: parsed.data.applicablePlans ?? [],
-        }),
-      },
-    });
-
-    await createCouponAuditLog({
-      actorId: adminId,
-      actorEmail: req.user!.email,
-      action: AuditAction.UPDATE_USER,
-      metadata: { couponCode: coupon.code, couponId },
+      data: updateData,
     });
 
     return res.json({
       success: true,
       message: "Coupon updated successfully",
-      id: coupon.id,
-      code: coupon.code,
-      status: coupon.status,
-      expiresAt: coupon.expiresAt,
-      applicablePlans: coupon.applicablePlans,
-      updatedAt: coupon.updatedAt,
+      data: coupon,
     });
   } catch (error) {
     if ((error as { code?: string }).code === "P2025") {
-      return res.status(404).json({ success: false, message: "Coupon not found", error: "Coupon not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Coupon not found",
+      });
     }
-    return res.status(500).json({ success: false, message: "Failed to update coupon", error: "Failed to update coupon" });
+
+    if ((error as { code?: string }).code === "P2002") {
+      return res.status(409).json({
+        success: false,
+        message: "Coupon code already exists",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update coupon",
+    });
   }
 });
 

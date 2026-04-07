@@ -3,14 +3,55 @@ import multer from "multer";
 import { requireAuth } from "../../middleware/requireAuth";
 import { requireAdmin } from "../../middleware/requireAdmin";
 import { OnlinePostController } from "./onlinePost.controller";
+import { ApiError } from "../../lib/errors";
 
 const router = express.Router();
 const controller = new OnlinePostController();
+// const multipartUpload = multer({
+//   storage: multer.memoryStorage(),
+//   limits: {
+//     files: 10,
+//     fileSize: 100 * 1024 * 1024,
+//   },
+// });
+
 const multipartUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    files: 10,
-    fileSize: 100 * 1024 * 1024,
+    files: 10, // max 10 files
+  },
+  fileFilter: (_req, file, cb) => {
+    // Define allowed MIME types
+    const imageMimes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    const videoMimes = [
+      "video/mp4",
+      "video/quicktime",
+      "video/mkv",
+      "video/webm",
+    ];
+
+    // For demonstration, set max sizes
+    const maxImageSize = 100 * 1024 * 1024; // 100MB
+    const maxVideoSize = 200 * 1024 * 1024; // 200MB
+
+    if (imageMimes.includes(file.mimetype)) {
+      if (file.size > maxImageSize) {
+        return cb(new ApiError(400, "Image size exceeds 100MB"));
+      }
+      return cb(null, true);
+    } else if (videoMimes.includes(file.mimetype)) {
+      if (file.size > maxVideoSize) {
+        return cb(new ApiError(400, "Video size exceeds 200MB"));
+      }
+      return cb(null, true);
+    } else {
+      return cb(
+        new ApiError(
+          400,
+          "Invalid file type. Only images and videos are allowed.",
+        ),
+      );
+    }
   },
 });
 
@@ -22,7 +63,7 @@ router.get("/status", controller.status);
 // Authenticated (CUSTOMER/ADMIN)
 router.post("/platform/connect-link", requireAuth, controller.connectLinkForLoggedUser);
 router.post("/platform/disconnect", requireAuth, controller.disconnectLinkForLoggedUser);
-router.post("/publish-now",requireAuth, controller.publishNow);
+router.post("/publish-now", requireAuth, controller.publishNow);
 router.post("/publish-now/form-data", requireAuth, multipartUpload.array("files", 10), controller.publishNowMultipart);
 router.post("/calendar/schedule", requireAuth, controller.schedule);
 router.get("/calendar/my", requireAuth, controller.myCalendar);

@@ -7,6 +7,7 @@ import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/requireAuth";
 import { requireAdmin } from "../../middleware/requireAdmin";
 import { hashPassword } from "../../utils/password";
+import { logger } from "../../lib/logger";
 import { sendVerificationEmail } from "../auth/email";
 import { stripeClient } from "../billing/stripe";
 import { hasExceededVerificationResendLimit } from "./limits";
@@ -74,15 +75,54 @@ async function createAuditLog(params: {
   targetUserId?: string;
   metadata?: Record<string, unknown>;
 }) {
-  await prisma.auditLog.create({
-    data: {
-      actorId: params.actorId,
-      actorEmail: params.actorEmail,
-      action: params.action,
-      targetUserId: params.targetUserId,
-      metadata: params.metadata ? (params.metadata as Prisma.InputJsonValue) : undefined,
-    },
+  const buildData = (action: AuditAction, metadata?: Record<string, unknown>) => ({
+    actorId: params.actorId,
+    actorEmail: params.actorEmail,
+    action,
+    targetUserId: params.targetUserId,
+    metadata: metadata ? (metadata as Prisma.InputJsonValue) : undefined,
   });
+
+  try {
+    await prisma.auditLog.create({
+      data: buildData(params.action, params.metadata),
+    });
+    return;
+  } catch (error) {
+    const fallbackMap: Partial<Record<AuditAction, AuditAction>> = {
+      SCHEDULE_CANCEL_SUBSCRIPTION: "CANCEL_SUBSCRIPTION",
+      IMMEDIATE_CANCEL_SUBSCRIPTION: "CANCEL_SUBSCRIPTION",
+      RESUME_SUBSCRIPTION: "UPDATE_USER",
+    };
+
+    const fallbackAction = fallbackMap[params.action];
+    if (!fallbackAction) {
+      logger.error("Audit log write failed", {
+        action: params.action,
+        targetUserId: params.targetUserId,
+        error,
+      });
+      return;
+    }
+
+    try {
+      await prisma.auditLog.create({
+        data: buildData(fallbackAction, {
+          ...(params.metadata ?? {}),
+          originalAction: params.action,
+          auditFallbackUsed: true,
+        }),
+      });
+    } catch (fallbackError) {
+      logger.error("Audit log fallback write failed", {
+        action: params.action,
+        fallbackAction,
+        targetUserId: params.targetUserId,
+        error,
+        fallbackError,
+      });
+    }
+  }
 }
 
 router.get("/summary", async (_req, res) => {
@@ -126,12 +166,12 @@ router.get("/users", async (req, res) => {
     ...(founder !== undefined ? { isFounder: founder === "true" } : {}),
     ...(search
       ? {
-          OR: [
-            { email: { contains: search, mode: "insensitive" as const } },
-            { name: { contains: search, mode: "insensitive" as const } },
-            { id: { contains: search, mode: "insensitive" as const } },
-          ],
-        }
+        OR: [
+          { email: { contains: search, mode: "insensitive" as const } },
+          { name: { contains: search, mode: "insensitive" as const } },
+          { id: { contains: search, mode: "insensitive" as const } },
+        ],
+      }
       : {}),
     ...(plan ? { subscriptions: { some: { planCode: plan } } } : {}),
     ...(subscriptionStatus ? { subscriptions: { some: { status: subscriptionStatus } } } : {}),
@@ -431,14 +471,14 @@ router.put("/publishing-routing/global", async (req, res) => {
   const where =
     parsed.data.applyTo === "ALL_USERS"
       ? {
-          deletedAt: null as Date | null,
-          status: { not: "DELETED" as const },
-        }
+        deletedAt: null as Date | null,
+        status: { not: "DELETED" as const },
+      }
       : {
-          deletedAt: null as Date | null,
-          status: { not: "DELETED" as const },
-          role: "USER" as const,
-        };
+        deletedAt: null as Date | null,
+        status: { not: "DELETED" as const },
+        role: "USER" as const,
+      };
 
   const targetUsers = await prisma.user.findMany({
     where,
@@ -1007,77 +1047,198 @@ router.post("/users/:id/resend-verification", async (req, res) => {
   res.json({ success: true });
 });
 
-router.post("/users/:id/cancel-subscription", async (req, res) => {
-  const schema = z.object({
-    cancelAtPeriodEnd: z.boolean().optional().default(true),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
-  }
+router.post("/users/:id/cancel-subscription-schedule", async (req, res) => {
+  try {
+    const { id } = req.params;
 
-  const { id } = req.params;
-  const subscription = await prisma.subscription.findFirst({
-    where: { userId: id },
-    orderBy: { createdAt: "desc" },
-  });
-  if (!subscription) {
-    return res.status(404).json({ error: "Subscription not found" });
-  }
+    const subscription = await prisma.subscription.findFirst({
+      where: { userId: id },
+      orderBy: { createdAt: "desc" },
+    });
 
-  const idempotencyKey =
-    (req.headers["idempotency-key"] as string | undefined) ??
-    `cancel:${id}:${subscription.id}`;
-  const operation = await getOrCreateAdminOperation(idempotencyKey, req.user!.id, "CANCEL_SUBSCRIPTION", id);
-  if (operation?.status === "COMPLETED") {
-    return res.json({ subscription });
-  }
+    if (!subscription) {
+      return res.status(404).json({ error: "Subscription not found" });
+    }
 
-  let stripeResult: Record<string, unknown> | null = null;
-  if (subscription.stripeSubscriptionId && stripeClient) {
-    if (parsed.data.cancelAtPeriodEnd) {
-      const stripeSub = (await stripeClient.subscriptions.update(
+    if (subscription.status === "CANCELED") {
+      return res.status(400).json({
+        error: "Subscription already canceled",
+      });
+    }
+
+    if (subscription.cancelAtPeriodEnd) {
+      return res.status(400).json({
+        error: "Subscription already scheduled for cancellation",
+      });
+    }
+
+    const idempotencyKey = `cancel:end:${id}:${subscription.id}`;
+
+    let stripeResult = null;
+
+    if (subscription.stripeSubscriptionId && stripeClient) {
+      const stripeSub = await stripeClient.subscriptions.update(
         subscription.stripeSubscriptionId,
         { cancel_at_period_end: true },
         { idempotencyKey }
-      )) as StripeSubscriptionWithPeriod;
+      );
+
       stripeResult = serializeStripeSubscription(stripeSub);
-    } else {
-      const stripeSub = (await stripeClient.subscriptions.cancel(
+    }
+
+    const updated = await prisma.subscription.update({
+      where: { id: subscription.id },
+      data: {
+        cancelAtPeriodEnd: true,
+        canceledAt: null,
+      },
+    });
+
+    await createAuditLog({
+      actorId: req.user!.id,
+      actorEmail: req.user!.email,
+      action: "SCHEDULE_CANCEL_SUBSCRIPTION",
+      targetUserId: id,
+      metadata: {},
+    });
+
+    return res.json({ subscription: updated, stripe: stripeResult });
+  } catch (error) {
+    if (error instanceof Stripe.errors.StripeError) {
+      return res.status(error.statusCode ?? 400).json({ error: error.message });
+    }
+    return res.status(500).json({ error: "Failed to schedule subscription cancellation" });
+  }
+});
+
+router.post("/users/:id/cancel-subscription-immediately", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const subscription = await prisma.subscription.findFirst({
+      where: { userId: id },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!subscription) {
+      return res.status(404).json({ error: "Subscription not found" });
+    }
+
+    if (subscription.status === "CANCELED") {
+      return res.status(400).json({
+        error: "Subscription already canceled",
+      });
+    }
+
+    const idempotencyKey = `cancel:now:${id}:${subscription.id}`;
+
+    let stripeResult = null;
+
+    if (subscription.stripeSubscriptionId && stripeClient) {
+      const stripeSub = await stripeClient.subscriptions.cancel(
         subscription.stripeSubscriptionId,
         undefined,
         { idempotencyKey }
-      )) as StripeSubscriptionWithPeriod;
+      );
+
       stripeResult = serializeStripeSubscription(stripeSub);
     }
+
+    const updated = await prisma.subscription.update({
+      where: { id: subscription.id },
+      data: {
+        cancelAtPeriodEnd: false,
+        canceledAt: new Date(),
+        status: "CANCELED",
+      },
+    });
+
+    await createAuditLog({
+      actorId: req.user!.id,
+      actorEmail: req.user!.email,
+      action: "IMMEDIATE_CANCEL_SUBSCRIPTION",
+      targetUserId: id,
+      metadata: {},
+    });
+
+    return res.json({ subscription: updated, stripe: stripeResult });
+  } catch (error) {
+    if (error instanceof Stripe.errors.StripeError) {
+      return res.status(error.statusCode ?? 400).json({ error: error.message });
+    }
+    return res.status(500).json({ error: "Failed to cancel subscription immediately" });
   }
+});
 
-  const updated = await prisma.subscription.update({
-    where: { id: subscription.id },
-    data: {
-      cancelAtPeriodEnd: parsed.data.cancelAtPeriodEnd,
-      canceledAt: parsed.data.cancelAtPeriodEnd ? null : new Date(),
-      status: parsed.data.cancelAtPeriodEnd ? subscription.status : "CANCELED",
-    },
-  });
+router.post("/users/:id/resume-subscription", async (req, res) => {
+  try {
+    const { id } = req.params;
 
-  await prisma.adminOperation.update({
-    where: { key: idempotencyKey },
-    data: {
-      status: "COMPLETED",
-      metadata: stripeResult ? (stripeResult as Prisma.InputJsonValue) : undefined,
-    },
-  });
+    const subscription = await prisma.subscription.findFirst({
+      where: { userId: id },
+      orderBy: { createdAt: "desc" },
+    });
 
-  await createAuditLog({
-    actorId: req.user!.id,
-    actorEmail: req.user!.email,
-    action: "CANCEL_SUBSCRIPTION",
-    targetUserId: id,
-    metadata: { cancelAtPeriodEnd: parsed.data.cancelAtPeriodEnd },
-  });
+    if (!subscription) {
+      return res.status(404).json({ error: "Subscription not found" });
+    }
 
-  res.json({ subscription: updated });
+    if (subscription.status === "CANCELED") {
+      return res.status(400).json({
+        error: "Cannot resume a canceled subscription",
+      });
+    }
+
+    if (!subscription.cancelAtPeriodEnd) {
+      return res.status(400).json({
+        error: "Subscription is not scheduled for cancellation",
+      });
+    }
+
+
+    const idempotencyKey = `resume:${id}:${subscription.id}`;
+
+    let stripeResult = null;
+
+    if (subscription.stripeSubscriptionId && stripeClient) {
+      const stripeSub = await stripeClient.subscriptions.update(
+        subscription.stripeSubscriptionId,
+        {
+          cancel_at_period_end: false,
+        },
+        { idempotencyKey }
+      );
+
+      stripeResult = serializeStripeSubscription(stripeSub);
+    }
+
+    const updated = await prisma.subscription.update({
+      where: { id: subscription.id },
+      data: {
+        cancelAtPeriodEnd: false,
+        canceledAt: null,
+        status: "ACTIVE",
+      },
+    });
+
+    await createAuditLog({
+      actorId: req.user!.id,
+      actorEmail: req.user!.email,
+      action: "RESUME_SUBSCRIPTION",
+      targetUserId: id,
+      metadata: {},
+    });
+
+    return res.json({
+      subscription: updated,
+      stripe: stripeResult,
+    });
+  } catch (error) {
+    if (error instanceof Stripe.errors.StripeError) {
+      return res.status(error.statusCode ?? 400).json({ error: error.message });
+    }
+    return res.status(500).json({ error: "Failed to resume subscription" });
+  }
 });
 
 router.post("/users/:id/refresh-subscription", async (req, res) => {
