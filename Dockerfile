@@ -35,12 +35,6 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package*.json ./
 
-# Copy .env example (if exists)
-COPY .env.example .env.example 2>/dev/null || true
-
 EXPOSE 4000
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:4000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
 CMD ["sh", "-c", "npx prisma migrate resolve --applied 20260226214644_ || true; npx prisma migrate deploy && npx ts-node --transpile-only src/index.ts"]
