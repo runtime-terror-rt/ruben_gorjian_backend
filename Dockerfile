@@ -37,4 +37,4 @@ COPY --from=builder /app/package*.json ./
 
 EXPOSE 4000
 
-CMD ["sh", "-c", "npx prisma migrate resolve --applied 20260226214644_ || true; npx prisma migrate deploy && npx ts-node --transpile-only src/index.ts"]
+CMD ["sh", "-c", "npx prisma migrate  || true; npx prisma migrate deploy && npm run start"]
