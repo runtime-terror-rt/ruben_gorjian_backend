@@ -13,19 +13,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 24
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 10
+          node-version: 20
+          cache: npm
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Run CI
-        run: pnpm ci:fix
+        run: npm ci
+      - name: Run Lint
+        run: npm run lint
       - name: Build Project
-        run: pnpm build
+        run: npm run build
   build-and-push:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
