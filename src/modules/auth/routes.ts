@@ -901,12 +901,14 @@ function safeUser(user: {
 }
 
 function setAuthCookie(res: express.Response, token: string) {
+  const isProduction = process.env.NODE_ENV === "production";
+
   res.cookie("token", token, {
     httpOnly: true,
-    secure: env.NODE_ENV === "production",
-    sameSite: "lax",
+    secure: isProduction,                     // prod = true, dev = false
+    sameSite: isProduction ? "none" : "lax",  // prod = none, dev = lax
     path: "/",
-    maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+    maxAge: 1000 * 60 * 60 * 24 * 7,
   });
 }
 

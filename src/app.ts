@@ -37,7 +37,6 @@ import { adminOverviewRouter } from "./modules/admin/overview/routes";
 
 export const app = express();
 
-// app.set('trust proxy', 1)
 const noopLimiter: express.RequestHandler = (_req, _res, next) => next();
 
 // Rate limiting (disabled in development)
