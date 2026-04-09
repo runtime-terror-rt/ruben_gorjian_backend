@@ -908,7 +908,8 @@ function setAuthCookie(res: express.Response, token: string) {
     httpOnly: true,
     // secure: isProduction,      // prod = true, dev = false
     secure: false,     // Temporarily disable secure flag to allow testing on localhost without HTTPS
-    sameSite: isProduction ? "none" : "lax",  // prod = none, dev = lax
+    // sameSite: isProduction ? "none" : "lax",  // prod = none, dev = lax
+    sameSite: "lax",  // Temporarily disable secure flag to allow testing on localhost without HTTPS
     path: "/",
     maxAge: 1000 * 60 * 60 * 24 * 7,
   });
