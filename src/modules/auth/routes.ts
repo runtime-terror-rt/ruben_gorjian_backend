@@ -906,7 +906,8 @@ function setAuthCookie(res: express.Response, token: string) {
 
   res.cookie("token", token, {
     httpOnly: true,
-    secure: isProduction,                     // prod = true, dev = false
+    // secure: isProduction,      // prod = true, dev = false
+    secure: false,     // Temporarily disable secure flag to allow testing on localhost without HTTPS
     sameSite: isProduction ? "none" : "lax",  // prod = none, dev = lax
     path: "/",
     maxAge: 1000 * 60 * 60 * 24 * 7,
