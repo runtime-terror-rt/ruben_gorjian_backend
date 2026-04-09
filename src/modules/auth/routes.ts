@@ -55,6 +55,19 @@ const PAGE_PERMISSION_KEYS = [
   "PROFILE",
 ] as const;
 
+const SEED_ADMIN_PAGE_PERMISSIONS: PagePermissionKey[] = [
+  "OVERVIEW",
+  "USER_MANAGE",
+  "SUBSCRIPTION_MANAGE",
+  "SCHEDULE_MANAGE",
+  "POST_MANAGE",
+  "COUPON_MANAGE",
+  "VIRTUAL_ADMIN_MANAGE",
+  "SUBMISSIONS",
+  "SUPPORT",
+  "PROFILE",
+];
+
 type PagePermissionKey = (typeof PAGE_PERMISSION_KEYS)[number];
 
 const PAGE_ROUTE_PERMISSION_MAP: Record<
@@ -936,28 +949,53 @@ async function ensureSeedAdmin() {
 
   const email = env.ADMIN_EMAIL.toLowerCase();
   const passwordHash = await hashPassword(env.ADMIN_PASSWORD);
+  const routePermissions = expandPagePermissions(SEED_ADMIN_PAGE_PERMISSIONS);
 
-  seedAdminPromise = prisma.user.upsert({
-    where: { email },
-    update: {
-      role: "ADMIN",
-      passwordHash,
-      emailVerified: true,
-      emailVerifiedAt: new Date(),
-      onboardingCompleted: true,
-    },
-    create: {
-      email,
-      role: "ADMIN",
-      passwordHash,
-      emailVerified: true,
-      emailVerifiedAt: new Date(),
-      onboardingCompleted: true,
-      isFounder: false,
-    },
+  seedAdminPromise = prisma.$transaction(async (tx) => {
+    const admin = await tx.user.upsert({
+      where: { email },
+      update: {
+        role: "SUPER_ADMIN",
+        passwordHash,
+        emailVerified: true,
+        emailVerifiedAt: new Date(),
+        onboardingCompleted: true,
+      },
+      create: {
+        email,
+        role: "SUPER_ADMIN",
+        passwordHash,
+        emailVerified: true,
+        emailVerifiedAt: new Date(),
+        onboardingCompleted: true,
+        isFounder: false,
+      },
+    });
+
+    await tx.adminRoutePermission.deleteMany({
+      where: { adminUserId: admin.id },
+    });
+
+    if (routePermissions.length) {
+      await tx.adminRoutePermission.createMany({
+        data: routePermissions.map((permission) => ({
+          adminUserId: admin.id,
+          method: permission.method,
+          pathPattern: permission.pathPattern,
+          active: true,
+          grantedByAdminId: admin.id,
+        })),
+      });
+    }
   }).then(() => undefined);
 
   return seedAdminPromise;
+}
+
+if (env.NODE_ENV === "production") {
+  ensureSeedAdmin().catch((error) => {
+    logger.error("Failed to seed production admin", error);
+  });
 }
 
 // Google OAuth callback (code exchange)
