@@ -41,6 +41,30 @@ function getDaysLeft(currentPeriodEnd?: Date | null) {
   return Math.max(0, Math.ceil(msLeft / (1000 * 60 * 60 * 24)));
 }
 
+function toPercentage(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function getSubscriptionExpiryProgress(periodStart: Date, periodEnd: Date, now = new Date()) {
+  const totalMs = Math.max(periodEnd.getTime() - periodStart.getTime(), 1);
+  const elapsedRaw = now.getTime() - periodStart.getTime();
+  const elapsedMs = Math.min(Math.max(elapsedRaw, 0), totalMs);
+  const remainingMs = Math.max(totalMs - elapsedMs, 0);
+
+  const elapsedPercent = toPercentage((elapsedMs / totalMs) * 100);
+  const remainingPercent = toPercentage((remainingMs / totalMs) * 100);
+
+  return {
+    elapsedPercent,
+    remainingPercent,
+    elapsedMs,
+    remainingMs,
+    totalMs,
+    isExpired: now.getTime() >= periodEnd.getTime(),
+    daysLeft: Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))),
+  };
+}
+
 function groupSocialAccounts(accounts: Array<{ platform: SocialPlatform; expiresAt: Date | null }>) {
   const byPlatform: Record<SocialPlatform, number> = {
     INSTAGRAM: 0,
@@ -234,6 +258,67 @@ router.get("/overview", async (req, res) => {
         connectedTotal: socialAccounts.length,
         byPlatform,
         expiringSoon,
+      },
+    },
+  });
+});
+
+router.get("/overview/subscription-progress", async (req, res) => {
+  const userId = req.user!.id;
+  const now = new Date();
+
+  const subscription = await getLatestSubscription(userId);
+
+  if (!subscription) {
+    return res.json({
+      success: true,
+      data: {
+        subscription: null,
+        chart: {
+          type: "pie",
+          unit: "percent",
+          usedPercent: 0,
+          remainingPercent: 100,
+          segments: [
+            { key: "used", label: "Used", value: 0 },
+            { key: "remaining", label: "Remaining", value: 100 },
+          ],
+        },
+      },
+    });
+  }
+
+  const { periodStart, periodEnd } = getSubscriptionPeriod(subscription, now);
+  const progress = getSubscriptionExpiryProgress(periodStart, periodEnd, now);
+
+  return res.json({
+    success: true,
+    data: {
+      subscription: {
+        id: subscription.id,
+        planCode: subscription.planCode,
+        name: subscription.plan?.name ?? null,
+        addonPlatformQty: subscription.addonPlatformQty ?? 0,
+        videoAddonEnabled: subscription.videoAddonEnabled ?? false,
+        videoSessionHours: subscription.videoSessionHours ?? 0,
+        basePostQuota: subscription.plan?.basePostQuota ?? null,
+        platformLimit: subscription.plan?.platformLimit ?? null,
+        status: subscription.status,
+        billingCycle: subscription.billingCycle,
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+        daysLeft: progress.daysLeft,
+        isExpired: progress.isExpired,
+      },
+      chart: {
+        type: "pie",
+        unit: "percent",
+        usedPercent: progress.elapsedPercent,
+        remainingPercent: progress.remainingPercent,
+        segments: [
+          { key: "used", label: "Used", value: progress.elapsedPercent },
+          { key: "remaining", label: "Remaining", value: progress.remainingPercent },
+        ],
       },
     },
   });
