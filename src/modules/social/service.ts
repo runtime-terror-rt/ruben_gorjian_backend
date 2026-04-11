@@ -3,10 +3,45 @@ import { SocialOAuthService } from "./oauth";
 import { logger } from "../../lib/logger";
 import crypto from "crypto";
 import { prisma } from "../../lib/prisma";
+import { getActiveSubscription } from "../billing/subscription-service";
+import { getSubscriptionPeriod } from "../../lib/subscription-period";
 
 const oauthService = new SocialOAuthService();
 
 export class SocialAccountService {
+  async syncPlatformsUsageForCurrentPeriod(userId: string) {
+    const subscription = await getActiveSubscription(userId);
+    if (!subscription) {
+      return;
+    }
+
+    const { periodStart, periodEnd } = getSubscriptionPeriod(subscription);
+    const connectedCount = await prisma.socialAccount.count({ where: { userId } });
+
+    await prisma.usageMonthly.upsert({
+      where: {
+        userId_periodStart_periodEnd: {
+          userId,
+          periodStart,
+          periodEnd,
+        },
+      },
+      update: {
+        platformsUsed: connectedCount,
+      },
+      create: {
+        userId,
+        periodStart,
+        periodEnd,
+        postsUsed: 0,
+        visualsUsed: 0,
+        visualsReserved: 0,
+        visualsBonus: 0,
+        platformsUsed: connectedCount,
+      },
+    });
+  }
+
   async getUserSocialAccounts(userId: string) {
     return prisma.socialAccount.findMany({
       where: { userId },
@@ -91,7 +126,7 @@ export class SocialAccountService {
 
     if (existing) {
       // Update existing account
-      return prisma.socialAccount.update({
+      const updated = await prisma.socialAccount.update({
         where: { id: existing.id },
         data: {
           accessToken: effectiveAccessToken,
@@ -101,10 +136,13 @@ export class SocialAccountService {
           updatedAt: new Date()
         }
       });
+
+      await this.syncPlatformsUsageForCurrentPeriod(userId);
+      return updated;
     }
 
     // Create new account
-    return prisma.socialAccount.create({
+    const created = await prisma.socialAccount.create({
       data: {
         userId,
         platform,
@@ -115,6 +153,9 @@ export class SocialAccountService {
         expiresAt: tokens.expiresAt
       }
     });
+
+    await this.syncPlatformsUsageForCurrentPeriod(userId);
+    return created;
   }
 
   async disconnectAccount(userId: string, socialAccountId: string) {
@@ -130,6 +171,8 @@ export class SocialAccountService {
     await prisma.socialAccount.delete({
       where: { id: socialAccountId }
     });
+
+    await this.syncPlatformsUsageForCurrentPeriod(userId);
 
     return { success: true };
   }

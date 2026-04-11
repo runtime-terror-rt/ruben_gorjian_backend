@@ -216,7 +216,8 @@ router.get("/overview", async (req, res) => {
   const postsUsed = usage?.postsUsed ?? 0;
   const visualsUsed = usage?.visualsUsed ?? 0;
   const visualsBonus = usage?.visualsBonus ?? 0;
-  const platformsUsed = usage?.platformsUsed ?? socialAccounts.length;
+  // Platform usage should reflect currently connected accounts, not a stale monthly snapshot.
+  const platformsUsed = socialAccounts.length;
 
   const postsRemaining = postQuota !== null ? Math.max(postQuota - postsUsed, 0) : null;
   const visualsRemaining = visualQuota !== null ? Math.max(visualQuota + visualsBonus - visualsUsed, 0) : null;

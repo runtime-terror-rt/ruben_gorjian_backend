@@ -78,6 +78,8 @@ async function syncUploadPostConnectionsForUser(
       },
     });
   }
+
+  await socialService.syncPlatformsUsageForCurrentPeriod(userId);
 }
 
 // Get user's connected social accounts
@@ -289,6 +291,8 @@ router.get("/callback/upload-post", async (req, res) => {
         expiresAt: null,
       },
     });
+
+    await socialService.syncPlatformsUsageForCurrentPeriod(stateRecord.userId);
 
     await prisma.socialOAuthState.delete({ where: { id: stateRecord.id } }).catch((err) => {
       logger.warn("Failed to delete Upload-Post OAuth state record", {
