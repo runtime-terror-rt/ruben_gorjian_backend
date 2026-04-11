@@ -66,15 +66,16 @@ function getSubscriptionExpiryProgress(periodStart: Date, periodEnd: Date, now =
 }
 
 function groupSocialAccounts(accounts: Array<{ platform: SocialPlatform; expiresAt: Date | null }>) {
-  const byPlatform: Record<SocialPlatform, number> = {
+  const byPlatform = {
     INSTAGRAM: 0,
     FACEBOOK: 0,
-    LINKEDIN: 0,
     TIKTOK: 0,
   };
 
   for (const account of accounts) {
-    byPlatform[account.platform] += 1;
+    if (account.platform === "INSTAGRAM" || account.platform === "FACEBOOK" || account.platform === "TIKTOK") {
+      byPlatform[account.platform] += 1;
+    }
   }
 
   const now = Date.now();
