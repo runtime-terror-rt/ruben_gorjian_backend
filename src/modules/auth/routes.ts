@@ -12,6 +12,7 @@ import { requireAuth } from "../../middleware/requireAuth";
 import { env } from "../../config/env";
 import { sendVerificationEmail } from "./email";
 import { logger } from "../../lib/logger";
+import { logActivity } from "../dashboard/activity-logger";
 import type { PlanCategory } from "../../types/plan-category";
 import { ensureUserProviderRoutingConfig } from "../social/provider-routing";
 import { getActiveSubscription } from "../billing/subscription-service";
@@ -619,6 +620,13 @@ router.post("/reset-password", async (req, res) => {
     });
   });
 
+  logActivity({
+    userId: resetToken.userId,
+    type: "PASSWORD_RESET",
+    title: "Password Reset",
+    description: "Password changed via password reset link",
+  }).catch(() => {});
+
   return res.json({ success: true });
 });
 
@@ -687,6 +695,13 @@ router.post("/change-password", requireAuth, async (req, res) => {
       where: { userId: user.id, usedAt: null },
     });
   });
+
+  logActivity({
+    userId: user.id,
+    type: "PASSWORD_CHANGED",
+    title: "Password Changed",
+    description: "User changed their password",
+  }).catch(() => {});
 
   return res.json({ success: true, message: "Password changed successfully" });
 });

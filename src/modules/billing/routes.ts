@@ -18,6 +18,7 @@ import { extractStripePeriodBounds } from "./stripe-period";
 import { upsertPlanFromPrice } from "./webhook";
 import { mapStripeStatus, toPlanCategory } from "./billing-utils";
 import { billingSyncRateLimiter } from "../../middleware/rateLimiter";
+import { logActivity } from "../dashboard/activity-logger";
 
 const router = express.Router();
 const VIDEO_SESSION_HOURLY_RATE_CENTS = 49_500;
@@ -592,6 +593,13 @@ router.post("/checkout", requireAuth, async (req, res) => {
             // Log plan change
             await logPlanChange(userId, activeSubscription.planCode, normalizedPlanCode, "plan_switch_checkout");
 
+            logActivity({
+              userId,
+              type: "SUBSCRIPTION_CHECKOUT_STARTED",
+              title: "Subscription Changed",
+              description: `Switched from ${activeSubscription.planCode} to ${normalizedPlanCode} (${billingCycle})`,
+            }).catch(() => {});
+
             // Return success - no checkout needed since we updated the subscription
             return res.json({
               success: true,
@@ -890,6 +898,13 @@ router.post("/checkout", requireAuth, async (req, res) => {
     },
   });
 
+  logActivity({
+    userId,
+    type: "SUBSCRIPTION_CHECKOUT_STARTED",
+    title: "Subscription Checkout Started",
+    description: `Plan ${normalizedPlanCode} (${billingCycle})`,
+  }).catch(() => {});
+
   return res.json({
     checkoutUrl: session.url,
     priceType,
@@ -1118,6 +1133,13 @@ router.post("/schedule-change", requireAuth, async (req, res) => {
       "plan_switch_scheduled"
     );
 
+    logActivity({
+      userId,
+      type: "SUBSCRIPTION_CHANGE_SCHEDULED",
+      title: "Subscription Change Scheduled",
+      description: `From ${activeSubscription.planCode} to ${targetPlanCode} (${targetBillingCycle.toLowerCase()})`,
+    }).catch(() => {});
+
     return res.json({
       success: true,
       message: "Plan change scheduled for next billing cycle",
@@ -1185,6 +1207,13 @@ router.post("/scheduled-change/cancel", requireAuth, async (req, res) => {
 
     await stripeClient.subscriptionSchedules.release(scheduleId);
 
+    logActivity({
+      userId,
+      type: "SUBSCRIPTION_CHANGE_CANCELED",
+      title: "Scheduled Subscription Change Canceled",
+      description: `Schedule ID: ${scheduleId}`,
+    }).catch(() => {});
+
     return res.json({
       success: true,
       message: "Scheduled plan change canceled successfully",
@@ -1249,6 +1278,13 @@ router.post("/cancel", requireAuth, async (req, res) => {
       },
     });
 
+    logActivity({
+      userId,
+      type: "SUBSCRIPTION_CANCEL_SCHEDULED",
+      title: "Subscription Cancellation Scheduled",
+      description: `Plan ${activeSubscription.planCode}`,
+    }).catch(() => {});
+
     return res.json({
       success: true,
       message: "Subscription will be canceled at the end of current billing cycle",
@@ -1308,6 +1344,13 @@ router.post("/resume", requireAuth, async (req, res) => {
         updatedAt: new Date(),
       },
     });
+
+    logActivity({
+      userId,
+      type: "SUBSCRIPTION_RESUMED",
+      title: "Subscription Resumed",
+      description: `Plan ${activeSubscription.planCode}`,
+    }).catch(() => {});
 
     return res.json({
       success: true,

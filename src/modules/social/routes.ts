@@ -6,6 +6,7 @@ import { SocialOAuthService } from "./oauth";
 import { SocialPlatform } from "@prisma/client";
 import { logger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
+import { logActivity } from "../dashboard/activity-logger";
 import crypto from "crypto";
 import { env } from "../../config/env";
 import {
@@ -429,7 +430,23 @@ router.post("/disconnect", requireAuth, async (req, res) => {
   }
 
   try {
+    // Get account details before disconnecting for logging
+    const account = await prisma.socialAccount.findUnique({
+      where: { id: parsed.data.socialAccountId },
+    });
+
     await socialService.disconnectAccount(req.user!.id, parsed.data.socialAccountId);
+
+    // Log activity
+    if (account) {
+      logActivity({
+        userId: req.user!.id,
+        type: "SOCIAL_ACCOUNT_DISCONNECTED",
+        title: `${account.platform} Disconnected`,
+        description: account.displayName || undefined,
+      }).catch(() => {}); // Non-blocking
+    }
+
     return res.json({ success: true });
   } catch (error) {
     logger.error("Error disconnecting account", error);

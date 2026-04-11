@@ -32,6 +32,7 @@ import {
   SchedulerUploadInput,
 } from "./interfaces";
 import { isAdmin, normalizeDateRange } from "./functions";
+import { logActivity } from "../dashboard/activity-logger";
 
 const SCHEDULER_UPLOAD_CONTEXT = "SCHEDULER_POST";
 
@@ -958,6 +959,13 @@ export class SchedulerService {
     this.syncSessionCalendly(postId, "create"),
   ]);
 
+  logActivity({
+    userId,
+    type: "SCHEDULE_CREATED",
+    title: "Schedule Created",
+    description: `Scheduled for ${input.scheduledAt.toISOString()}`,
+  }).catch(() => {});
+
   return this.getScheduledPost(actor, postId);
 }
 
@@ -1086,6 +1094,13 @@ export class SchedulerService {
     this.syncSessionCalendly(postId, "reschedule"),
   ]);
 
+  logActivity({
+    userId: existingPost.userId,
+    type: "SCHEDULE_UPDATED",
+    title: "Schedule Updated",
+    description: `Rescheduled to ${nextScheduledAt.toISOString()}`,
+  }).catch(() => {});
+
   return this.getScheduledPost(actor, postId);
 }
 
@@ -1118,6 +1133,13 @@ export class SchedulerService {
     actorId: actor.id,
     userId: existingPost.userId,
   });
+
+  logActivity({
+    userId: existingPost.userId,
+    type: "SCHEDULE_DELETED",
+    title: "Schedule Deleted",
+    description: existingPost.caption ? existingPost.caption.slice(0, 100) : undefined,
+  }).catch(() => {});
 
   return { success: true };
 }

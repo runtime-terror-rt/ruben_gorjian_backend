@@ -6,6 +6,7 @@ import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "../../config/env";
 import { sanitizeStorageKey } from "../../lib/validators";
+import { logActivity } from "../dashboard/activity-logger";
 
 const router = express.Router();
 
@@ -47,6 +48,13 @@ router.post("/", async (req, res) => {
       onboardingStep: targetStep,
     },
   });
+
+  logActivity({
+    userId,
+    type: "BRAND_UPDATED",
+    title: "Brand Profile Updated",
+    description: `Updated brand information at step ${targetStep}`,
+  }).catch(() => {});
 
   return res.json({ success: true, profile });
 });

@@ -4,6 +4,7 @@ import { requireAuth } from "../../middleware/requireAuth";
 import { prisma } from "../../lib/prisma";
 import { buildStorageUrl, sanitizeStorageKey, timezoneValidator } from "../../lib/validators";
 import { env } from "../../config/env";
+import { logActivity } from "../dashboard/activity-logger";
 
 const router = express.Router();
 
@@ -215,6 +216,14 @@ async function updateSettingsHandler(req: express.Request, res: express.Response
   if (!user) {
     return res.status(404).json({ error: "User not found" });
   }
+
+  logActivity({
+    userId,
+    type: "PROFILE_UPDATED",
+    title: "Profile Updated",
+    description: `Updated profile information: ${user.profile?.fullName || "Anonymous"}`,
+  }).catch(() => {});
+
   res.json(serializeSettingsResponse(user));
 }
 

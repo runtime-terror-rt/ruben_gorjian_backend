@@ -5,6 +5,7 @@ import { getSubscriptionPeriod } from "../../lib/subscription-period";
 import { decidePublishingProvider } from "../social/provider-routing";
 import { UploadPostService } from "../providers/upload-post/service";
 import { prisma } from "../../lib/prisma";
+import { logActivity } from "../dashboard/activity-logger";
 
 const publisher = new SocialPublisher();
 const uploadPostService = new UploadPostService();
@@ -274,6 +275,15 @@ export class PostService {
         })
       )
     );
+
+    // Log activity
+    const statusText = data.scheduledFor ? "Scheduled" : "Created";
+    logActivity({
+      userId,
+      type: "POST_CREATED",
+      title: `Post ${statusText}`,
+      description: data.caption ? data.caption.substring(0, 100) : undefined,
+    }).catch(() => {}); // Non-blocking
 
     return { post, targets };
   }
@@ -603,6 +613,14 @@ export class PostService {
     await prisma.post.delete({
       where: { id: postId }
     });
+
+    // Log activity
+    logActivity({
+      userId,
+      type: "POST_DELETED",
+      title: "Post Deleted",
+      description: post.caption ? post.caption.substring(0, 100) : undefined,
+    }).catch(() => {}); // Non-blocking
 
     return { success: true };
   }
@@ -974,6 +992,16 @@ export class PostService {
           },
         });
       }
+    }
+
+    // Log activity
+    if (anySuccessful) {
+      logActivity({
+        userId: post.userId,
+        type: "POST_PUBLISHED",
+        title: "Post Published",
+        description: post.caption ? post.caption.substring(0, 100) : undefined,
+      }).catch(() => {}); // Non-blocking
     }
 
     return { results, allSuccessful, anySuccessful };

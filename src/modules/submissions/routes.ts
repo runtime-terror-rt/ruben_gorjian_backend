@@ -9,6 +9,7 @@ import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
+import { logActivity } from "../dashboard/activity-logger";
 import {
   validateSubmissionFile,
   generatePresignedUpload,
@@ -128,6 +129,14 @@ router.post("/", submissionRateLimiter, async (req, res) => {
     );
 
     logger.info(`Created submission ${submission.id} for user ${userId} with ${files.length} files`);
+
+    // Log activity
+    logActivity({
+      userId,
+      type: "SUBMISSION_CREATED",
+      title: "Submission Created",
+      description: `${files.length} file(s) submitted`,
+    }).catch(() => {}); // Non-blocking
 
     return res.status(201).json({
       submission: {
