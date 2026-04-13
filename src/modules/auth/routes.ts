@@ -1027,24 +1027,25 @@ if (env.NODE_ENV === "production") {
 
 // Google OAuth callback (GET - browser redirect from Google)
 router.get("/google/callback", async (req, res) => {
+  const FRONTEND = env.FRONTEND_URL ?? "http://138.68.251.5.nip.io:3000";
   const { code, state, error } = req.query;
 
   if (error) {
-    return res.redirect(`${env.APP_URL}/login?error=google_denied`);
+    return res.redirect(`${FRONTEND}/login?error=google_denied`);
   }
 
   if (!code || typeof code !== "string") {
-    return res.redirect(`${env.APP_URL}/login?error=missing_code`);
+    return res.redirect(`${FRONTEND}/login?error=missing_code`);
   }
 
   if (!googleClient) {
-    return res.redirect(`${env.APP_URL}/login?error=google_not_configured`);
+    return res.redirect(`${FRONTEND}/login?error=google_not_configured`);
   }
 
   try {
     const { tokens } = await googleClient.getToken({
       code,
-      redirect_uri: `${env.APP_URL ?? "http://localhost:3000"}/api/auth/google/callback`,
+      redirect_uri: `${env.APP_URL}/api/auth/google/callback`, // ← backend, ঠিক আছে
     });
 
     const ticket = await googleClient.verifyIdToken({
@@ -1054,7 +1055,7 @@ router.get("/google/callback", async (req, res) => {
 
     const payload = ticket.getPayload();
     if (!payload?.email) {
-      return res.redirect(`${env.APP_URL}/login?error=no_email`);
+      return res.redirect(`${FRONTEND}/login?error=no_email`);
     }
 
     const pendingPlanCode =
@@ -1089,23 +1090,22 @@ router.get("/google/callback", async (req, res) => {
     }
 
     if (user.status === "BLOCKED") {
-      return res.redirect(`${env.APP_URL}/login?error=blocked`);
+      return res.redirect(`${FRONTEND}/login?error=blocked`);
     }
     if (user.status === "DELETED") {
-      return res.redirect(`${env.APP_URL}/login?error=deleted`);
+      return res.redirect(`${FRONTEND}/login?error=deleted`);
     }
 
     issueSession(res, user);
 
-    // Onboarding 
     const redirectTo = user.onboardingCompleted
-      ? `${env.APP_URL}/dashboard`
-      : `${env.APP_URL}/onboarding`;
+      ? `${FRONTEND}/dashboard`
+      : `${FRONTEND}/onboarding`;
 
     return res.redirect(redirectTo);
   } catch (err) {
     logger.error("Google OAuth GET callback error", err);
-    return res.redirect(`${env.APP_URL}/login?error=google_failed`);
+    return res.redirect(`${FRONTEND}/login?error=google_failed`);
   }
 });
 
