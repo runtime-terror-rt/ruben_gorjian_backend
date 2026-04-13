@@ -33,11 +33,14 @@ const authLimiter =
     })
     : noopLimiter;
 
+const GOOGLE_CALLBACK_PATH = "/api/auth/google/callback";
+const googleRedirectUri = `${(env.APP_URL ?? "http://localhost:4000").replace(/\/$/, "")}${GOOGLE_CALLBACK_PATH}`;
+
 const googleClient = env.GOOGLE_CLIENT_ID
   ? new OAuth2Client(
     env.GOOGLE_CLIENT_ID,
     env.GOOGLE_CLIENT_SECRET,
-    `${env.APP_URL ?? ""}/api/auth/google/callback`
+    googleRedirectUri
   )
   : null;
 const PASSWORD_RESET_EXPIRY_MS = 1000 * 60 * 60; // 1 hour
@@ -1040,10 +1043,19 @@ router.get("/google/callback", async (req, res) => {
     return res.redirect(`${FRONTEND}/login?error=google_not_configured`);
   }
 
+  if (!env.GOOGLE_CLIENT_SECRET) {
+    logger.error("Google OAuth GET callback blocked: missing GOOGLE_CLIENT_SECRET", {
+      hasClientId: Boolean(env.GOOGLE_CLIENT_ID),
+      hasClientSecret: Boolean(env.GOOGLE_CLIENT_SECRET),
+      redirectUri: googleRedirectUri,
+    });
+    return res.redirect(`${FRONTEND}/login?error=google_not_configured`);
+  }
+
   try {
     const { tokens } = await googleClient.getToken({
       code,
-      redirect_uri: `${env.APP_URL}/api/auth/google/callback`, // ← backend, ঠিক আছে
+      redirect_uri: googleRedirectUri,
     });
 
     const ticket = await googleClient.verifyIdToken({
@@ -1102,7 +1114,12 @@ router.get("/google/callback", async (req, res) => {
 
     return res.redirect(redirectTo);
   } catch (err) {
-    logger.error("Google OAuth GET callback error", err);
+    logger.error("Google OAuth GET callback error", {
+      message: err instanceof Error ? err.message : "Unknown error",
+      hasClientId: Boolean(env.GOOGLE_CLIENT_ID),
+      hasClientSecret: Boolean(env.GOOGLE_CLIENT_SECRET),
+      redirectUri: googleRedirectUri,
+    });
     return res.redirect(`${FRONTEND}/login?error=google_failed`);
   }
 });
@@ -1123,11 +1140,20 @@ router.post("/google/callback", async (req, res) => {
     return res.status(500).json({ error: "Google OAuth not configured" });
   }
 
+  if (!env.GOOGLE_CLIENT_SECRET) {
+    logger.error("Google OAuth callback blocked: missing GOOGLE_CLIENT_SECRET", {
+      hasClientId: Boolean(env.GOOGLE_CLIENT_ID),
+      hasClientSecret: Boolean(env.GOOGLE_CLIENT_SECRET),
+      redirectUri: googleRedirectUri,
+    });
+    return res.status(500).json({ error: "Google OAuth not configured" });
+  }
+
   try {
     // Exchange code for tokens
     const { tokens } = await googleClient.getToken({
       code: parsed.data.code,
-      redirect_uri: `${env.APP_URL ?? "http://localhost:3000"}/api/auth/google/callback`
+      redirect_uri: googleRedirectUri,
     });
 
     // Verify the ID token
@@ -1213,7 +1239,12 @@ router.post("/google/callback", async (req, res) => {
       onboardingCompleted: user.onboardingCompleted,
     });
   } catch (error) {
-    logger.error("Google OAuth callback error", error);
+    logger.error("Google OAuth callback error", {
+      message: error instanceof Error ? error.message : "Unknown error",
+      hasClientId: Boolean(env.GOOGLE_CLIENT_ID),
+      hasClientSecret: Boolean(env.GOOGLE_CLIENT_SECRET),
+      redirectUri: googleRedirectUri,
+    });
     return res.status(500).json({ error: "Google authentication failed" });
   }
 });
