@@ -37,7 +37,7 @@ const googleClient = env.GOOGLE_CLIENT_ID
   ? new OAuth2Client(
     env.GOOGLE_CLIENT_ID,
     env.GOOGLE_CLIENT_SECRET,
-    `${env.FRONTEND_URL ?? ""}/api/auth/google/callback`
+    `${env.APP_URL ?? ""}/api/auth/google/callback`
   )
   : null;
 const PASSWORD_RESET_EXPIRY_MS = 1000 * 60 * 60; // 1 hour
@@ -1045,7 +1045,7 @@ router.post("/google/callback", async (req, res) => {
     // Exchange code for tokens
     const { tokens } = await googleClient.getToken({
       code: parsed.data.code,
-      redirect_uri: `${env.FRONTEND_URL ?? env.APP_URL ?? "http://localhost:3000"}/api/auth/google/callback`
+      redirect_uri: `${env.APP_URL ?? "http://localhost:3000"}/api/auth/google/callback`
     });
 
     // Verify the ID token
