@@ -1025,6 +1025,90 @@ if (env.NODE_ENV === "production") {
   });
 }
 
+// Google OAuth callback (GET - browser redirect from Google)
+router.get("/google/callback", async (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    return res.redirect(`${env.APP_URL}/login?error=google_denied`);
+  }
+
+  if (!code || typeof code !== "string") {
+    return res.redirect(`${env.APP_URL}/login?error=missing_code`);
+  }
+
+  if (!googleClient) {
+    return res.redirect(`${env.APP_URL}/login?error=google_not_configured`);
+  }
+
+  try {
+    const { tokens } = await googleClient.getToken({
+      code,
+      redirect_uri: `${env.APP_URL ?? "http://localhost:3000"}/api/auth/google/callback`,
+    });
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken: tokens.id_token!,
+      audience: env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    if (!payload?.email) {
+      return res.redirect(`${env.APP_URL}/login?error=no_email`);
+    }
+
+    const pendingPlanCode =
+      typeof state === "string" ? state : undefined;
+
+    let user = await prisma.user.findUnique({ where: { email: payload.email } });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email: payload.email,
+          googleId: payload.sub,
+          emailVerified: true,
+          emailVerifiedAt: new Date(),
+          pendingPlanCode: pendingPlanCode || null,
+          pendingPlanCodeSetAt: pendingPlanCode ? new Date() : null,
+        },
+      });
+      await ensureUserProviderRoutingConfig(user.id);
+    } else if (!user.googleId) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          googleId: payload.sub,
+          emailVerified: true,
+          emailVerifiedAt: user.emailVerifiedAt ?? new Date(),
+          ...(pendingPlanCode && !user.pendingPlanCode
+            ? { pendingPlanCode, pendingPlanCodeSetAt: new Date() }
+            : {}),
+        },
+      });
+    }
+
+    if (user.status === "BLOCKED") {
+      return res.redirect(`${env.APP_URL}/login?error=blocked`);
+    }
+    if (user.status === "DELETED") {
+      return res.redirect(`${env.APP_URL}/login?error=deleted`);
+    }
+
+    issueSession(res, user);
+
+    // Onboarding 
+    const redirectTo = user.onboardingCompleted
+      ? `${env.APP_URL}/dashboard`
+      : `${env.APP_URL}/onboarding`;
+
+    return res.redirect(redirectTo);
+  } catch (err) {
+    logger.error("Google OAuth GET callback error", err);
+    return res.redirect(`${env.APP_URL}/login?error=google_failed`);
+  }
+});
+
 // Google OAuth callback (code exchange)
 router.post("/google/callback", async (req, res) => {
   const schema = z.object({
