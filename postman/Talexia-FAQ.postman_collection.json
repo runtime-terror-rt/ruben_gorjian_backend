@@ -32,6 +32,32 @@
       "response": []
     },
     {
+      "name": "Admin - Get All FAQs",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/faq/admin",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "faq",
+            "admin"
+          ]
+        },
+        "description": "Returns all FAQs for admin users, including inactive ones."
+      },
+      "response": []
+    },
+    {
       "name": "Admin - Create FAQ",
       "request": {
         "method": "POST",
@@ -97,6 +123,42 @@
           ]
         },
         "description": "Update an existing FAQ by id. Admin only."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Update FAQ Status",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"INACTIVE\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/faq/{{faqId}}/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "faq",
+            "{{faqId}}",
+            "status"
+          ]
+        },
+        "description": "Update FAQ status to ACTIVE or INACTIVE. Admin only."
       },
       "response": []
     },
