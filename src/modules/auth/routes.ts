@@ -945,12 +945,12 @@ function safeUser(user: {
 }
 
 function setAuthCookie(res: express.Response, token: string) {
-  const isProduction = env.NODE_ENV === "production";
+  const isSecure = env.COOKIE_SECURE === "true";
 
   res.cookie("token", token, {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? "none" : "lax",
+    secure: isSecure,
+    sameSite: isSecure ? "none" : "lax",
     path: "/",
     maxAge: 1000 * 60 * 60 * 24 * 7,
   });
