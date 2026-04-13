@@ -2,12 +2,12 @@
   "info": {
     "_postman_id": "talexia-case-studies-2026",
     "name": "Talexia Case Studies Management",
-    "description": "Case studies endpoints for authenticated users and admin-only management",
+    "description": "Case studies endpoints with admin-managed CRUD and user active-only access",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
-      "name": "Case Studies - Get Active (User/Admin)",
+      "name": "Case Studies - Get Active (User)",
       "request": {
         "method": "GET",
         "header": [
@@ -26,7 +26,34 @@
             "api",
             "case-studies"
           ]
-        }
+        },
+        "description": "User-facing list of active case studies only."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Get All Case Studies",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/case-studies/admin",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "case-studies",
+            "admin"
+          ]
+        },
+        "description": "Admin list containing both active and inactive case studies."
       },
       "response": []
     },
@@ -39,16 +66,26 @@
             "key": "Authorization",
             "value": "Bearer {{adminToken}}",
             "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
           }
         ],
         "body": {
-          "mode": "raw",
-          "raw": "{\n  \"title\": \"From 1x to 3x Leads in 60 Days\",\n  \"summary\": \"How a boutique brand increased qualified leads using Talexia workflows.\",\n  \"content\": \"We redesigned publishing cadence, optimized posting windows, and improved asset quality.\",\n  \"displayOrder\": 1,\n  \"isActive\": true\n}"
+          "mode": "formdata",
+          "formdata": [
+            { "key": "logo", "type": "file", "src": "" },
+            { "key": "title", "value": "Cycle 01 - Precision Content Pipeline", "type": "text" },
+            { "key": "location", "value": "Dhaka, Bangladesh", "type": "text" },
+            { "key": "displayOrder", "value": "0", "type": "text" },
+            { "key": "cycleTitle", "value": "Production Cycle", "type": "text" },
+            { "key": "services", "value": "[\"Creative Direction\",\"Content Strategy\",\"Performance Tracking\"]", "type": "text" },
+            { "key": "tagline", "value": "From scattered posting to a predictable content engine.", "type": "text" },
+            { "key": "structureTitle", "value": "Production Structure", "type": "text" },
+            { "key": "structureItems", "value": "[\"Planning\",\"Asset Production\",\"Publishing\",\"Analytics\"]", "type": "text" },
+            { "key": "images", "type": "file", "src": "" },
+            { "key": "images", "type": "file", "src": "" },
+            { "key": "videoTitle", "value": "Campaign Walkthrough", "type": "text" },
+            { "key": "video", "type": "file", "src": "" },
+            { "key": "isActive", "value": "true", "type": "text" }
+          ]
         },
         "url": {
           "raw": "{{baseUrl}}/api/case-studies",
@@ -59,14 +96,60 @@
             "api",
             "case-studies"
           ]
-        }
+        },
+        "description": "Create case study using multipart form-data with uploaded logo/images/video files."
       },
       "response": []
     },
     {
       "name": "Admin - Update Case Study",
       "request": {
-        "method": "PUT",
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "logo", "type": "file", "src": "" },
+            { "key": "title", "value": "Cycle 01 - Updated Title", "type": "text" },
+            { "key": "location", "value": "Chattogram, Bangladesh", "type": "text" },
+            { "key": "displayOrder", "value": "1", "type": "text" },
+            { "key": "cycleTitle", "value": "Updated Production Cycle", "type": "text" },
+            { "key": "services", "value": "[\"Creative Direction\",\"Ads Optimization\"]", "type": "text" },
+            { "key": "tagline", "value": "Updated tagline for the case study.", "type": "text" },
+            { "key": "structureTitle", "value": "Updated Structure Section", "type": "text" },
+            { "key": "structureItems", "value": "[\"Planning\",\"Execution\",\"Reporting\"]", "type": "text" },
+            { "key": "images", "type": "file", "src": "" },
+            { "key": "images", "type": "file", "src": "" },
+            { "key": "video", "type": "file", "src": "" },
+            { "key": "videoTitle", "value": "Updated Walkthrough", "type": "text" },
+            { "key": "isActive", "value": "true", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/case-studies/{{caseStudyId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "case-studies",
+            "{{caseStudyId}}"
+          ]
+        },
+        "description": "Partially update case study fields via form-data and replace uploaded media files when provided."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Update Case Study Status",
+      "request": {
+        "method": "PATCH",
         "header": [
           {
             "key": "Authorization",
@@ -81,19 +164,21 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"title\": \"From 1x to 3.2x Leads in 60 Days\",\n  \"summary\": \"Updated summary\",\n  \"content\": \"Updated full content\",\n  \"displayOrder\": 2,\n  \"isActive\": true\n}"
+          "raw": "{\n  \"status\": \"INACTIVE\"\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/api/case-studies/{{caseStudyId}}",
+          "raw": "{{baseUrl}}/api/case-studies/{{caseStudyId}}/status",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
             "case-studies",
-            "{{caseStudyId}}"
+            "{{caseStudyId}}",
+            "status"
           ]
-        }
+        },
+        "description": "Set status to ACTIVE or INACTIVE."
       },
       "response": []
     },
