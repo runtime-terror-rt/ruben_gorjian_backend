@@ -604,6 +604,39 @@ model ContactSubmission {
   @@index([status])
 }
 
+model Faq {
+  id               String   @id @default(cuid())
+  question         String
+  answer           String
+  displayOrder     Int      @default(0)
+  isActive         Boolean  @default(true)
+  createdByAdminId String?
+  updatedByAdminId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([displayOrder])
+  @@index([createdAt])
+}
+
+model CaseStudy {
+  id               String   @id @default(cuid())
+  title            String
+  summary          String
+  content          String
+  displayOrder     Int      @default(0)
+  isActive         Boolean  @default(true)
+  createdByAdminId String?
+  updatedByAdminId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([displayOrder])
+  @@index([createdAt])
+}
+
 model RecentActivity {
   id          String   @id @default(cuid())
   userId      String

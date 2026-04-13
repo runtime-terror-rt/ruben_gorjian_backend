@@ -34,6 +34,8 @@ import { onlinePostRouter } from "./modules/onlinePost/onlinePost.route";
 import { tiktokRoutes } from "./modules/onlinePost/tiktok/tiktok.routes";
 import { virtualAdminRouter } from "./modules/admin/virtual-admin-routes";
 import { adminOverviewRouter } from "./modules/admin/overview/routes";
+import { faqRouter } from "./modules/faq/routes";
+import { caseStudiesRouter } from "./modules/case-studies/routes";
 
 export const app = express();
 
@@ -111,10 +113,14 @@ app.use("/api/admin/virtual-admins", virtualAdminRouter);
 app.use("/admin/virtual-admins", virtualAdminRouter);
 app.use("/api/notifications", notificationsRouter);
 app.use("/api/contact", contactRouter);
+app.use("/api/faq", faqRouter);
+app.use("/api/case-studies", caseStudiesRouter);
 app.use("/onboarding", onboardingRouter);
 app.use("/brand", brandRouter);
 app.use("/dashboard", dashboardRouter);
 app.use("/api/dashboard", dashboardRouter);
+app.use("/faq", faqRouter);
+app.use("/case-studies", caseStudiesRouter);
 app.use("/user/settings", settingsRouter);
 app.use("/smtp-test", smtpTestRouter);
 app.use("/api/submissions", submissionsRouter);

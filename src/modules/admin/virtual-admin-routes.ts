@@ -17,6 +17,8 @@ const PAGE_PERMISSION_KEYS = [
 	"COUPON_MANAGE",
 	"SUPPORT",
 	"SUBMISSIONS",
+	"FAQ",
+	"CASE_STUDIES",
 	"VIRTUAL_ADMIN_MANAGE",
 	"PROFILE",
 ] as const;
@@ -89,6 +91,14 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<PagePermissionKey, RoutePermissionInput[
 	SUBMISSIONS: [
 		{ method: "ALL", pathPattern: "/api/admin/submissions*", description: "Manage visual submissions" },
 		{ method: "ALL", pathPattern: "/admin/submissions*", description: "Manage visual submissions (legacy mount)" },
+	],
+	FAQ: [
+		{ method: "ALL", pathPattern: "/api/faq*", description: "Manage FAQs" },
+		{ method: "ALL", pathPattern: "/faq*", description: "Manage FAQs (legacy mount)" },
+	],
+	CASE_STUDIES: [
+		{ method: "ALL", pathPattern: "/api/case-studies*", description: "Manage case studies" },
+		{ method: "ALL", pathPattern: "/case-studies*", description: "Manage case studies (legacy mount)" },
 	],
 	VIRTUAL_ADMIN_MANAGE: [
 		{ method: "ALL", pathPattern: "/api/admin/virtual-admins*", description: "Manage virtual admins" },

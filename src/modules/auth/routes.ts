@@ -52,6 +52,8 @@ const PAGE_PERMISSION_KEYS = [
   "COUPON_MANAGE",
   "SUPPORT",
   "SUBMISSIONS",
+  "FAQ",
+  "CASE_STUDIES",
   "VIRTUAL_ADMIN_MANAGE",
   "PROFILE",
 ] as const;
@@ -66,6 +68,8 @@ const SEED_ADMIN_PAGE_PERMISSIONS: PagePermissionKey[] = [
   "VIRTUAL_ADMIN_MANAGE",
   "SUBMISSIONS",
   "SUPPORT",
+  "FAQ",
+  "CASE_STUDIES",
   "PROFILE",
 ];
 
@@ -131,6 +135,14 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
   SUBMISSIONS: [
     { method: "ALL", pathPattern: "/api/admin/submissions*" },
     { method: "ALL", pathPattern: "/admin/submissions*" },
+  ],
+  FAQ: [
+    { method: "ALL", pathPattern: "/api/faq*" },
+    { method: "ALL", pathPattern: "/faq*" },
+  ],
+  CASE_STUDIES: [
+    { method: "ALL", pathPattern: "/api/case-studies*" },
+    { method: "ALL", pathPattern: "/case-studies*" },
   ],
   VIRTUAL_ADMIN_MANAGE: [
     { method: "ALL", pathPattern: "/api/admin/virtual-admins*" },
