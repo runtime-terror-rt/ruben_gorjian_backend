@@ -88,6 +88,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/auth", authRouter);
+app.use("/api/auth", authRouter);
 app.use("/billing", billingRouter);
 app.use("/billing", billingSummaryRouter);
 // Also mount under /api/billing so frontend direct API_BASE_URL calls work (summary first so /summary and /invoices match)
