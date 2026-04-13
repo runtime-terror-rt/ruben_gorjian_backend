@@ -18,16 +18,28 @@
           }
         ],
         "url": {
-          "raw": "{{baseUrl}}/api/faq",
+          "raw": "{{baseUrl}}/api/faq?page=1&limit=10",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
             "faq"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Page number (default: 1)"
+            },
+            {
+              "key": "limit",
+              "value": "10",
+              "description": "Items per page, max 100 (default: 10)"
+            }
           ]
         },
-        "description": "Returns active FAQs for authenticated users and admins."
+        "description": "Returns active FAQs for authenticated users and admins with pagination support."
       },
       "response": []
     },
@@ -43,7 +55,7 @@
           }
         ],
         "url": {
-          "raw": "{{baseUrl}}/api/faq/admin",
+          "raw": "{{baseUrl}}/api/faq/admin?page=1&limit=10",
           "host": [
             "{{baseUrl}}"
           ],
@@ -51,9 +63,21 @@
             "api",
             "faq",
             "admin"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Page number (default: 1)"
+            },
+            {
+              "key": "limit",
+              "value": "10",
+              "description": "Items per page, max 100 (default: 10)"
+            }
           ]
         },
-        "description": "Returns all FAQs for admin users, including inactive ones."
+        "description": "Returns all FAQs for admin users, including inactive ones, with pagination support."
       },
       "response": []
     },

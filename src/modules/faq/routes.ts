@@ -28,23 +28,65 @@ const faqStatusSchema = z.object({
   status: z.enum(["ACTIVE", "INACTIVE"]),
 });
 
-// Get FAQs - available for authenticated admins and users, active only
-router.get("/", requireAuth, async (_req, res) => {
-  const faqs = await prisma.faq.findMany({
-    where: { isActive: true },
-    orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
-  });
+const paginationSchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(10),
+});
 
-  return res.json({ success: true, data: faqs });
+type PaginationMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
+// Get FAQs - available for authenticated admins and users, active only
+router.get("/", requireAuth, async (req, res) => {
+  const { page, limit } = paginationSchema.parse(req.query);
+  const skip = (page - 1) * limit;
+
+  const [faqs, total] = await Promise.all([
+    prisma.faq.findMany({
+      where: { isActive: true },
+      orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+      skip,
+      take: limit,
+    }),
+    prisma.faq.count({ where: { isActive: true } }),
+  ]);
+
+  const pagination: PaginationMeta = {
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+  };
+
+  return res.json({ success: true, data: faqs, pagination });
 });
 
 // Get all FAQs - admin only
-router.get("/admin", requireAuth, requireAdmin, async (_req, res) => {
-  const faqs = await prisma.faq.findMany({
-    orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
-  });
+router.get("/admin", requireAuth, requireAdmin, async (req, res) => {
+  const { page, limit } = paginationSchema.parse(req.query);
+  const skip = (page - 1) * limit;
 
-  return res.json({ success: true, data: faqs });
+  const [faqs, total] = await Promise.all([
+    prisma.faq.findMany({
+      orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+      skip,
+      take: limit,
+    }),
+    prisma.faq.count(),
+  ]);
+
+  const pagination: PaginationMeta = {
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+  };
+
+  return res.json({ success: true, data: faqs, pagination });
 });
 
 // Create FAQ - admin only

@@ -217,23 +217,65 @@ function assertMediaTypes(files: CaseStudyFiles) {
   }
 }
 
-// Get active case studies - available for authenticated users/admins
-router.get("/", requireAuth, async (_req, res) => {
-  const items = await prisma.caseStudy.findMany({
-    where: { isActive: true },
-    orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
-  });
+const paginationSchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(10),
+});
 
-  return res.json({ success: true, data: items });
+type PaginationMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
+// Get active case studies - available for authenticated users/admins
+router.get("/", requireAuth, async (req, res) => {
+  const { page, limit } = paginationSchema.parse(req.query);
+  const skip = (page - 1) * limit;
+
+  const [items, total] = await Promise.all([
+    prisma.caseStudy.findMany({
+      where: { isActive: true },
+      orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+      skip,
+      take: limit,
+    }),
+    prisma.caseStudy.count({ where: { isActive: true } }),
+  ]);
+
+  const pagination: PaginationMeta = {
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+  };
+
+  return res.json({ success: true, data: items, pagination });
 });
 
 // Get all case studies - admin only
-router.get("/admin", requireAuth, requireAdmin, async (_req, res) => {
-  const items = await prisma.caseStudy.findMany({
-    orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
-  });
+router.get("/admin", requireAuth, requireAdmin, async (req, res) => {
+  const { page, limit } = paginationSchema.parse(req.query);
+  const skip = (page - 1) * limit;
 
-  return res.json({ success: true, data: items });
+  const [items, total] = await Promise.all([
+    prisma.caseStudy.findMany({
+      orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+      skip,
+      take: limit,
+    }),
+    prisma.caseStudy.count(),
+  ]);
+
+  const pagination: PaginationMeta = {
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+  };
+
+  return res.json({ success: true, data: items, pagination });
 });
 
 // Create case study - admin only

@@ -18,16 +18,28 @@
           }
         ],
         "url": {
-          "raw": "{{baseUrl}}/api/case-studies",
+          "raw": "{{baseUrl}}/api/case-studies?page=1&limit=10",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
             "case-studies"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Page number (default: 1)"
+            },
+            {
+              "key": "limit",
+              "value": "10",
+              "description": "Items per page, max 100 (default: 10)"
+            }
           ]
         },
-        "description": "User-facing list of active case studies only."
+        "description": "User-facing list of active case studies only with pagination support."
       },
       "response": []
     },
@@ -43,7 +55,7 @@
           }
         ],
         "url": {
-          "raw": "{{baseUrl}}/api/case-studies/admin",
+          "raw": "{{baseUrl}}/api/case-studies/admin?page=1&limit=10",
           "host": [
             "{{baseUrl}}"
           ],
@@ -51,9 +63,21 @@
             "api",
             "case-studies",
             "admin"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Page number (default: 1)"
+            },
+            {
+              "key": "limit",
+              "value": "10",
+              "description": "Items per page, max 100 (default: 10)"
+            }
           ]
         },
-        "description": "Admin list containing both active and inactive case studies."
+        "description": "Admin list containing both active and inactive case studies with pagination support."
       },
       "response": []
     },
