@@ -418,10 +418,11 @@ router.post("/admin/login", authLimiter, async (req, res) => {
 });
 
 router.post("/logout", (_req, res) => {
+  const isProduction = env.NODE_ENV === "production";
   res.clearCookie("token", {
     httpOnly: true,
-    secure: env.NODE_ENV === "production",
-    sameSite: "lax",
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
     path: "/",
   });
   res.json({ success: true });
@@ -941,15 +942,12 @@ function safeUser(user: {
 }
 
 function setAuthCookie(res: express.Response, token: string) {
-  const isProduction = process.env.NODE_ENV === "production";
-  console.log(process.env.NODE_ENV, "Setting auth cookie with secure:", isProduction);
+  const isProduction = env.NODE_ENV === "production";
 
   res.cookie("token", token, {
     httpOnly: true,
-    // secure: isProduction,      // prod = true, dev = false
-    secure: false,     // Temporarily disable secure flag to allow testing on localhost without HTTPS
-    // sameSite: isProduction ? "none" : "lax",  // prod = none, dev = lax
-    sameSite: "lax",  // Temporarily disable secure flag to allow testing on localhost without HTTPS
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
     path: "/",
     maxAge: 1000 * 60 * 60 * 24 * 7,
   });

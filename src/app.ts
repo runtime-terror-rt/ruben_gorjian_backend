@@ -61,6 +61,11 @@ const limiter =
       })
     : noopLimiter;
 
+const allowedOrigins = (env.FRONTEND_URL || "http://localhost:3000")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 // Stripe webhook needs raw body
 app.post(
   "/billing/webhook",
@@ -71,7 +76,12 @@ app.post(
 app.use(helmet());
 app.use(
   cors({
-    origin: env.FRONTEND_URL || "http://localhost:3000",
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("CORS origin not allowed"));
+    },
     credentials: true,
   }),
 );
