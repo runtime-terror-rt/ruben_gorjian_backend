@@ -24,10 +24,23 @@ const faqUpdateSchema = z
     message: "At least one field must be provided",
   });
 
-// Get FAQs - available for authenticated admins and users
+const faqStatusSchema = z.object({
+  status: z.enum(["ACTIVE", "INACTIVE"]),
+});
+
+// Get FAQs - available for authenticated admins and users, active only
 router.get("/", requireAuth, async (_req, res) => {
   const faqs = await prisma.faq.findMany({
     where: { isActive: true },
+    orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+  });
+
+  return res.json({ success: true, data: faqs });
+});
+
+// Get all FAQs - admin only
+router.get("/admin", requireAuth, requireAdmin, async (_req, res) => {
+  const faqs = await prisma.faq.findMany({
     orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
   });
 
@@ -72,6 +85,30 @@ router.patch("/:id", requireAuth, requireAdmin, async (req, res) => {
     where: { id: faqId },
     data: {
       ...parsed.data,
+      updatedByAdminId: req.user!.id,
+    },
+  });
+
+  return res.json({ success: true, data: faq });
+});
+
+// Update FAQ status - admin only
+router.patch("/:id/status", requireAuth, requireAdmin, async (req, res) => {
+  const faqId = req.params.id as string;
+  const parsed = faqStatusSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const existing = await prisma.faq.findUnique({ where: { id: faqId } });
+  if (!existing) {
+    return res.status(404).json({ error: "FAQ not found" });
+  }
+
+  const faq = await prisma.faq.update({
+    where: { id: faqId },
+    data: {
+      isActive: parsed.data.status === "ACTIVE",
       updatedByAdminId: req.user!.id,
     },
   });
