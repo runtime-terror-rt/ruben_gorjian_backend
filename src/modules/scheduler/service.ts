@@ -1339,55 +1339,6 @@ export class SchedulerService {
   await this.enforceSessionQuota(existingPost.userId, scheduleType, subscription, existingPost.id);
 
   await prisma.$transaction(async (tx) => {
-    if (
-      existingPost.scheduleType === "VIDEO_SESSION" &&
-      input.status === "completed" &&
-      existingPost.sessionStatus !== "COMPLETED"
-    ) {
-      const activeSubscription = await tx.subscription.findFirst({
-        where: {
-          userId: existingPost.userId,
-          status: { in: ["ACTIVE", "TRIALING"] },
-        },
-        select: {
-          id: true,
-          videoAddonEnabled: true,
-          videoSessionHours: true,
-        },
-        orderBy: { createdAt: "desc" },
-      });
-
-      if (!activeSubscription) {
-        throw new Error("Active subscription not found for video session completion");
-      }
-
-      if (!activeSubscription.videoAddonEnabled) {
-        throw new Error("Video session add-on is not enabled for this subscription");
-      }
-
-      const requiredHours = this.getVideoHoursNeededFromMinutes(
-        existingPost.sessionDurationMinutes ?? 0
-      );
-      if (requiredHours <= 0) {
-        throw new Error("Invalid video session duration. Cannot deduct purchased hours");
-      }
-
-      if ((activeSubscription.videoSessionHours ?? 0) < requiredHours) {
-        throw new Error(
-          `Insufficient purchased video hours. Required: ${requiredHours}h, Available: ${activeSubscription.videoSessionHours}h`
-        );
-      }
-
-      await tx.subscription.update({
-        where: { id: activeSubscription.id },
-        data: {
-          videoSessionHours: {
-            decrement: requiredHours,
-          },
-        },
-      });
-    }
-
     await tx.post.update({
       where: { id: postId },
       data: {
@@ -1467,6 +1418,55 @@ export class SchedulerService {
         : "SCHEDULED";
 
   await prisma.$transaction(async (tx) => {
+    if (
+      existingPost.scheduleType === "VIDEO_SESSION" &&
+      input.status === "completed" &&
+      existingPost.sessionStatus !== "COMPLETED"
+    ) {
+      const activeSubscription = await tx.subscription.findFirst({
+        where: {
+          userId: existingPost.userId,
+          status: { in: ["ACTIVE", "TRIALING"] },
+        },
+        select: {
+          id: true,
+          videoAddonEnabled: true,
+          videoSessionHours: true,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (!activeSubscription) {
+        throw new Error("Active subscription not found for video session completion");
+      }
+
+      if (!activeSubscription.videoAddonEnabled) {
+        throw new Error("Video session add-on is not enabled for this subscription");
+      }
+
+      const requiredHours = this.getVideoHoursNeededFromMinutes(
+        existingPost.sessionDurationMinutes ?? 0
+      );
+      if (requiredHours <= 0) {
+        throw new Error("Invalid video session duration. Cannot deduct purchased hours");
+      }
+
+      if ((activeSubscription.videoSessionHours ?? 0) < requiredHours) {
+        throw new Error(
+          `Insufficient purchased video hours. Required: ${requiredHours}h, Available: ${activeSubscription.videoSessionHours}h`
+        );
+      }
+
+      await tx.subscription.update({
+        where: { id: activeSubscription.id },
+        data: {
+          videoSessionHours: {
+            decrement: requiredHours,
+          },
+        },
+      });
+    }
+
     await tx.post.update({
       where: { id: postId },
       data: {
