@@ -54,6 +54,8 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<PagePermissionKey, RoutePermissionInput[
 	SUBSCRIPTION_MANAGE: [
 		{ method: "GET", pathPattern: "/api/admin/subscriptions", description: "View subscriptions" },
 		{ method: "GET", pathPattern: "/admin/subscriptions", description: "View subscriptions (legacy mount)" },
+		{ method: "ALL", pathPattern: "/api/admin/enterprise-plan*", description: "Manage enterprise invites" },
+		{ method: "ALL", pathPattern: "/admin/enterprise-plan*", description: "Manage enterprise invites (legacy mount)" },
 		{ method: "POST", pathPattern: "/api/admin/users/:id/cancel-subscription-schedule", description: "Schedule cancellation" },
 		{ method: "POST", pathPattern: "/api/admin/users/:id/cancel-subscription-immediately", description: "Immediate cancellation" },
 		{ method: "POST", pathPattern: "/api/admin/users/:id/resume-subscription", description: "Resume subscription" },

@@ -1,0 +1,283 @@
+{
+  "info": {
+    "_postman_id": "talexia-enterprise-plan-2026",
+    "name": "Talexia Enterprise Plan",
+    "description": "Admin-driven Enterprise invite flow: invite create, invite validate, enterprise signup, verify, login, and checkout.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth (Admin)",
+      "item": [
+        {
+          "name": "Admin Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/admin/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "admin",
+                "login"
+              ]
+            },
+            "description": "Logs in admin. Postman cookie jar stores auth cookie for the next admin requests."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Enterprise Admin",
+      "item": [
+        {
+          "name": "Create Enterprise Invite",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyName\": \"Omega Holdings\",\n  \"fullName\": \"Md Masud Rana\",\n  \"email\": \"enterprise.client@example.com\",\n  \"socialPlatforms\": [\"INSTAGRAM\", \"FACEBOOK\", \"TIKTOK\"],\n  \"reelsPerMonth\": 20,\n  \"microReelsPerMonth\": 30,\n  \"proPhotoShootFrequency\": \"Monthly\",\n  \"proPhotoShootLength\": \"4 hours\",\n  \"captionHashtags\": true,\n  \"scheduling\": true,\n  \"planCode\": \"FM_25\",\n  \"expiresInDays\": 7\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/enterprise-plan/invites",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "enterprise-plan",
+                "invites"
+              ]
+            },
+            "description": "Creates invite + sends email with token link."
+          },
+          "response": []
+        },
+        {
+          "name": "List Enterprise Invites",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/enterprise-plan/invites?status=PENDING&page=1&pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "enterprise-plan",
+                "invites"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "PENDING"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Enterprise Client",
+      "item": [
+        {
+          "name": "Validate Invite Token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/enterprise-invite/validate?token={{enterpriseInviteToken}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "enterprise-invite",
+                "validate"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{enterpriseInviteToken}}"
+                }
+              ]
+            },
+            "description": "Validates invite token before signup page submit."
+          },
+          "response": []
+        },
+        {
+          "name": "Signup From Enterprise Invite",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{enterpriseInviteToken}}\",\n  \"password\": \"StrongPass123!\",\n  \"name\": \"Md Masud Rana\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/signup-enterprise-invite",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "signup-enterprise-invite"
+              ]
+            },
+            "description": "Creates account from invite and sends verification email."
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{emailVerificationToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/verify-email",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "verify-email"
+              ]
+            },
+            "description": "Verifies email and starts authenticated session."
+          },
+          "response": []
+        },
+        {
+          "name": "User Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"enterprise.client@example.com\",\n  \"password\": \"StrongPass123!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Checkout Subscription",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"planCode\": \"FM_25\",\n  \"billingCycle\": \"monthly\",\n  \"termsAccepted\": true,\n  \"addonPlatformQty\": 0,\n  \"videoSessionHours\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "checkout"
+              ]
+            },
+            "description": "Runs after signup+verification, respecting signup-before-payment flow."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000"
+    },
+    {
+      "key": "adminEmail",
+      "value": "admin@example.com"
+    },
+    {
+      "key": "adminPassword",
+      "value": "StrongPass123!"
+    },
+    {
+      "key": "enterpriseInviteToken",
+      "value": "paste_token_from_email"
+    },
+    {
+      "key": "emailVerificationToken",
+      "value": "paste_verification_token"
+    }
+  ]
+}

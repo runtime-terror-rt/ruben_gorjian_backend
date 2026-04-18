@@ -1,14 +1,14 @@
 import express from "express";
 import crypto from "crypto";
 import { z } from "zod";
-import { AuditAction, Prisma, ProviderRoutingMode } from "@prisma/client";
+import { AuditAction, EnterpriseInviteStatus, Prisma, ProviderRoutingMode } from "@prisma/client";
 import Stripe from "stripe";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/requireAuth";
 import { requireAdmin } from "../../middleware/requireAdmin";
 import { hashPassword } from "../../utils/password";
 import { logger } from "../../lib/logger";
-import { sendVerificationEmail } from "../auth/email";
+import { sendEnterprisePlanInviteEmail, sendVerificationEmail } from "../auth/email";
 import { stripeClient } from "../billing/stripe";
 import { hasExceededVerificationResendLimit } from "./limits";
 import { getOrCreateAdminOperation } from "./operations";
@@ -228,6 +228,148 @@ router.get("/users", async (req, res) => {
     pageSize,
     total,
   });
+});
+
+const enterpriseInviteSchema = z.object({
+  companyName: z.string().trim().min(1).max(200),
+  fullName: z.string().trim().min(1).max(120),
+  email: z.string().email(),
+  socialPlatforms: z.array(z.enum(["INSTAGRAM", "FACEBOOK", "TIKTOK", "LINKEDIN", "YOUTUBE"])).min(1),
+  reelsPerMonth: z.coerce.number().int().min(0).max(500).optional(),
+  microReelsPerMonth: z.coerce.number().int().min(0).max(500).optional(),
+  proPhotoShootFrequency: z.string().trim().min(1).max(120).optional(),
+  proPhotoShootLength: z.string().trim().min(1).max(120).optional(),
+  captionHashtags: z.boolean(),
+  scheduling: z.boolean(),
+  planCode: z.string().trim().min(1).max(80),
+  expiresInDays: z.coerce.number().int().min(1).max(30).optional().default(7),
+});
+
+router.post("/enterprise-plan/invites", async (req, res) => {
+  const parsed = enterpriseInviteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const data = parsed.data;
+  const planCode = data.planCode.trim().toUpperCase();
+  const recipientEmail = data.email.toLowerCase().trim();
+
+  const plan = await prisma.plan.findUnique({ where: { code: planCode } });
+  if (!plan) {
+    return res.status(400).json({ error: "Invalid plan code" });
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + data.expiresInDays * 24 * 60 * 60 * 1000);
+
+  const invite = await prisma.enterprisePlanInvite.create({
+    data: {
+      email: recipientEmail,
+      fullName: data.fullName,
+      companyName: data.companyName,
+      socialPlatforms: data.socialPlatforms,
+      reelsPerMonth: data.reelsPerMonth,
+      microReelsPerMonth: data.microReelsPerMonth,
+      proPhotoShootFrequency: data.proPhotoShootFrequency,
+      proPhotoShootLength: data.proPhotoShootLength,
+      captionHashtags: data.captionHashtags,
+      scheduling: data.scheduling,
+      planCode,
+      inviteToken: token,
+      expiresAt,
+      sentByAdminId: req.user!.id,
+      sentByAdminEmail: req.user!.email,
+    },
+  });
+
+  const emailResult = await sendEnterprisePlanInviteEmail({
+    email: recipientEmail,
+    token,
+    planCode,
+    fullName: data.fullName,
+    companyName: data.companyName,
+  });
+
+  if (!emailResult.sent) {
+    await prisma.enterprisePlanInvite.update({
+      where: { id: invite.id },
+      data: { status: EnterpriseInviteStatus.CANCELED },
+    });
+
+    return res.status(500).json({
+      error: "Failed to send enterprise invite email",
+      details: emailResult.reason,
+    });
+  }
+
+  await createAuditLog({
+    actorId: req.user!.id,
+    actorEmail: req.user!.email,
+    action: "CREATE_USER",
+    metadata: {
+      source: "enterprise_invite",
+      inviteId: invite.id,
+      email: recipientEmail,
+      planCode,
+      companyName: data.companyName,
+    },
+  });
+
+  return res.status(201).json({
+    invite: {
+      id: invite.id,
+      email: invite.email,
+      planCode: invite.planCode,
+      status: invite.status,
+      expiresAt: invite.expiresAt,
+      createdAt: invite.createdAt,
+    },
+  });
+});
+
+router.get("/enterprise-plan/invites", async (req, res) => {
+  const schema = z.object({
+    status: z.nativeEnum(EnterpriseInviteStatus).optional(),
+    page: z.coerce.number().int().min(1).optional().default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+  });
+
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() });
+  }
+
+  const { status, page, pageSize } = parsed.data;
+
+  const where = {
+    ...(status ? { status } : {}),
+  };
+
+  const [total, items] = await Promise.all([
+    prisma.enterprisePlanInvite.count({ where }),
+    prisma.enterprisePlanInvite.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        companyName: true,
+        planCode: true,
+        status: true,
+        createdAt: true,
+        expiresAt: true,
+        viewedAt: true,
+        signedUpAt: true,
+        sentByAdminEmail: true,
+      },
+    }),
+  ]);
+
+  return res.json({ items, total, page, pageSize });
 });
 
 router.post("/users", async (req, res) => {

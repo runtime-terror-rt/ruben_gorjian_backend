@@ -41,7 +41,7 @@ type PaginationMeta = {
 };
 
 // Get FAQs - available for authenticated admins and users, active only
-router.get("/", requireAuth, async (req, res) => {
+router.get("/", async (req, res) => {
   const { page, limit } = paginationSchema.parse(req.query);
   const skip = (page - 1) * limit;
 
