@@ -16,7 +16,6 @@ import { getSubscriptionPeriod } from "../../lib/subscription-period";
 import { validatePostAsUserPermission } from "../../middleware/requireAdminPostPermission";
 import { SchedulerStorageService, validateSchedulerContentType } from "./storage";
 import { sendSchedulerEmail } from "./email";
-import { SchedulerCalendlyAction } from "./calendly";
 import { enqueueSchedulerEmail } from "../jobs/scheduler-email-queue";
 import { enqueuePostPublish } from "../jobs/post-queue";
 import {
@@ -41,6 +40,7 @@ type SchedulerTargetAccount = {
   platform: SocialPlatform;
   displayName: string | null;
   externalAccountId: string | null;
+  accessToken?: string | null;
   expiresAt: Date | null;
 };
 
@@ -161,6 +161,8 @@ export class SchedulerService {
         status: true,
         planCode: true,
         addonPlatformQty: true,
+        videoAddonEnabled: true,
+        videoSessionHours: true,
         currentPeriodStart: true,
         currentPeriodEnd: true,
         plan: {
@@ -219,40 +221,50 @@ export class SchedulerService {
     platformLimit: number | null
   ): Promise<SchedulerTargetAccount[]> {
     const uniqueIds = Array.from(new Set(socialAccountIds));
+    if (uniqueIds.length === 0) {
+      throw new Error("At least one connected social account is required");
+    }
+
     const socialAccounts = await prisma.socialAccount.findMany({
       where: {
         id: { in: uniqueIds },
-        // TEMPORARY (testing): ownership check disabled.
-        // TODO: Re-enable strict `userId` validation before production rollout.
+        userId,
       },
       select: {
         id: true,
         platform: true,
         displayName: true,
         externalAccountId: true,
+        accessToken: true,
         expiresAt: true,
       },
       orderBy: { createdAt: "asc" },
     });
 
-    // TEMPORARY (testing): skip strict "all selected IDs must belong to client" enforcement.
-    // Keep only a basic existence guard so we still have valid target platforms.
-    if (socialAccounts.length === 0) {
-      // TEMPORARY (testing): allow schedule flow even without connected accounts.
-      // Creates fallback targets with nullable socialAccountId.
-      return uniqueIds.map(() => ({
-        id: null,
-        platform: SocialPlatform.INSTAGRAM,
-        displayName: null,
-        externalAccountId: null,
-        expiresAt: null,
-      }));
+    if (socialAccounts.length !== uniqueIds.length) {
+      throw new Error("Selected target platforms must already be connected by this client");
     }
 
     if (platformLimit !== null && uniqueIds.length > platformLimit) {
       throw new Error(
         `Selected platform count exceeds the allowed limit for this subscription (${platformLimit})`
       );
+    }
+
+    const now = new Date();
+    const invalidAccounts = socialAccounts.filter((account) => {
+      const isUploadPostConnection = String(account.externalAccountId || "").startsWith("upload-post:");
+      if (isUploadPostConnection) {
+        return false;
+      }
+      if (!account.accessToken) {
+        return true;
+      }
+      return Boolean(account.expiresAt && account.expiresAt <= now);
+    });
+
+    if (invalidAccounts.length > 0) {
+      throw new Error("One or more selected social accounts are disconnected or token-expired");
     }
 
     return socialAccounts;
@@ -284,11 +296,25 @@ export class SchedulerService {
     return assets;
   }
 
-  private validateMediaRules(accounts: Array<Pick<SocialAccount, "platform">>, assets: Asset[]) {
-    // TEMPORARY (testing): strict media constraints are disabled.
-    // This allows scheduler create/update flow validation without platform/media blocking rules.
-    const _selectedPlatforms = new Set(accounts.map((account) => account.platform));
-    const _assets = assets;
+  private validateMediaRules(accounts: SchedulerTargetAccount[], assets: Asset[]) {
+    if (accounts.length === 0) {
+      throw new Error("At least one connected social account is required before scheduling");
+    }
+
+    const disconnectedAccounts = accounts.filter((account) => {
+      const isUploadPostConnection = String(account.externalAccountId || "").startsWith("upload-post:");
+      if (isUploadPostConnection) {
+        return false;
+      }
+      if (!account.id || !account.accessToken) {
+        return true;
+      }
+      return Boolean(account.expiresAt && account.expiresAt <= new Date());
+    });
+
+    if (disconnectedAccounts.length > 0) {
+      throw new Error("Please connect valid social account(s) before scheduling posts");
+    }
 
     const videoCount = assets.filter((asset) => asset.type === "VIDEO").length;
     if (videoCount > 1) {
@@ -347,6 +373,72 @@ export class SchedulerService {
 
     if (!subscription.plan.videoSessionEnabled) {
       throw new Error("Video session booking is not available for your current plan");
+    }
+  }
+
+  private getUtcDayRange(date: Date) {
+    const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 1);
+    return { start, end };
+  }
+
+  private async assertScheduleDayAvailability(scheduledAt: Date, excludePostId?: string) {
+    const { start, end } = this.getUtcDayRange(scheduledAt);
+
+    const existingCount = await prisma.post.count({
+      where: {
+        scheduledFor: {
+          gte: start,
+          lt: end,
+        },
+        ...(excludePostId ? { id: { not: excludePostId } } : {}),
+        OR: [
+          {
+            scheduleType: "POSTING",
+            status: { in: ["SCHEDULED", "PUBLISHING", "POSTED"] },
+          },
+          {
+            scheduleType: { in: ["PHOTO_SESSION", "VIDEO_SESSION"] },
+            sessionStatus: { in: ["BOOKED", "COMPLETED"] },
+          },
+        ],
+      },
+    });
+
+    if (existingCount > 0) {
+      throw new Error("This date is already booked. Only one schedule is allowed per day");
+    }
+  }
+
+  private getVideoHoursNeededFromMinutes(sessionDurationMinutes: number) {
+    if (sessionDurationMinutes <= 0) {
+      return 0;
+    }
+    return Math.ceil(sessionDurationMinutes / 60);
+  }
+
+  private assertVideoAddonHours(
+    subscription: Awaited<ReturnType<SchedulerService["getSchedulingSubscription"]>>,
+    sessionDurationMinutes: number
+  ) {
+    if (!subscription) {
+      throw new Error("An active subscription is required to schedule sessions");
+    }
+
+    if (!subscription.videoAddonEnabled) {
+      throw new Error("Video session add-on is not enabled for this subscription");
+    }
+
+    const requiredHours = this.getVideoHoursNeededFromMinutes(sessionDurationMinutes);
+    if (requiredHours <= 0) {
+      throw new Error("sessionDurationMinutes must be greater than 0 for video sessions");
+    }
+
+    if ((subscription.videoSessionHours ?? 0) < requiredHours) {
+      throw new Error(
+        `Video session duration exceeds purchased hours. Required: ${requiredHours}h, Available: ${subscription.videoSessionHours}h`
+      );
     }
   }
 
@@ -442,13 +534,6 @@ export class SchedulerService {
               durationMinutes: post.sessionDurationMinutes,
               status: post.sessionStatus,
               failureReason: post.sessionFailureReason,
-              calendly: {
-                syncStatus: post.calendlySyncStatus,
-                eventUri: post.calendlyEventUri,
-                inviteeUri: post.calendlyInviteeUri,
-                syncError: post.calendlySyncError,
-                lastSyncedAt: post.calendlyLastSyncedAt,
-              },
             },
       failureReason,
       selectedPlatforms: post.targets.map((target) => target.platform),
@@ -701,12 +786,6 @@ export class SchedulerService {
   );
 }
 
-  private async syncSessionCalendly(postId: string, action: SchedulerCalendlyAction) {
-  // Calendly integration is temporarily disabled.
-  logger.info("Calendly sync is temporarily disabled; skipping", { postId, action });
-  return;
-}
-
   async createMediaUploads(actor: Actor, data: SchedulerUploadInput) {
   const userId = await this.resolveTargetUser(actor, data.userId);
   const targetUser = await prisma.user.findUnique({
@@ -874,6 +953,7 @@ export class SchedulerService {
   }
 
   const { subscription } = await this.assertSchedulingAccess(userId);
+  await this.assertScheduleDayAvailability(input.scheduledAt);
   await this.enforceQuota(userId, subscription);
 
   const platformLimit =
@@ -956,7 +1036,6 @@ export class SchedulerService {
 
   await Promise.allSettled([
     this.enqueueScheduledPostPublish(postId, input.scheduledAt),
-    this.syncSessionCalendly(postId, "create"),
   ]);
 
   logActivity({
@@ -993,6 +1072,7 @@ export class SchedulerService {
   if (nextScheduledAt <= new Date()) {
     throw new Error("Scheduled time must be in the future");
   }
+  await this.assertScheduleDayAvailability(nextScheduledAt, postId);
 
   await this.enforceQuota(existingPost.userId, subscription, existingPost.id);
 
@@ -1091,7 +1171,6 @@ export class SchedulerService {
 
   await Promise.allSettled([
     this.enqueueScheduledPostPublish(postId, nextScheduledAt),
-    this.syncSessionCalendly(postId, "reschedule"),
   ]);
 
   logActivity({
@@ -1157,9 +1236,13 @@ export class SchedulerService {
   if (input.scheduledAt <= new Date()) {
     throw new Error("Scheduled time must be in the future");
   }
+  await this.assertScheduleDayAvailability(input.scheduledAt);
 
   const { subscription } = await this.assertSchedulingAccess(userId);
   this.assertSessionEntitlement(subscription, input.scheduleType);
+  if (input.scheduleType === "VIDEO_SESSION") {
+    this.assertVideoAddonHours(subscription, input.sessionDurationMinutes);
+  }
   await this.enforceSessionQuota(userId, input.scheduleType, subscription);
 
   const postId = await prisma.$transaction(async (tx) => {
@@ -1174,11 +1257,6 @@ export class SchedulerService {
         sessionNotes: input.sessionNotes ?? null,
         sessionDurationMinutes: input.sessionDurationMinutes,
         sessionFailureReason: null,
-        calendlySyncStatus: env.CALENDLY_API_ENDPOINT ? "PENDING" : null,
-        calendlyEventUri: null,
-        calendlyInviteeUri: null,
-        calendlySyncError: null,
-        calendlyLastSyncedAt: null,
         initiatedBy: isAdmin(actor) && userId !== actor.id ? "ADMIN" : "USER",
         adminId: isAdmin(actor) && userId !== actor.id ? actor.id : null,
         adminReason: isAdmin(actor) && userId !== actor.id ? input.adminReason ?? null : null,
@@ -1210,7 +1288,6 @@ export class SchedulerService {
   await Promise.allSettled([
     this.createSessionInAppNotifications(postId, "booked"),
     this.sendSessionLifecycleEmails(postId, "booked"),
-    this.syncSessionCalendly(postId, "create"),
   ]);
   logger.info("Session lifecycle hooks processed", {
     postId,
@@ -1247,13 +1324,70 @@ export class SchedulerService {
   if (nextScheduledAt <= new Date()) {
     throw new Error("Scheduled time must be in the future");
   }
+  await this.assertScheduleDayAvailability(nextScheduledAt, postId);
 
   const { subscription } = await this.assertSchedulingAccess(existingPost.userId);
   const scheduleType = existingPost.scheduleType as Exclude<ScheduleType, "POSTING">;
   this.assertSessionEntitlement(subscription, scheduleType);
+  const nextDurationMinutes =
+    input.sessionDurationMinutes !== undefined
+      ? input.sessionDurationMinutes
+      : existingPost.sessionDurationMinutes ?? 0;
+  if (scheduleType === "VIDEO_SESSION") {
+    this.assertVideoAddonHours(subscription, nextDurationMinutes);
+  }
   await this.enforceSessionQuota(existingPost.userId, scheduleType, subscription, existingPost.id);
 
   await prisma.$transaction(async (tx) => {
+    if (
+      existingPost.scheduleType === "VIDEO_SESSION" &&
+      input.status === "completed" &&
+      existingPost.sessionStatus !== "COMPLETED"
+    ) {
+      const activeSubscription = await tx.subscription.findFirst({
+        where: {
+          userId: existingPost.userId,
+          status: { in: ["ACTIVE", "TRIALING"] },
+        },
+        select: {
+          id: true,
+          videoAddonEnabled: true,
+          videoSessionHours: true,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (!activeSubscription) {
+        throw new Error("Active subscription not found for video session completion");
+      }
+
+      if (!activeSubscription.videoAddonEnabled) {
+        throw new Error("Video session add-on is not enabled for this subscription");
+      }
+
+      const requiredHours = this.getVideoHoursNeededFromMinutes(
+        existingPost.sessionDurationMinutes ?? 0
+      );
+      if (requiredHours <= 0) {
+        throw new Error("Invalid video session duration. Cannot deduct purchased hours");
+      }
+
+      if ((activeSubscription.videoSessionHours ?? 0) < requiredHours) {
+        throw new Error(
+          `Insufficient purchased video hours. Required: ${requiredHours}h, Available: ${activeSubscription.videoSessionHours}h`
+        );
+      }
+
+      await tx.subscription.update({
+        where: { id: activeSubscription.id },
+        data: {
+          videoSessionHours: {
+            decrement: requiredHours,
+          },
+        },
+      });
+    }
+
     await tx.post.update({
       where: { id: postId },
       data: {
@@ -1286,7 +1420,6 @@ export class SchedulerService {
   await Promise.allSettled([
     this.createSessionInAppNotifications(postId, "rescheduled"),
     this.sendSessionLifecycleEmails(postId, "rescheduled"),
-    this.syncSessionCalendly(postId, "reschedule"),
   ]);
   logger.info("Session lifecycle hooks processed", {
     postId,
@@ -1377,7 +1510,6 @@ export class SchedulerService {
           ? "status_failed"
           : "status_canceled"
     ),
-    ...(input.status === "canceled" ? [this.syncSessionCalendly(postId, "cancel")] : []),
   ]);
   logger.info("Session lifecycle hooks processed", {
     postId,
@@ -1385,27 +1517,6 @@ export class SchedulerService {
     lifecycleAction,
   });
 
-  return this.getScheduledPost(actor, postId);
-}
-
-  async resyncSessionCalendly(actor: Actor, postId: string) {
-  if (!isAdmin(actor)) {
-    throw new Error("Only admin or super admin can resync Calendly");
-  }
-
-  const post = await this.getOwnedPost(actor, postId);
-  const action: SchedulerCalendlyAction =
-    post.scheduleType !== "POSTING" && post.sessionStatus === "CANCELED"
-      ? "cancel"
-      : post.calendlyEventUri
-        ? "reschedule"
-        : "create";
-
-  logger.info("Calendly resync requested but integration is disabled", {
-    postId,
-    action,
-    actorId: actor.id,
-  });
   return this.getScheduledPost(actor, postId);
 }
 
@@ -1496,9 +1607,6 @@ export class SchedulerService {
     ...(filters.status?.length ? { status: { in: filters.status } } : {}),
     ...(filters.scheduleType?.length ? { scheduleType: { in: filters.scheduleType } } : {}),
     ...(filters.sessionStatus?.length ? { sessionStatus: { in: filters.sessionStatus } } : {}),
-    ...(filters.calendlySyncStatus?.length
-      ? { calendlySyncStatus: { in: filters.calendlySyncStatus } }
-      : {}),
     ...(range.start || range.end
       ? {
           scheduledFor: {
@@ -1591,7 +1699,6 @@ return {
     status: filters.status ?? [],
     scheduleType: filters.scheduleType ?? [],
     sessionStatus: filters.sessionStatus ?? [],
-    calendlySyncStatus: filters.calendlySyncStatus ?? [],
     failure: filters.failure ?? false,
     userId: targetUserId,
     platform: filters.platform ?? [],
