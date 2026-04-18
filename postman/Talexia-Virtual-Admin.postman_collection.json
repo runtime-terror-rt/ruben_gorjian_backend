@@ -1,0 +1,286 @@
+{
+  "info": {
+    "_postman_id": "d8f1d6d0-4b2d-4c5f-8f3a-virtual-admin-001",
+    "name": "Talexia - Virtual Admin Management",
+    "description": "Import-ready collection for super-admin managed admin/super-admin CRUD with route permission assignment.\n\nBase route: /api/admin/virtual-admins\nFallback route: /virtual-admin\n\nAuth: Bearer token or token cookie.\n\nUse the included environment file to set baseUrl and authToken.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Virtual Admin CRUD",
+      "item": [
+        {
+          "name": "Get permission pages",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{adminBasePath}}/permission-pages",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{adminBasePath}}", "permission-pages"]
+            },
+            "description": "Get frontend-friendly permission page keys with their mapped backend routes."
+          }
+        },
+        {
+          "name": "List admins",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{adminBasePath}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{adminBasePath}}"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "{{search}}"
+                },
+                {
+                  "key": "role",
+                  "value": "{{role}}"
+                },
+                {
+                  "key": "status",
+                  "value": "{{status}}"
+                },
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                }
+              ]
+            },
+            "description": "Get all ADMIN and SUPER_ADMIN users with page-based permissions. Supports search by name/email, role/status filters, and pagination."
+          }
+        },
+        {
+          "name": "Get admin by id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{adminBasePath}}/{{adminId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{adminBasePath}}", "{{adminId}}"]
+            },
+            "description": "Fetch a single admin or super-admin account by user id. Response includes page permissions."
+          }
+        },
+        {
+          "name": "Update admin status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"BLOCKED\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{adminBasePath}}/{{adminId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{adminBasePath}}", "{{adminId}}", "status"]
+            },
+            "description": "Super admin can update an admin account status to ACTIVE, BLOCKED, or DELETED."
+          }
+        },
+        {
+          "name": "Create admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New Admin\",\n  \"email\": \"new-admin@example.com\",\n  \"password\": \"ChangeMe123!\",\n  \"role\": \"ADMIN\",\n  \"permissions\": [\n    \"OVERVIEW\",\n    \"USER_MANAGE\",\n    \"POST_MANAGE\",\n    \"SUBMISSIONS\"\n  ]\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{adminBasePath}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{adminBasePath}}"]
+            },
+            "description": "Create a new ADMIN or SUPER_ADMIN user and assign page permissions at creation time.",
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "try {",
+                    "  const json = pm.response.json();",
+                    "  if (json && json.admin && json.admin.id) {",
+                    "    pm.environment.set('adminId', json.admin.id);",
+                    "    pm.environment.set('targetAdminId', json.admin.id);",
+                    "  }",
+                    "} catch (error) {",
+                    "  // ignore parse errors",
+                    "}"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "Update admin",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Admin Name\",\n  \"role\": \"SUPER_ADMIN\",\n  \"replacePermissions\": [\n    \"OVERVIEW\",\n    \"USER_MANAGE\",\n    \"SUBSCRIPTION_MANAGE\",\n    \"SCHEDULE_MANAGE\",\n    \"POST_MANAGE\",\n    \"COUPON_MANAGE\",\n    \"SUBMISSIONS\",\n    \"VIRTUAL_ADMIN_MANAGE\",\n    \"PROFILE\"\n  ]\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{adminBasePath}}/{{adminId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{adminBasePath}}", "{{adminId}}"]
+            },
+            "description": "Update an existing admin/super-admin. Only name, role, and replacePermissions are supported in this endpoint."
+          }
+        },
+        {
+          "name": "Delete admin",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{adminBasePath}}/{{adminId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{adminBasePath}}", "{{adminId}}"]
+            },
+            "description": "Soft-delete an admin or super-admin account and remove its route permissions."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000"
+    },
+    {
+      "key": "adminBasePath",
+      "value": "/api/admin/virtual-admins"
+    },
+    {
+      "key": "authToken",
+      "value": ""
+    },
+    {
+      "key": "adminId",
+      "value": ""
+    },
+    {
+      "key": "targetAdminId",
+      "value": ""
+    }
+  ]
+}

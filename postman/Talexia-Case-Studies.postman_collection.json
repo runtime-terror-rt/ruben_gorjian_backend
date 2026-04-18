@@ -1,0 +1,257 @@
+{
+  "info": {
+    "_postman_id": "talexia-case-studies-2026",
+    "name": "Talexia Case Studies Management",
+    "description": "Case studies endpoints with admin-managed CRUD and user active-only access",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Case Studies - Get Active (User)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{userToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/case-studies?page=1&limit=10",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "case-studies"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Page number (default: 1)"
+            },
+            {
+              "key": "limit",
+              "value": "10",
+              "description": "Items per page, max 100 (default: 10)"
+            }
+          ]
+        },
+        "description": "User-facing list of active case studies only with pagination support."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Get All Case Studies",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/case-studies/admin?page=1&limit=10",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "case-studies",
+            "admin"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Page number (default: 1)"
+            },
+            {
+              "key": "limit",
+              "value": "10",
+              "description": "Items per page, max 100 (default: 10)"
+            }
+          ]
+        },
+        "description": "Admin list containing both active and inactive case studies with pagination support."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Create Case Study",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "logo", "type": "file", "src": "" },
+            { "key": "title", "value": "Cycle 01 - Precision Content Pipeline", "type": "text" },
+            { "key": "location", "value": "Dhaka, Bangladesh", "type": "text" },
+            { "key": "displayOrder", "value": "0", "type": "text" },
+            { "key": "cycleTitle", "value": "Production Cycle", "type": "text" },
+            { "key": "services", "value": "[\"Creative Direction\",\"Content Strategy\",\"Performance Tracking\"]", "type": "text" },
+            { "key": "tagline", "value": "From scattered posting to a predictable content engine.", "type": "text" },
+            { "key": "structureTitle", "value": "Production Structure", "type": "text" },
+            { "key": "structureItems", "value": "[\"Planning\",\"Asset Production\",\"Publishing\",\"Analytics\"]", "type": "text" },
+            { "key": "images", "type": "file", "src": "" },
+            { "key": "images", "type": "file", "src": "" },
+            { "key": "videoTitle", "value": "Campaign Walkthrough", "type": "text" },
+            { "key": "video", "type": "file", "src": "" },
+            { "key": "isActive", "value": "true", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/case-studies",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "case-studies"
+          ]
+        },
+        "description": "Create case study using multipart form-data with uploaded logo/images/video files."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Update Case Study",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "logo", "type": "file", "src": "" },
+            { "key": "title", "value": "Cycle 01 - Updated Title", "type": "text" },
+            { "key": "location", "value": "Chattogram, Bangladesh", "type": "text" },
+            { "key": "displayOrder", "value": "1", "type": "text" },
+            { "key": "cycleTitle", "value": "Updated Production Cycle", "type": "text" },
+            { "key": "services", "value": "[\"Creative Direction\",\"Ads Optimization\"]", "type": "text" },
+            { "key": "tagline", "value": "Updated tagline for the case study.", "type": "text" },
+            { "key": "structureTitle", "value": "Updated Structure Section", "type": "text" },
+            { "key": "structureItems", "value": "[\"Planning\",\"Execution\",\"Reporting\"]", "type": "text" },
+            { "key": "images", "type": "file", "src": "" },
+            { "key": "images", "type": "file", "src": "" },
+            { "key": "video", "type": "file", "src": "" },
+            { "key": "videoTitle", "value": "Updated Walkthrough", "type": "text" },
+            { "key": "isActive", "value": "true", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/case-studies/{{caseStudyId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "case-studies",
+            "{{caseStudyId}}"
+          ]
+        },
+        "description": "Partially update case study fields via form-data and replace uploaded media files when provided."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Update Case Study Status",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"INACTIVE\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/case-studies/{{caseStudyId}}/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "case-studies",
+            "{{caseStudyId}}",
+            "status"
+          ]
+        },
+        "description": "Set status to ACTIVE or INACTIVE."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Delete Case Study",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/case-studies/{{caseStudyId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "case-studies",
+            "{{caseStudyId}}"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "your_admin_token_here",
+      "type": "string"
+    },
+    {
+      "key": "userToken",
+      "value": "your_user_token_here",
+      "type": "string"
+    },
+    {
+      "key": "caseStudyId",
+      "value": "case_study_id_from_create_or_list",
+      "type": "string"
+    }
+  ]
+}

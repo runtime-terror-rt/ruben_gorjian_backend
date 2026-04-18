@@ -1,0 +1,238 @@
+{
+  "info": {
+    "_postman_id": "talexia-faq-2026",
+    "name": "Talexia FAQ Management",
+    "description": "FAQ endpoints for authenticated users and admin-only management",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "FAQ - Get Active FAQs (User/Admin)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{userToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/faq?page=1&limit=10",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "faq"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Page number (default: 1)"
+            },
+            {
+              "key": "limit",
+              "value": "10",
+              "description": "Items per page, max 100 (default: 10)"
+            }
+          ]
+        },
+        "description": "Returns active FAQs for authenticated users and admins with pagination support."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Get All FAQs",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/faq/admin?page=1&limit=10",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "faq",
+            "admin"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Page number (default: 1)"
+            },
+            {
+              "key": "limit",
+              "value": "10",
+              "description": "Items per page, max 100 (default: 10)"
+            }
+          ]
+        },
+        "description": "Returns all FAQs for admin users, including inactive ones, with pagination support."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Create FAQ",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"question\": \"How do I upgrade my plan?\",\n  \"answer\": \"Go to billing settings and choose your new plan.\",\n  \"displayOrder\": 1,\n  \"isActive\": true\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/faq",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "faq"
+          ]
+        },
+        "description": "Create a new FAQ entry. Admin only."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Update FAQ",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"question\": \"How can I upgrade my subscription plan?\",\n  \"answer\": \"Open Billing in your dashboard and select Change Plan.\",\n  \"displayOrder\": 2,\n  \"isActive\": true\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/faq/{{faqId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "faq",
+            "{{faqId}}"
+          ]
+        },
+        "description": "Update an existing FAQ by id. Admin only."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Update FAQ Status",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"INACTIVE\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/faq/{{faqId}}/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "faq",
+            "{{faqId}}",
+            "status"
+          ]
+        },
+        "description": "Update FAQ status to ACTIVE or INACTIVE. Admin only."
+      },
+      "response": []
+    },
+    {
+      "name": "Admin - Delete FAQ",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/faq/{{faqId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "faq",
+            "{{faqId}}"
+          ]
+        },
+        "description": "Delete FAQ by id. Admin only."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "your_admin_token_here",
+      "type": "string"
+    },
+    {
+      "key": "userToken",
+      "value": "your_user_token_here",
+      "type": "string"
+    },
+    {
+      "key": "faqId",
+      "value": "faq_id_from_create_or_list",
+      "type": "string"
+    }
+  ]
+}

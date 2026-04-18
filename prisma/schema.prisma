@@ -1,0 +1,1151 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                                String                   @id @default(cuid())
+  name                              String?
+  email                             String                   @unique
+  passwordHash                      String?
+  role                              Role                     @default(USER)
+  isFounder                         Boolean                  @default(false)
+  status                            UserStatus               @default(ACTIVE)
+  blockedAt                         DateTime?
+  blockedReason                     String?
+  deletedAt                         DateTime?
+  signupDate                        DateTime                 @default(now())
+  googleId                          String?                  @unique
+  createdAt                         DateTime                 @default(now())
+  updatedAt                         DateTime                 @updatedAt
+  emailVerified                     Boolean                  @default(false)
+  emailVerifiedAt                   DateTime?
+  onboardingCompleted               Boolean                  @default(false)
+  onboardingStep                    Int                      @default(1)
+  calendarOnboardingCompleted       Boolean                  @default(false)
+  visualOnboardingCompleted         Boolean                  @default(false)
+  fullManagementOnboardingCompleted Boolean                  @default(false)
+  pendingPlanCode                   String? // Plan code selected before signup/checkout
+  pendingPlanCodeSetAt              DateTime? // When pendingPlanCode was last set
+  assets                            Asset[]
+  brandFiles                        BrandFile[]
+  brandProfile                      BrandProfile?
+  campaigns                         Campaign[]
+  contentItems                      ContentItem[]
+  emailVerifications                EmailVerificationToken[]
+  founder                           Founder?
+  passwordResetTokens               PasswordResetToken[]
+  posts                             Post[]
+  recentActivities                  RecentActivity[]
+  socialAccounts                    SocialAccount[]
+  socialOAuthStates                 SocialOAuthState[]
+  subscriptions                     Subscription[]
+  usage                             UsageMonthly[]
+  profile                           UserProfile?
+  auditLogs                         AuditLog[]               @relation("AuditLogActor")
+  adminOperations                   AdminOperation[]         @relation("AdminOperationActor")
+  submissions                       Submission[]
+  visualQuotaLedger                 VisualQuotaLedger[]
+  adminInitiatedPosts               Post[]                   @relation("AdminInitiatedPosts")
+  adminPostPermissions              AdminPostPermission?
+  grantedAdminPostPermissions       AdminPostPermission[]    @relation("AdminPostPermissionGrantedBy")
+  adminRoutePermissions             AdminRoutePermission[]    @relation("AdminRoutePermissions")
+  grantedAdminRoutePermissions      AdminRoutePermission[]    @relation("AdminRoutePermissionsGrantedBy")
+  adminUploadedAssets               Asset[]                  @relation("AdminUploadedAssets")
+  notifications                     Notification[]
+  enhancedDeliveries                EnhancedDelivery[]       @relation("EnhancedDeliveriesByAdmin")
+  providerRoutingConfig             ProviderRoutingConfig?
+  uploadPostProfile                 UploadPostProfile?
+  planChangeLogs                    PlanChangeLog[]
+  couponsCreated                    Coupon[]                 @relation("CouponCreatedBy")
+  couponUsages                      CouponUsage[]            @relation("UserCouponUsages")
+  socialPlatformLinks               SocialPlatformLink[]
+  scheduledPosts                    ScheduledPost[]
+}
+
+model SocialPlatformLink {
+  id                 String         @id @default(uuid())
+  userId             String
+  platform           SocialPlatform
+  externalRef        String?
+  externalProfileUrl String?
+  linkedAt           DateTime       @default(now())
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform])
+  @@index([userId])
+}
+
+model ScheduledPost {
+  id              String              @id @default(uuid())
+  userId          String
+  platform        SocialPlatform
+  title           String
+  mediaUrl        String?
+  scheduledAt     DateTime
+  status          ScheduledPostStatus @default(PENDING)
+  externalJobId   String?
+  externalReqId   String?
+  externalPostUrl String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([scheduledAt])
+}
+
+enum ScheduledPostStatus {
+  PENDING
+  POSTED
+  FAILED
+  CANCELED
+}
+
+model Plan {
+  id                    String         @id @default(cuid())
+  code                  String         @unique
+  name                  String
+  category              PlanCategory
+  isJewelry             Boolean        @default(false)
+  platformLimit         Int?
+  baseVisualQuota       Int?
+  basePostQuota         Int?
+  postLimitType         PostLimitType  @default(NONE)
+  schedulerRole         SchedulerRole  @default(CLIENT)
+  priceStandardCents    Int
+  priceFounderCents     Int
+  stripePriceStandardId String?
+  stripePriceFounderId  String?
+  hasYearlyPrice        Boolean        @default(false)
+  photoSessionEnabled   Boolean        @default(false)
+  videoSessionEnabled   Boolean        @default(false)
+  photoSessionsPerPeriod Int           @default(0)
+  videoSessionsPerPeriod Int           @default(0)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  subscriptions         Subscription[]
+  planTermsVersions     PlanTermsVersion[]
+  billingQuotes         BillingQuote[]
+}
+
+model PlanTermsVersion {
+  id        String   @id @default(cuid())
+  planCode  String
+  version   String
+  title     String
+  content   String
+  isActive  Boolean  @default(true)
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plan Plan @relation(fields: [planCode], references: [code], onDelete: Cascade)
+
+  @@unique([planCode, version])
+  @@index([planCode])
+  @@index([planCode, isActive])
+}
+
+model Addon {
+  id          String       @id @default(cuid())
+  code        String       @unique
+  name        String
+  description String?
+  type        AddonType
+  isActive    Boolean      @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  prices      AddonPrice[]
+
+  @@index([type])
+  @@index([isActive])
+}
+
+model AddonPrice {
+  id              String      @id @default(cuid())
+  addonId         String
+  billingCycle    BillingCycle
+  unitAmountCents Int
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  addon Addon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+
+  @@unique([addonId, billingCycle])
+  @@index([billingCycle])
+  @@index([isActive])
+}
+
+model BillingQuote {
+  id                    String             @id @default(cuid())
+  userId                String
+  planCode              String
+  billingCycle          BillingCycle
+  acceptedTermsJson     Json
+  additionalPlatformQty Int
+  subtotalCents         Int
+  discountCents         Int
+  taxCents              Int
+  totalCents            Int
+  taxRatePercent        String
+  currency              String             @default("usd")
+  status                BillingQuoteStatus @default(PENDING)
+  expiresAt             DateTime
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  plan Plan @relation(fields: [planCode], references: [code])
+
+  @@index([userId])
+  @@index([planCode])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String
+  planCode             String
+  status               SubscriptionStatus @default(INCOMPLETE)
+  priceType            PriceType          @default(STANDARD)
+  billingCycle         BillingCycle       @default(MONTHLY)
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  termsAcceptedAt      DateTime?
+  addonPlatformQty     Int                @default(0)
+  videoAddonEnabled    Boolean            @default(false)
+  videoSessionHours    Int                @default(0)
+  cancelAtPeriodEnd    Boolean            @default(false)
+  canceledAt           DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  plan                 Plan               @relation(fields: [planCode], references: [code])
+  user                 User               @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model PlanChangeLog {
+  id          String   @id @default(cuid())
+  userId      String
+  oldPlanCode String?
+  newPlanCode String
+  reason      String
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model ProcessedWebhookEvent {
+
+  id        String   @id @default(cuid())
+  eventId   String   @unique
+  type      String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+enum PostLimitType {
+  NONE
+
+  SOFT
+
+  HARD
+}
+
+enum SchedulerRole {
+
+  CLIENT
+  ADMIN
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+model Founder {
+  id        String   @id @default(cuid())
+
+  userId    String   @unique
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+}
+
+model BrandProfile {
+  userId                       String      @id
+  industry                     String?
+  productTypes                 String?
+  businessType                 String?
+  tone                         String?
+
+  audience                     String?
+
+  competitors                  String?
+  ctaPreferences               String?
+  hashtagPreferences           String?
+  website                      String?
+
+  socials                      Json?
+  // Plan-specific onboarding data stored as JSON
+  calendarOnboardingData       Json?
+  visualOnboardingData         Json?
+  fullManagementOnboardingData Json?
+  createdAt                    DateTime    @default(now())
+  updatedAt                    DateTime    @updatedAt
+  BrandFile                    BrandFile[]
+  user                         User        @relation(fields: [userId], references: [id])
+}
+
+model BrandFile {
+  id                 String        @id @default(cuid())
+  userId             String
+  fileName           String
+  fileType           String?
+  storageKey         String
+
+  createdAt          DateTime      @default(now())
+
+  brandProfileUserId String?
+  BrandProfile       BrandProfile? @relation(fields: [brandProfileUserId], references: [userId])
+  user               User          @relation(fields: [userId], references: [id], map: "BrandFile_brandProfile_fkey")
+
+  @@index([userId])
+}
+
+model Asset {
+  id                String        @id @default(cuid())
+  userId            String
+  type              AssetType
+  kind              AssetKind     @default(ORIGINAL)
+  storageKey        String
+  contentType       String?
+  source            AssetSource   @default(USER_UPLOAD)
+  uploadedByAdminId String?
+  uploadContext     String?
+  status            AssetStatus   @default(READY)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  user              User          @relation(fields: [userId], references: [id])
+  uploadedByAdmin   User?         @relation("AdminUploadedAssets", fields: [uploadedByAdminId], references: [id])
+  contentItems      ContentItem[]
+  posts             Post[]
+  PostAsset         PostAsset[]
+
+  @@index([userId])
+  @@index([uploadedByAdminId])
+  @@index([source])
+  @@index([status])
+}
+
+model ContentItem {
+  id               String        @id @default(cuid())
+  userId           String
+
+  assetId          String
+  captionVariants  Json?
+  hashtags         Json?
+  ctas             Json?
+
+  shortDescription String?
+  status           ContentStatus @default(DRAFT)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  asset            Asset         @relation(fields: [assetId], references: [id])
+  user             User          @relation(fields: [userId], references: [id])
+  posts            Post[]
+
+  @@index([userId])
+  @@index([assetId])
+}
+
+model SocialAccount {
+  id                String         @id @default(cuid())
+  userId            String
+  platform          SocialPlatform
+  externalAccountId String
+  displayName       String?
+  accessToken       String?
+  refreshToken      String?
+  expiresAt         DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  postTargets       PostTarget[]
+  user              User           @relation(fields: [userId], references: [id])
+
+  @@unique([userId, platform, externalAccountId])
+}
+
+model SocialOAuthState {
+  id        String         @id @default(cuid())
+  userId    String
+  platform  SocialPlatform
+  state     String         @unique
+  expiresAt DateTime
+  createdAt DateTime       @default(now())
+  user      User           @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Post {
+  id                     String         @id @default(cuid())
+  userId                 String
+  assetId                String?
+  contentItemId          String?
+  status                 PostStatus     @default(DRAFT)
+  scheduleType           ScheduleType   @default(POSTING)
+  sessionStatus          SessionStatus?
+  calendlySyncStatus     CalendlySyncStatus?
+  sessionTitle           String?
+  sessionNotes           String?
+  sessionDurationMinutes Int?
+  sessionFailureReason String?
+  scheduledFor     DateTime?
+  caption          String?
+  hashtags         Json?
+  cta              String?
+  shortDescription String?
+  initiatedBy      PostInitiator @default(USER)
+  adminId          String?
+  adminReason      String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  asset            Asset?        @relation(fields: [assetId], references: [id])
+  contentItem      ContentItem?  @relation(fields: [contentItemId], references: [id])
+  user             User          @relation(fields: [userId], references: [id])
+  admin            User?         @relation("AdminInitiatedPosts", fields: [adminId], references: [id])
+  PostAsset        PostAsset[]
+  events           PostEvent[]
+  targets          PostTarget[]
+  calendlyEventUri      String?
+  calendlyInviteeUri    String?
+  calendlySyncError     String?
+  calendlyLastSyncedAt  DateTime?
+
+  @@index([userId])
+  @@index([scheduledFor])
+  @@index([scheduleType])
+  @@index([sessionStatus])
+  @@index([calendlySyncStatus])
+  @@index([adminId])
+  @@index([initiatedBy])
+}
+
+model PostTarget {
+  id              String               @id @default(cuid())
+  postId          String
+  socialAccountId String?
+  platform        SocialPlatform
+  status          PostTargetStatus     @default(PENDING)
+  scheduledFor    DateTime?
+  publishedAt     DateTime?
+  externalPostId  String?
+  errorMessage    String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  post            Post                 @relation(fields: [postId], references: [id])
+  socialAccount   SocialAccount?       @relation(fields: [socialAccountId], references: [id])
+  externalJobs    ExternalPublishJob[]
+
+  @@index([postId])
+}
+
+model ProviderRoutingConfig {
+  id           String              @id @default(cuid())
+  userId       String              @unique
+  mode         ProviderRoutingMode @default(FORCE_NATIVE)
+  useInstagram Boolean             @default(true)
+  useFacebook  Boolean             @default(true)
+  useLinkedin  Boolean             @default(true)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([mode])
+}
+
+model GlobalPublishingRoutingConfig {
+  id           String              @id @default("global")
+  mode         ProviderRoutingMode @default(FORCE_NATIVE)
+  applyScope   String              @default("USERS_ONLY") // USERS_ONLY | ALL_USERS
+  useInstagram Boolean             @default(true)
+  useFacebook  Boolean             @default(true)
+  useLinkedin  Boolean             @default(true)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+}
+
+model UploadPostProfile {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  username         String    @unique
+  remoteStatusJson Json?
+  lastSyncAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ExternalPublishJob {
+  id              String                 @id @default(cuid())
+  postTargetId    String
+  provider        PublishingProvider
+  remoteJobId     String
+  identifierType  ExternalIdentifierType @default(JOB_ID)
+  remoteStatus    ExternalJobStatus      @default(PENDING)
+  lastMessage     String?
+  rawLastResponse Json?
+  attemptCount    Int                    @default(0)
+  nextPollAt      DateTime?
+  lastSyncedAt    DateTime?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  postTarget      PostTarget             @relation(fields: [postTargetId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, identifierType, remoteJobId])
+  @@index([postTargetId])
+  @@index([remoteStatus])
+  @@index([nextPollAt])
+}
+
+model PostEvent {
+  id        String   @id @default(cuid())
+  postId    String
+  type      String
+  message   String?
+  createdAt DateTime @default(now())
+  post      Post     @relation(fields: [postId], references: [id])
+
+  @@index([postId])
+}
+
+model UsageMonthly {
+  id              String   @id @default(cuid())
+  userId          String
+  periodStart     DateTime
+  periodEnd       DateTime
+  visualsUsed     Int      @default(0)
+  visualsReserved Int      @default(0)
+  visualsBonus    Int      @default(0)
+  postsUsed       Int      @default(0)
+  platformsUsed   Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, periodStart, periodEnd])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([token])
+}
+
+model ContactSubmission {
+  id            String   @id @default(cuid())
+  fullName      String
+  businessName  String
+  email         String
+  websiteHandle String?
+  interests     String[]
+  postsPerMonth String?
+  message       String?
+  source        String?
+  status        String   @default("PENDING")
+  repliedBy     String?
+  replyMessage  String?
+  repliedAt     DateTime?
+  isResolved    Boolean  @default(false)
+  resolvedAt    DateTime?
+  createdAt     DateTime @default(now())
+  createdIp     String?
+
+  @@index([email])
+  @@index([createdAt])
+  @@index([status])
+}
+
+model Faq {
+  id               String   @id @default(cuid())
+  question         String
+  answer           String
+  displayOrder     Int      @default(0)
+  isActive         Boolean  @default(true)
+  createdByAdminId String?
+  updatedByAdminId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([displayOrder])
+  @@index([createdAt])
+}
+
+model CaseStudy {
+  id                String   @id @default(uuid())
+  
+  // Header Section
+  logoUrl           String  
+  title             String   
+  location          String   
+  displayOrder      Int      @default(0)
+  
+  // Production Details
+  cycleTitle        String   
+  services          String[] 
+  tagline           String   @db.Text 
+  
+  // Production Structure Section
+  structureTitle    String  
+  structureItems    String[] 
+  
+  // Media Section
+  images            String[] 
+  videoTitle        String?  
+  videoUrl          String?  
+  
+  // Metadata
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model RecentActivity {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String
+  title       String
+  description String?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Campaign {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  status    String   @default("draft")
+  summary   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([name])
+}
+
+model UserProfile {
+  userId            String   @id
+  fullName          String
+  businessName      String?
+  website           String?
+  industry          String?
+  timezone          String?
+  bio               String?
+  avatarStorageKey  String?
+  avatarContentType String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id])
+}
+
+model AuditLog {
+  id           String      @id @default(cuid())
+  actorId      String
+  actorEmail   String
+  action       AuditAction
+  targetUserId String?
+  metadata     Json?
+  createdAt    DateTime    @default(now())
+  actor        User        @relation("AuditLogActor", fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([targetUserId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model AdminOperation {
+  id           String               @id @default(cuid())
+  key          String               @unique
+  actorId      String
+  action       AuditAction
+  targetUserId String?
+  status       AdminOperationStatus @default(PENDING)
+  metadata     Json?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  actor        User                 @relation("AdminOperationActor", fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([targetUserId])
+  @@index([action])
+}
+
+model PostAsset {
+  id        String   @id @default(cuid())
+  postId    String
+  assetId   String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  Asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  Post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, assetId])
+  @@index([assetId])
+  @@index([postId])
+}
+
+enum PlanCategory {
+  CALENDAR_ONLY
+  VISUAL_ADD_ON
+  VISUAL_CALENDAR
+  FULL_MANAGEMENT
+  JEWELRY_CALENDAR_ONLY
+  JEWELRY_VISUAL
+  JEWELRY_FULL_MANAGEMENT
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+  DELETED
+}
+
+enum AuditAction {
+  CREATE_USER
+  UPDATE_USER
+  DELETE_USER
+  BLOCK_USER
+  UNBLOCK_USER
+  CANCEL_SUBSCRIPTION
+  SCHEDULE_CANCEL_SUBSCRIPTION
+  IMMEDIATE_CANCEL_SUBSCRIPTION
+  RESUME_SUBSCRIPTION
+  RESEND_VERIFICATION
+  REFRESH_SUBSCRIPTION
+  POST_AS_USER_CREATE
+  POST_AS_USER_PUBLISH
+  POST_AS_USER_SCHEDULE
+  POST_AS_USER_CANCEL
+  ADMIN_POST_PERMISSION_GRANT
+  ADMIN_POST_PERMISSION_REVOKE
+  MEDIA_ADMIN_UPLOAD
+  MEDIA_ADMIN_DELETE
+}
+
+enum AdminOperationStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum SubscriptionStatus {
+  INCOMPLETE
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+}
+
+enum PriceType {
+  STANDARD
+  FOUNDER
+}
+
+enum AddonType {
+  RECURRING
+  ONE_TIME
+}
+
+enum BillingQuoteStatus {
+  PENDING
+  CHECKOUT_CREATED
+  COMPLETED
+  EXPIRED
+  CANCELED
+}
+
+enum CouponStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
+enum AssetType {
+  IMAGE
+  VIDEO
+}
+
+enum AssetKind {
+  ORIGINAL
+  ENHANCED
+}
+
+enum AssetSource {
+  USER_UPLOAD
+  ADMIN_UPLOAD
+}
+
+enum AssetStatus {
+  UPLOADING
+  READY
+  FAILED
+}
+
+enum ContentStatus {
+  DRAFT
+  READY
+}
+
+enum SocialPlatform {
+  INSTAGRAM
+  FACEBOOK
+  LINKEDIN
+  TIKTOK
+}
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHING
+  POSTED
+  FAILED
+}
+
+enum ScheduleType {
+  POSTING
+  PHOTO_SESSION
+  VIDEO_SESSION
+}
+
+enum SessionStatus {
+  BOOKED
+  COMPLETED
+  FAILED
+  CANCELED
+}
+
+enum CalendlySyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+}
+
+enum PostInitiator {
+  USER
+  ADMIN
+}
+
+enum PostTargetStatus {
+  PENDING
+  SCHEDULED
+  POSTED
+  FAILED
+}
+
+enum PublishingProvider {
+  NATIVE
+  UPLOAD_POST
+}
+
+enum ProviderRoutingMode {
+  AUTO
+  FORCE_NATIVE
+  FORCE_UPLOAD_POST
+}
+
+enum ExternalIdentifierType {
+  JOB_ID
+  REQUEST_ID
+}
+
+enum ExternalJobStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+model Submission {
+  id                 String                 @id @default(cuid())
+  userId             String
+  status             SubmissionStatus       @default(SUBMITTED)
+  planCategory       SubmissionPlanCategory @default(FULL_MANAGEMENT)
+  quotaUnitsReserved Int                    @default(0)
+  quotaUnitsConsumed Int                    @default(0)
+  title              String?
+  description        String?
+  userNote           String?
+  adminNote          String?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  user               User                   @relation(fields: [userId], references: [id])
+  files              SubmissionFile[]
+  events             SubmissionEvent[]
+  visualQuotaLedger  VisualQuotaLedger[]
+  enhancedDeliveries EnhancedDelivery[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model SubmissionFile {
+  id           String     @id @default(cuid())
+  submissionId String
+  fileName     String
+  fileType     String
+  fileSize     Int
+  storageKey   String
+  createdAt    DateTime   @default(now())
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+}
+
+model SubmissionEvent {
+  id           String                @id @default(cuid())
+  submissionId String
+  status       SubmissionStatus
+  action       SubmissionEventAction @default(STATUS_UPDATED)
+  actorRole    SubmissionActorRole?
+  note         String?
+  createdBy    String?
+  metadataJson Json?
+  createdAt    DateTime              @default(now())
+  submission   Submission            @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+}
+
+enum SubmissionStatus {
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  ENHANCED_SENT
+  NEEDS_CHANGES
+  COMPLETED
+  REJECTED
+  CLOSED
+}
+
+enum SubmissionPlanCategory {
+  FULL_MANAGEMENT
+  VISUAL_ONLY
+}
+
+enum SubmissionEventAction {
+  SUBMISSION_CREATED
+  STATUS_UPDATED
+  ENHANCED_DELIVERY_SENT
+}
+
+enum SubmissionActorRole {
+  USER
+  ADMIN
+  SYSTEM
+}
+
+enum VisualQuotaEventType {
+  SUBMISSION_RESERVED
+  SUBMISSION_RELEASED
+  SUBMISSION_CONSUMED
+  TOPUP_CREDIT
+}
+
+model VisualQuotaLedger {
+  id            String               @id @default(cuid())
+  userId        String
+  periodStart   DateTime
+  periodEnd     DateTime
+  units         Int
+  eventType     VisualQuotaEventType
+  submissionId  String?
+  stripeEventId String?              @unique
+  createdAt     DateTime             @default(now())
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  submission    Submission?          @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([periodStart, periodEnd], name: "VisualQuotaLedger_periodStart_periodEnd_idx")
+  @@index([submissionId])
+}
+
+model AdminPostPermission {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  canPostDirectly  Boolean   @default(false)
+  requiresApproval Boolean   @default(true)
+  grantedByAdminId String
+  grantedAt        DateTime  @default(now())
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy        User      @relation("AdminPostPermissionGrantedBy", fields: [grantedByAdminId], references: [id])
+
+  @@index([userId])
+  @@index([grantedByAdminId])
+}
+
+model AdminRoutePermission {
+  id               String   @id @default(cuid())
+  adminUserId      String
+  method           String
+  pathPattern      String
+  description      String?
+  active           Boolean  @default(true)
+  grantedByAdminId String
+  grantedAt        DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  adminUser        User     @relation("AdminRoutePermissions", fields: [adminUserId], references: [id], onDelete: Cascade)
+  grantedBy        User     @relation("AdminRoutePermissionsGrantedBy", fields: [grantedByAdminId], references: [id])
+
+  @@index([adminUserId])
+  @@index([grantedByAdminId])
+  @@index([method])
+  @@index([pathPattern])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  payload   Json
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([readAt])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  SUBMISSION_CREATED
+  SUBMISSION_STATUS_UPDATED
+  ENHANCED_DELIVERY_SENT
+  ADMIN_POST_CREATED
+  ADMIN_POST_PUBLISHED
+  ADMIN_POST_FAILED
+}
+
+model EnhancedDelivery {
+  id           String                 @id @default(cuid())
+  submissionId String
+  adminId      String
+  message      String?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  submission   Submission             @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  admin        User                   @relation("EnhancedDeliveriesByAdmin", fields: [adminId], references: [id], onDelete: Restrict)
+  files        EnhancedDeliveryFile[]
+
+  @@index([submissionId])
+  @@index([adminId])
+  @@index([createdAt])
+}
+
+model EnhancedDeliveryFile {
+  id                 String           @id @default(cuid())
+  enhancedDeliveryId String
+  storageKey         String
+  fileName           String
+  mimeType           String
+  size               Int
+  createdAt          DateTime         @default(now())
+  enhancedDelivery   EnhancedDelivery @relation(fields: [enhancedDeliveryId], references: [id], onDelete: Cascade)
+
+  @@index([enhancedDeliveryId])
+  @@index([storageKey])
+}
+
+model Coupon {
+  id               String        @id @default(cuid())
+  code             String        @unique
+  discountType     String // "fixed" or "percentage"
+  discountValue    Float // Amount or percentage value
+  maxUses          Int? // null = unlimited uses
+  usedCount        Int           @default(0)
+  maxUsesPerClient Int           @default(1)
+  status           CouponStatus  @default(ACTIVE)
+  description      String?
+  expiresAt        DateTime?
+  applicablePlans  String[]      @default([]) // empty array = all plans
+  createdBy        String
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  couponUsages     CouponUsage[]
+  creator          User          @relation("CouponCreatedBy", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([code])
+  @@index([expiresAt])
+  @@index([createdAt])
+}
+
+model CouponUsage {
+  id       String   @id @default(cuid())
+  couponId String
+  userId   String
+  usedAt   DateTime @default(now())
+  coupon   Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user     User     @relation("UserCouponUsages", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, userId])
+  @@index([couponId])
+  @@index([userId])
+}

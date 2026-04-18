@@ -1,0 +1,156 @@
+{
+  "info": {
+    "_postman_id": "talexia-user-dashboard-overview-2026",
+    "name": "Talexia User Dashboard Overview",
+    "description": "User dashboard overview APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{authToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Dashboard - Overview",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/dashboard/overview",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "dashboard",
+            "overview"
+          ]
+        },
+        "description": "Aggregated overview payload for user dashboard home"
+      },
+      "response": []
+    },
+    {
+      "name": "Dashboard - Recent Activity",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/dashboard/overview/recent-activity?page=1&limit=10",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "dashboard",
+            "overview",
+            "recent-activity"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "limit",
+              "value": "10"
+            }
+          ]
+        },
+        "description": "Paginated recent activity feed for user"
+      },
+      "response": []
+    },
+    {
+      "name": "Dashboard - Upcoming Posts",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/dashboard/overview/upcoming-posts?days=7&limit=5",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "dashboard",
+            "overview",
+            "upcoming-posts"
+          ],
+          "query": [
+            {
+              "key": "days",
+              "value": "7"
+            },
+            {
+              "key": "limit",
+              "value": "5"
+            }
+          ]
+        },
+        "description": "Upcoming scheduled posts within a configurable day range"
+      },
+      "response": []
+    },
+    {
+      "name": "Dashboard - Post Pipeline",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/dashboard/overview/post-pipeline",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "dashboard",
+            "overview",
+            "post-pipeline"
+          ]
+        },
+        "description": "Post pipeline counts for dashboard widgets"
+      },
+      "response": []
+    },
+    {
+      "name": "Dashboard - System Alerts",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/dashboard/overview/system-alerts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "dashboard",
+            "overview",
+            "system-alerts"
+          ]
+        },
+        "description": "Actionable alerts computed from quota, subscription, failures and account health"
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "your_user_token_here",
+      "type": "string"
+    }
+  ]
+}
