@@ -60,7 +60,6 @@ config.bat
 =======
 config.bat
 .env.example
-.vscode
 pnpm-lock.yaml
 pnpm-workspace.yaml
 
