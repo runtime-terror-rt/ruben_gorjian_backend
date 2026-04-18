@@ -76,10 +76,12 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<PagePermissionKey, RoutePermissionInput[
 		{ method: "ALL", pathPattern: "/api/admin/:userId/posts/:postId/approve", description: "Approve admin posts" },
 		{ method: "ALL", pathPattern: "/api/admin/users/:userId/media*", description: "Manage admin media" },
 		{ method: "GET", pathPattern: "/api/admin/users/:userId/connected-platforms", description: "View connected platforms" },
+		{ method: "GET", pathPattern: "/api/social-media/platform/get-all-performed-links", description: "Get all performed links" },
 		{ method: "ALL", pathPattern: "/admin/users/:userId/posts*", description: "Manage admin posts (legacy mount)" },
 		{ method: "ALL", pathPattern: "/admin/:userId/posts/:postId/approve", description: "Approve admin posts (legacy mount)" },
 		{ method: "ALL", pathPattern: "/admin/users/:userId/media*", description: "Manage admin media (legacy mount)" },
 		{ method: "GET", pathPattern: "/admin/users/:userId/connected-platforms", description: "View connected platforms (legacy mount)" },
+		{ method: "GET", pathPattern: "/social-media/platform/get-all-performed-links", description: "Get all performed links (legacy mount)" },
 	],
 	COUPON_MANAGE: [
 		{ method: "ALL", pathPattern: "/api/admin/coupons*", description: "Manage coupons" },
