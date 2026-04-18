@@ -203,7 +203,11 @@ router.patch("/posts/:id/publish-status", requireAdmin, async (req, res) => {
   }
 
   try {
-    const post = await schedulerService.updatePublishStatus(req.user!, req.params.id, parsed.data);
+    const postId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!postId) {
+      return res.status(400).json({ error: "Missing post id" });
+    }
+    const post = await schedulerService.updatePublishStatus(req.user!, postId, parsed.data);
     return res.json({ post });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update publish status";
@@ -257,7 +261,11 @@ router.patch("/sessions/:id/status", requireAdmin, async (req, res) => {
   }
 
   try {
-    const session = await schedulerService.updateScheduledSessionStatus(req.user!, req.params.id, parsed.data);
+    const sessionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing session id" });
+    }
+    const session = await schedulerService.updateScheduledSessionStatus(req.user!, sessionId, parsed.data);
     return res.json({ session });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update session status";
