@@ -123,10 +123,12 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
     { method: "ALL", pathPattern: "/api/admin/:userId/posts/:postId/approve" },
     { method: "ALL", pathPattern: "/api/admin/users/:userId/media*" },
     { method: "GET", pathPattern: "/api/admin/users/:userId/connected-platforms" },
+    { method: "GET", pathPattern: "/api/social-media/platform/get-all-performed-links" },
     { method: "ALL", pathPattern: "/admin/users/:userId/posts*" },
     { method: "ALL", pathPattern: "/admin/:userId/posts/:postId/approve" },
     { method: "ALL", pathPattern: "/admin/users/:userId/media*" },
     { method: "GET", pathPattern: "/admin/users/:userId/connected-platforms" },
+    { method: "GET", pathPattern: "/social-media/platform/get-all-performed-links" },
   ],
   COUPON_MANAGE: [
     { method: "ALL", pathPattern: "/api/admin/coupons*" },
