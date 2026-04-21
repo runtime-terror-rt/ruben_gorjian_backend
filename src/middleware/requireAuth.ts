@@ -4,8 +4,8 @@ import { prisma } from "../lib/prisma";
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const token =
-    req.cookies?.token ||
-    extractBearer(req.headers.authorization);
+    extractBearer(req.headers.authorization) ||
+    req.cookies?.token;
 
   if (!token) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -38,7 +38,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
 function extractBearer(authHeader?: string) {
   if (!authHeader) return null;
-  const [scheme, value] = authHeader.split(" ");
+  const [scheme, value] = authHeader.trim().split(/\s+/);
   if (scheme?.toLowerCase() !== "bearer" || !value) return null;
-  return value;
+  return value.trim();
 }
