@@ -53,6 +53,7 @@ const PAGE_PERMISSION_KEYS = [
   "SCHEDULE_MANAGE",
   "POST_MANAGE",
   "COUPON_MANAGE",
+  "ENTERPRISE_PLAN",
   "SUPPORT",
   "SUBMISSIONS",
   "FAQ",
@@ -68,6 +69,7 @@ const SEED_ADMIN_PAGE_PERMISSIONS: PagePermissionKey[] = [
   "SCHEDULE_MANAGE",
   "POST_MANAGE",
   "COUPON_MANAGE",
+  "ENTERPRISE_PLAN",
   "VIRTUAL_ADMIN_MANAGE",
   "SUBMISSIONS",
   "SUPPORT",
@@ -101,8 +103,6 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
   SUBSCRIPTION_MANAGE: [
     { method: "GET", pathPattern: "/api/admin/subscriptions" },
     { method: "GET", pathPattern: "/admin/subscriptions" },
-    { method: "ALL", pathPattern: "/api/admin/enterprise-plan*" },
-    { method: "ALL", pathPattern: "/admin/enterprise-plan*" },
     { method: "POST", pathPattern: "/api/admin/users/:id/cancel-subscription-schedule" },
     { method: "POST", pathPattern: "/api/admin/users/:id/cancel-subscription-immediately" },
     { method: "POST", pathPattern: "/api/admin/users/:id/resume-subscription" },
@@ -139,6 +139,10 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
   COUPON_MANAGE: [
     { method: "ALL", pathPattern: "/api/admin/coupons*" },
     { method: "ALL", pathPattern: "/admin/coupons*" },
+  ],
+  ENTERPRISE_PLAN: [
+    { method: "ALL", pathPattern: "/api/admin/enterprise-plan*" },
+    { method: "ALL", pathPattern: "/admin/enterprise-plan*" },
   ],
   SUPPORT: [
     { method: "ALL", pathPattern: "/api/contact/admin/submissions*" },
