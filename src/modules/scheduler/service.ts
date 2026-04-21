@@ -221,14 +221,11 @@ export class SchedulerService {
     platformLimit: number | null
   ): Promise<SchedulerTargetAccount[]> {
     const uniqueIds = Array.from(new Set(socialAccountIds));
-    if (uniqueIds.length === 0) {
-      throw new Error("At least one connected social account is required");
-    }
+    if (uniqueIds.length === 0) return [];
 
     const socialAccounts = await prisma.socialAccount.findMany({
       where: {
         id: { in: uniqueIds },
-        userId,
       },
       select: {
         id: true,
@@ -241,30 +238,10 @@ export class SchedulerService {
       orderBy: { createdAt: "asc" },
     });
 
-    if (socialAccounts.length !== uniqueIds.length) {
-      throw new Error("Selected target platforms must already be connected by this client");
-    }
-
     if (platformLimit !== null && uniqueIds.length > platformLimit) {
       throw new Error(
         `Selected platform count exceeds the allowed limit for this subscription (${platformLimit})`
       );
-    }
-
-    const now = new Date();
-    const invalidAccounts = socialAccounts.filter((account) => {
-      const isUploadPostConnection = String(account.externalAccountId || "").startsWith("upload-post:");
-      if (isUploadPostConnection) {
-        return false;
-      }
-      if (!account.accessToken) {
-        return true;
-      }
-      return Boolean(account.expiresAt && account.expiresAt <= now);
-    });
-
-    if (invalidAccounts.length > 0) {
-      throw new Error("One connected target social account is disconnected or token-expired");
     }
 
     return socialAccounts;
@@ -287,33 +264,12 @@ export class SchedulerService {
       orderBy: { createdAt: "asc" },
     });
 
-    if (socialAccounts.length === 0) {
-      throw new Error("At least one connected social account is required before scheduling");
-    }
-
     if (platformLimit !== null && socialAccounts.length > platformLimit) {
       throw new Error(
         `Connected platform count exceeds the allowed limit for this subscription (${platformLimit})`
       );
     }
-
-    const now = new Date();
-    const validAccounts = socialAccounts.filter((account) => {
-      const isUploadPostConnection = String(account.externalAccountId || "").startsWith("upload-post:");
-      if (isUploadPostConnection) {
-        return true;
-      }
-      if (!account.accessToken) {
-        return false;
-      }
-      return !(account.expiresAt && account.expiresAt <= now);
-    });
-
-    if (validAccounts.length === 0) {
-      throw new Error("No valid connected social account found. Please reconnect your social account(s)");
-    }
-
-    return validAccounts;
+    return socialAccounts;
   }
 
   private async validateAssets(userId: string, assetIds: string[]) {
@@ -343,24 +299,7 @@ export class SchedulerService {
   }
 
   private validateMediaRules(accounts: SchedulerTargetAccount[], assets: Asset[]) {
-    if (accounts.length === 0) {
-      throw new Error("At least one connected social account is required before scheduling");
-    }
-
-    const disconnectedAccounts = accounts.filter((account) => {
-      const isUploadPostConnection = String(account.externalAccountId || "").startsWith("upload-post:");
-      if (isUploadPostConnection) {
-        return false;
-      }
-      if (!account.id || !account.accessToken) {
-        return true;
-      }
-      return Boolean(account.expiresAt && account.expiresAt <= new Date());
-    });
-
-    if (disconnectedAccounts.length > 0) {
-      throw new Error("Please connect valid social account(s) before scheduling posts");
-    }
+    const _accounts = accounts;
 
     const videoCount = assets.filter((asset) => asset.type === "VIDEO").length;
     if (videoCount > 1) {
@@ -992,7 +931,11 @@ export class SchedulerService {
   }
 
   async createScheduledPost(actor: Actor, input: SchedulerCreateInput) {
-    const userId = await this.resolveTargetUser(actor, input.userId);
+  if (actor.role !== "USER") {
+    throw new Error("Only user role can create schedules");
+  }
+
+  const userId = await this.resolveTargetUser(actor, input.userId);
 
     if (input.scheduledAt <= new Date()) {
       throw new Error("Scheduled time must be in the future");
@@ -1269,10 +1212,14 @@ export class SchedulerService {
   }
 
   async createScheduledSession(
-    actor: Actor,
-    input: SchedulerCreateSessionInput
-  ) {
-    const userId = await this.resolveTargetUser(actor, input.userId);
+  actor: Actor,
+  input: SchedulerCreateSessionInput
+) {
+  if (actor.role !== "USER") {
+    throw new Error("Only user role can create schedules");
+  }
+
+  const userId = await this.resolveTargetUser(actor, input.userId);
     if (input.scheduledAt <= new Date()) {
       throw new Error("Scheduled time must be in the future");
     }
