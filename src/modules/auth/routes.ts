@@ -1,5 +1,4 @@
 import express from "express";
-import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import Stripe from "stripe";
 import { EnterpriseInviteStatus, EnterpriseProposalStatus, Role, UserStatus } from "@prisma/client";
@@ -23,15 +22,17 @@ import { toPostLimitType, toSchedulerRole } from "../billing/plan-metadata";
 const router = express.Router();
 
 const noopLimiter: express.RequestHandler = (_req, _res, next) => next();
-const authLimiter =
-  env.NODE_ENV === "production"
-    ? rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 5,
-      message: "Too many login attempts, please try again later.",
-      skipSuccessfulRequests: true,
-    })
-    : noopLimiter;
+// TEMP: Auth rate limit is fully disabled for now.
+const authLimiter = noopLimiter;
+// const authLimiter =
+//   env.NODE_ENV === "production"
+//     ? rateLimit({
+//       windowMs: 15 * 60 * 1000,
+//       max: 5,
+//       message: "Too many login attempts, please try again later.",
+//       skipSuccessfulRequests: true,
+//     })
+//     : noopLimiter;
 
 const GOOGLE_CALLBACK_PATH = "/api/auth/google/callback";
 const googleRedirectUri = `${(env.APP_URL ?? "http://localhost:4000").replace(/\/$/, "")}${GOOGLE_CALLBACK_PATH}`;
