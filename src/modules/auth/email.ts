@@ -5,7 +5,31 @@ function verificationBaseUrl() {
   return env.FRONTEND_URL ?? "http://localhost:3000";
 }
 
-export async function sendVerificationEmail(email: string, token: string, pendingPlanCode?: string) {
+function resolveRecipientName(name: string | undefined, email: string): string {
+  const normalizedName = name?.trim();
+  if (normalizedName) {
+    return normalizedName;
+  }
+
+  const localPart = email.split("@")[0]?.trim();
+  if (localPart) {
+    return localPart
+      .replace(/[._-]+/g, " ")
+      .split(" ")
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(" ");
+  }
+
+  return "User";
+}
+
+export async function sendVerificationEmail(
+  email: string,
+  token: string,
+  pendingPlanCode?: string,
+  userName?: string,
+) {
   const { CONTACT_FROM_EMAIL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, CONTACT_TO_EMAIL } = env;
 
   if (!CONTACT_FROM_EMAIL || !SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
@@ -22,6 +46,7 @@ export async function sendVerificationEmail(email: string, token: string, pendin
   const verificationUrl = `${verificationBaseUrl().replace(/\/$/, "")}/verify?token=${encodeURIComponent(
     token
   )}${pendingPlanCode ? `&planCode=${encodeURIComponent(pendingPlanCode)}` : ""}`;
+  const greetingName = resolveRecipientName(userName, email);
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -38,7 +63,7 @@ export async function sendVerificationEmail(email: string, token: string, pendin
         </tr>
         <tr>
           <td style="padding:40px 40px 32px;">
-            <p style="margin:0 0 20px;color:#1e293b;font-size:16px;">Hi there,</p>
+            <p style="margin:0 0 20px;color:#1e293b;font-size:16px;">Hi ${greetingName},</p>
             <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">
               Confirm your email address to finish setting up your Talexia account.
             </p>
@@ -107,7 +132,7 @@ export async function sendEnterprisePlanInviteEmail(params: {
   const inviteUrl = `${verificationBaseUrl().replace(/\/$/, "")}/enterprise-plan/accept?token=${encodeURIComponent(
     params.token
   )}`;
-  const recipientName = params.fullName || "there";
+  const recipientName = resolveRecipientName(params.fullName, params.email);
   const quotedAmount = typeof params.amount === "number"
     ? params.amount.toFixed(2)
     : null;
@@ -199,7 +224,7 @@ export async function sendInvoiceEmail(
     auth: { user: SMTP_USER, pass: SMTP_PASS },
   });
 
-  const greeting = extra?.userName ? `Hi ${extra.userName},` : "Hi there,";
+  const greeting = `Hi ${resolveRecipientName(extra?.userName, email)},`;
   const invoiceDate = extra?.date ?? new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const planLabel = extra?.planName ? extra.planName.replace(/_/g, " ") : "Subscription";
   const cycleLabel = extra?.billingCycle ?? "Monthly";
