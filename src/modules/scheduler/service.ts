@@ -568,7 +568,6 @@ export class SchedulerService {
       })),
       media,
       assets: media.map((item) => item.url).filter((url): url is string => Boolean(url)),
-      owner: ownerSummary,
       user: ownerSummary,
       initiatedBy: post.initiatedBy,
       admin: post.admin,
