@@ -65,3 +65,4 @@ pnpm-workspace.yaml
 
 uploads/
 !uploads/.gitkeep
+*.bat

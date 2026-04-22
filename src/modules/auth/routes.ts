@@ -1239,13 +1239,23 @@ function safeUser(user: {
 function setAuthCookie(res: express.Response, token: string) {
   const isSecure = env.COOKIE_SECURE === "true";
 
+  // res.cookie("token", token, {
+  //   httpOnly: true,
+  //   secure: isSecure,
+  //   sameSite: isSecure ? "none" : "lax",
+  //   path: "/",
+  //   maxAge: 1000 * 60 * 60 * 24 * 7,
+  // });
+
+
+  //TODO: Override for development to allow testing on localhost without secure cookies
   res.cookie("token", token, {
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: isSecure ? "none" : "lax",
-    path: "/",
-    maxAge: 1000 * 60 * 60 * 24 * 7,
-  });
+  httpOnly: true,
+  secure: false,
+  sameSite: "none",
+  path: "/",
+  maxAge: 1000 * 60 * 60 * 24 * 7,
+});
 }
 
 function issueSession(
