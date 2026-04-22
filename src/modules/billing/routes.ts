@@ -25,6 +25,7 @@ const VIDEO_SESSION_HOURLY_RATE_CENTS = 49_500;
 const PLATFORM_ADDON_MONTHLY_CENTS = 500;
 const NY_SALES_TAX_BPS = 862.5;
 const YEARLY_MULTIPLIER = 12 * 0.8;
+const ALLOWED_FULL_MANAGEMENT_PLAN_CODES = new Set(["FMP-20", "FMP-35", "FM-70"]);
 
 type ApplicableCoupon = {
   id: string;
@@ -280,8 +281,9 @@ async function resolvePriceForPlanAndCycle(params: {
 router.get("/plans", async (_req, res) => {
   // Serve from DB first (populated by startup sync — avoids a live Stripe call per request)
   const dbPlans = await prisma.plan.findMany({ orderBy: { priceStandardCents: "asc" } });
-  if (dbPlans.length > 0) {
-    return res.json(dbPlans.map(serializePlan));
+  const filteredDbPlans = dbPlans.filter((plan) => ALLOWED_FULL_MANAGEMENT_PLAN_CODES.has(plan.code));
+  if (filteredDbPlans.length > 0) {
+    return res.json(filteredDbPlans.map(serializePlan));
   }
 
   // DB empty — one-time fallback to Stripe (e.g. first boot before sync ran)
@@ -311,7 +313,7 @@ router.get("/plans", async (_req, res) => {
           priceFounderCents: metadata.priceFounderCents ? parseInt(metadata.priceFounderCents) : price?.unit_amount || 0,
           hasYearlyPrice: false,
         };
-      });
+      }).filter((plan) => ALLOWED_FULL_MANAGEMENT_PLAN_CODES.has(plan.code));
 
       return res.json(plans);
     } catch (error) {

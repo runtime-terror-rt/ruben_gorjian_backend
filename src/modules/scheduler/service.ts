@@ -44,6 +44,37 @@ type SchedulerTargetAccount = {
   expiresAt: Date | null;
 };
 
+type SchedulerLifecycleAction =
+  | "created"
+  | "booked"
+  | "rescheduled"
+  | "deleted"
+  | "completed"
+  | "failed"
+  | "canceled";
+
+const SCHEDULER_ADMIN_EMAIL = (
+  (env as typeof env & { SCHEDULER_ADMIN_EMAIL?: string }).SCHEDULER_ADMIN_EMAIL ||
+  "Office@talexia.us"
+).trim();
+
+type SchedulerNotificationPost = {
+  id: string;
+  userId: string;
+  scheduleType: ScheduleType;
+  scheduledFor: Date | null;
+  status: PostStatus;
+  sessionStatus: SessionStatus | null;
+  sessionFailureReason: string | null;
+  sessionDurationMinutes: number | null;
+  caption: string | null;
+  user: {
+    id: string;
+    email: string | null;
+    name: string | null;
+  };
+};
+
 function formatHashtags(hashtags?: string[] | null) {
   if (!hashtags) return Prisma.JsonNull;
   const sanitized = hashtags
@@ -471,13 +502,12 @@ export class SchedulerService {
     post: Awaited<ReturnType<SchedulerService["getOwnedPost"]>>,
     actor: Actor
   ) {
-    const ownerSummary = isAdmin(actor)
-      ? {
-        id: post.user.id,
-        email: post.user.email,
-        name: post.user.name,
-      }
-      : undefined;
+    const ownerSummary = {
+      id: post.user.id,
+      email: post.user.email,
+      name: post.user.name,
+      status: post.user.status,
+    };
 
     const media = post.PostAsset.map((entry) => ({
       id: entry.Asset.id,
@@ -541,7 +571,7 @@ export class SchedulerService {
       })),
       media,
       assets: media.map((item) => item.url).filter((url): url is string => Boolean(url)),
-      owner: ownerSummary,
+      user: ownerSummary,
       initiatedBy: post.initiatedBy,
       admin: post.admin,
       adminReason: post.adminReason,
@@ -553,22 +583,6 @@ export class SchedulerService {
         createdAt: event.createdAt,
       })),
     };
-  }
-
-  private async createAdminNotification(
-    targetUserId: string,
-    message: string,
-    payload: Record<string, unknown>
-  ) {
-    await prisma.notification.create({
-      data: {
-        userId: targetUserId,
-        type: "ADMIN_POST_CREATED",
-        title: "Scheduler updated by admin",
-        message,
-        payload: payload as Prisma.InputJsonValue,
-      },
-    });
   }
 
   private async enqueueScheduledPostPublish(postId: string, scheduledAt: Date | null | undefined) {
@@ -595,32 +609,27 @@ export class SchedulerService {
   }
 
   private async listAdminEmails() {
-    const admins = await prisma.user.findMany({
-      where: {
-        role: { in: ["ADMIN", "SUPER_ADMIN"] },
-        status: "ACTIVE",
-      },
-      select: {
-        email: true,
-      },
-    });
-
-    const emails = admins
-      .map((admin) => admin.email?.trim().toLowerCase())
-      .filter((email): email is string => Boolean(email));
-
-    if (env.ADMIN_EMAIL) {
-      emails.push(env.ADMIN_EMAIL.trim().toLowerCase());
-    }
-
-    return Array.from(new Set(emails));
+    return [SCHEDULER_ADMIN_EMAIL];
   }
 
-  private async createSessionInAppNotifications(
-    postId: string,
-    action: "booked" | "rescheduled" | "completed" | "failed" | "canceled"
-  ) {
-    const post = await prisma.post.findUnique({
+  private getScheduleLabel(scheduleType: ScheduleType) {
+    if (scheduleType === "PHOTO_SESSION") return "Photo Session";
+    if (scheduleType === "VIDEO_SESSION") return "Video Session";
+    return "Posting Schedule";
+  }
+
+  private getActionLabel(action: SchedulerLifecycleAction) {
+    if (action === "booked") return "booked";
+    if (action === "rescheduled") return "rescheduled";
+    if (action === "deleted") return "deleted";
+    if (action === "completed") return "completed";
+    if (action === "failed") return "failed";
+    if (action === "canceled") return "canceled";
+    return "created";
+  }
+
+  private async getSchedulerNotificationPost(postId: string): Promise<SchedulerNotificationPost | null> {
+    return prisma.post.findUnique({
       where: { id: postId },
       include: {
         user: {
@@ -632,20 +641,31 @@ export class SchedulerService {
         },
       },
     });
+  }
 
-    if (!post || post.scheduleType === "POSTING") {
+  private async createSchedulerInAppNotifications(
+    postId: string,
+    action: SchedulerLifecycleAction,
+    postOverride?: SchedulerNotificationPost
+  ) {
+    const post = postOverride ?? (await this.getSchedulerNotificationPost(postId));
+
+    if (!post) {
       return;
     }
 
-    const sessionLabel = post.scheduleType === "PHOTO_SESSION" ? "photo session" : "video session";
-    const title = "Scheduler Session Update";
-    const message = `Your ${sessionLabel} has been ${action}.`;
+    const actionLabel = this.getActionLabel(action);
+    const scheduleLabel = this.getScheduleLabel(post.scheduleType);
+    const title = "Scheduler Update";
+    const message = `Your ${scheduleLabel.toLowerCase()} has been ${actionLabel}.`;
     const payload = {
       postId: post.id,
       scheduleType: post.scheduleType,
       action,
       scheduledAt: post.scheduledFor?.toISOString() ?? null,
+      postStatus: post.status,
       sessionStatus: post.sessionStatus,
+      sessionFailureReason: post.sessionFailureReason,
     };
 
     await prisma.notification.create({
@@ -677,73 +697,57 @@ export class SchedulerService {
         userId: admin.id,
         type: "ADMIN_POST_CREATED",
         title,
-        message: `${post.user.name || post.user.email}'s ${sessionLabel} has been ${action}.`,
+        message: `${post.user.name || post.user.email}'s ${scheduleLabel.toLowerCase()} has been ${actionLabel}.`,
         payload: payload as Prisma.InputJsonValue,
       })),
     });
   }
 
-  private async sendSessionLifecycleEmails(
+  private async sendSchedulerLifecycleEmails(
     postId: string,
-    action:
-      | "booked"
-      | "rescheduled"
-      | "status_completed"
-      | "status_failed"
-      | "status_canceled"
+    action: SchedulerLifecycleAction,
+    postOverride?: SchedulerNotificationPost
   ) {
-    const post = await prisma.post.findUnique({
-      where: { id: postId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-          },
-        },
-      },
-    });
+    const post = postOverride ?? (await this.getSchedulerNotificationPost(postId));
 
-    if (!post || post.scheduleType === "POSTING" || !post.user?.email) {
+    if (!post || !post.user?.email) {
       return;
     }
 
-    const sessionLabel = post.scheduleType === "PHOTO_SESSION" ? "Photo Session" : "Video Session";
+    const userEmail = post.user.email.trim().toLowerCase();
+    const scheduleLabel = this.getScheduleLabel(post.scheduleType);
+    const actionLabel = this.getActionLabel(action);
     const when = post.scheduledFor ? post.scheduledFor.toISOString() : "TBD";
-
-    const subjectMap: Record<typeof action, string> = {
-      booked: `${sessionLabel} booked`,
-      rescheduled: `${sessionLabel} rescheduled`,
-      status_completed: `${sessionLabel} completed`,
-      status_failed: `${sessionLabel} failed`,
-      status_canceled: `${sessionLabel} canceled`,
-    };
+    const subject = `${scheduleLabel} ${actionLabel}`;
 
     const userBody =
       `Hello ${post.user.name || "there"},\n\n` +
-      `Your ${sessionLabel.toLowerCase()} has been ${action.replace("status_", "").replace("_", " ")}.\n` +
-      `Session ID: ${post.id}\n` +
-      `Schedule: ${when}\n` +
-      `Duration (minutes): ${post.sessionDurationMinutes ?? "N/A"}\n` +
+      `Your ${scheduleLabel.toLowerCase()} has been ${actionLabel}.\n` +
+      `Schedule ID: ${post.id}\n` +
+      `Schedule Type: ${post.scheduleType}\n` +
+      `Schedule Time: ${when}\n` +
+      `${post.scheduleType !== "POSTING" ? `Duration (minutes): ${post.sessionDurationMinutes ?? "N/A"}\n` : ""}` +
+      `${post.scheduleType === "POSTING" ? `Caption: ${post.caption ?? "N/A"}\n` : ""}` +
       `${post.sessionFailureReason ? `Failure reason: ${post.sessionFailureReason}\n` : ""}` +
       `\nRegards,\nTalexia`;
 
     const adminBody =
-      `Scheduler session update\n\n` +
+      `Scheduler update\n\n` +
       `Action: ${action}\n` +
-      `Session: ${sessionLabel}\n` +
-      `Session ID: ${post.id}\n` +
+      `Type: ${post.scheduleType}\n` +
+      `Label: ${scheduleLabel}\n` +
+      `Schedule ID: ${post.id}\n` +
       `User: ${post.user.email}\n` +
       `Schedule: ${when}\n` +
-      `Duration (minutes): ${post.sessionDurationMinutes ?? "N/A"}\n` +
+      `${post.scheduleType !== "POSTING" ? `Duration (minutes): ${post.sessionDurationMinutes ?? "N/A"}\n` : ""}` +
+      `${post.scheduleType === "POSTING" ? `Caption: ${post.caption ?? "N/A"}\n` : ""}` +
       `${post.sessionFailureReason ? `Failure reason: ${post.sessionFailureReason}\n` : ""}`;
 
     const userEmailPayload = {
       to: post.user.email,
-      subject: subjectMap[action],
+      subject,
       body: userBody,
-      context: "scheduler-session-lifecycle-user",
+      context: "scheduler-lifecycle-user",
       postId: post.id,
       action,
     };
@@ -755,11 +759,14 @@ export class SchedulerService {
     const adminEmails = await this.listAdminEmails();
     await Promise.all(
       adminEmails.map(async (email) => {
+        if (email.trim().toLowerCase() === userEmail) {
+          return;
+        }
         const payload = {
           to: email,
-          subject: `[Admin] ${subjectMap[action]}`,
+          subject: `[Admin] ${subject}`,
           body: adminBody,
-          context: "scheduler-session-lifecycle-admin",
+          context: "scheduler-lifecycle-admin",
           postId: post.id,
           action,
         };
@@ -769,6 +776,22 @@ export class SchedulerService {
         }
       })
     );
+  }
+
+  private async triggerSchedulerLifecycleNotifications(
+    postId: string,
+    action: SchedulerLifecycleAction,
+    postOverride?: SchedulerNotificationPost
+  ) {
+    await Promise.allSettled([
+      this.createSchedulerInAppNotifications(postId, action, postOverride),
+      this.sendSchedulerLifecycleEmails(postId, action, postOverride),
+    ]);
+
+    logger.info("Scheduler lifecycle hooks processed", {
+      postId,
+      lifecycleAction: action,
+    });
   }
 
   async createMediaUploads(actor: Actor, data: SchedulerUploadInput) {
@@ -1014,16 +1037,9 @@ export class SchedulerService {
       return post.id;
     });
 
-    if (isAdmin(actor) && userId !== actor.id) {
-      await this.createAdminNotification(
-        userId,
-        `An admin scheduled a post for ${input.scheduledAt.toLocaleString()}.`,
-        { postId, scheduledAt: input.scheduledAt.toISOString() }
-      );
-    }
-
     await Promise.allSettled([
       this.enqueueScheduledPostPublish(postId, input.scheduledAt),
+      this.triggerSchedulerLifecycleNotifications(postId, "created"),
     ]);
 
     logActivity({
@@ -1144,16 +1160,9 @@ export class SchedulerService {
 
     await this.cleanupOrphanedSchedulerAssets(removedAssetIds, postId);
 
-    if (isAdmin(actor) && existingPost.userId !== actor.id) {
-      await this.createAdminNotification(
-        existingPost.userId,
-        `An admin updated a scheduled post for ${nextScheduledAt.toLocaleString()}.`,
-        { postId, scheduledAt: nextScheduledAt.toISOString() }
-      );
-    }
-
     await Promise.allSettled([
       this.enqueueScheduledPostPublish(postId, nextScheduledAt),
+      this.triggerSchedulerLifecycleNotifications(postId, "rescheduled"),
     ]);
 
     logActivity({
@@ -1184,11 +1193,22 @@ export class SchedulerService {
 
     await this.cleanupOrphanedSchedulerAssets(assetIds, postId);
 
-    if (isAdmin(actor) && existingPost.userId !== actor.id) {
-      await this.createAdminNotification(existingPost.userId, "An admin deleted a scheduled post.", {
-        postId,
-      });
-    }
+    await this.triggerSchedulerLifecycleNotifications(postId, "deleted", {
+      id: existingPost.id,
+      userId: existingPost.userId,
+      scheduleType: existingPost.scheduleType,
+      scheduledFor: existingPost.scheduledFor,
+      status: existingPost.status,
+      sessionStatus: existingPost.sessionStatus,
+      sessionFailureReason: existingPost.sessionFailureReason,
+      sessionDurationMinutes: existingPost.sessionDurationMinutes,
+      caption: existingPost.caption,
+      user: {
+        id: existingPost.user.id,
+        email: existingPost.user.email,
+        name: existingPost.user.name,
+      },
+    });
 
     logger.info("Scheduled post deleted", {
       postId,
@@ -1264,23 +1284,7 @@ export class SchedulerService {
       return post.id;
     });
 
-    if (isAdmin(actor) && userId !== actor.id) {
-      await this.createAdminNotification(
-        userId,
-        `An admin scheduled your ${input.scheduleType === "PHOTO_SESSION" ? "photo" : "video"} session.`,
-        { postId, scheduleType: input.scheduleType, scheduledAt: input.scheduledAt.toISOString() }
-      );
-    }
-
-    await Promise.allSettled([
-      this.createSessionInAppNotifications(postId, "booked"),
-      this.sendSessionLifecycleEmails(postId, "booked"),
-    ]);
-    logger.info("Session lifecycle hooks processed", {
-      postId,
-      scheduleType: input.scheduleType,
-      lifecycleAction: "booked",
-    });
+    await this.triggerSchedulerLifecycleNotifications(postId, "booked");
 
     return this.getScheduledPost(actor, postId);
   }
@@ -1355,15 +1359,7 @@ export class SchedulerService {
       });
     });
 
-    await Promise.allSettled([
-      this.createSessionInAppNotifications(postId, "rescheduled"),
-      this.sendSessionLifecycleEmails(postId, "rescheduled"),
-    ]);
-    logger.info("Session lifecycle hooks processed", {
-      postId,
-      scheduleType: existingPost.scheduleType,
-      lifecycleAction: "rescheduled",
-    });
+    await this.triggerSchedulerLifecycleNotifications(postId, "rescheduled");
 
     return this.getScheduledPost(actor, postId);
   }
@@ -1487,22 +1483,7 @@ export class SchedulerService {
           ? "failed"
           : "canceled";
 
-    await Promise.allSettled([
-      this.createSessionInAppNotifications(postId, lifecycleAction),
-      this.sendSessionLifecycleEmails(
-        postId,
-        input.status === "completed"
-          ? "status_completed"
-          : input.status === "failed"
-            ? "status_failed"
-            : "status_canceled"
-      ),
-    ]);
-    logger.info("Session lifecycle hooks processed", {
-      postId,
-      scheduleType: existingPost.scheduleType,
-      lifecycleAction,
-    });
+    await this.triggerSchedulerLifecycleNotifications(postId, lifecycleAction);
 
     return this.getScheduledPost(actor, postId);
   }
@@ -1563,16 +1544,9 @@ export class SchedulerService {
       });
     });
 
-    await this.createAdminNotification(
-      existingPost.userId,
-      input.status === "completed"
-        ? "Your scheduled post has been marked as completed."
-        : "Your scheduled post has been marked as failed.",
-      {
-        postId,
-        schedulerStatus: input.status === "completed" ? "completed" : "failed",
-        failureReason,
-      }
+    await this.triggerSchedulerLifecycleNotifications(
+      postId,
+      input.status === "completed" ? "completed" : "failed"
     );
 
     return this.getScheduledPost(actor, postId);

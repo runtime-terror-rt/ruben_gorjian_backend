@@ -14,7 +14,7 @@ import { hashPassword, comparePassword } from "../../utils/password";
 import { signAccessToken } from "../../utils/tokens";
 import { requireAuth } from "../../middleware/requireAuth";
 import { env } from "../../config/env";
-import { sendVerificationEmail } from "./email";
+import { sendPasswordResetEmail, sendVerificationEmail } from "./email";
 import { logger } from "../../lib/logger";
 import { logActivity } from "../dashboard/activity-logger";
 import type { PlanCategory } from "../../types/plan-category";
@@ -952,10 +952,10 @@ router.post("/request-password-reset", async (req, res) => {
       .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
-  const { email } = parsed.data;
+  const email = parsed.data.email.toLowerCase();
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
-    return res.json({ success: true }); // avoid leaking user existence
+    return res.json({ message: "User not found!" }); // avoid leaking user existence
   }
 
   const token = crypto.randomBytes(32).toString("hex");
@@ -970,7 +970,17 @@ router.post("/request-password-reset", async (req, res) => {
     });
   });
 
-  // TODO: send email with token link. For now, return token in non-production.
+  const emailResult = await sendPasswordResetEmail(email, token, user.name ?? undefined);
+  console.log(emailResult);
+
+  if (!emailResult.sent) {
+    logger.warn("Password reset email not sent", {
+      userId: user.id,
+      email,
+      reason: emailResult.reason,
+    });
+  }
+
   if (env.NODE_ENV !== "production") {
     return res.json({ success: true, token, expiresAt });
   }
