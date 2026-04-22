@@ -1,7 +1,12 @@
 import express from "express";
 import crypto from "crypto";
 import Stripe from "stripe";
-import { EnterpriseInviteStatus, EnterpriseProposalStatus, Role, UserStatus } from "@prisma/client";
+import {
+  EnterpriseInviteStatus,
+  EnterpriseProposalStatus,
+  Role,
+  UserStatus,
+} from "@prisma/client";
 import { OAuth2Client } from "google-auth-library";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
@@ -39,10 +44,10 @@ const googleRedirectUri = `${(env.APP_URL ?? "http://localhost:4000").replace(/\
 
 const googleClient = env.GOOGLE_CLIENT_ID
   ? new OAuth2Client(
-    env.GOOGLE_CLIENT_ID,
-    env.GOOGLE_CLIENT_SECRET,
-    googleRedirectUri
-  )
+      env.GOOGLE_CLIENT_ID,
+      env.GOOGLE_CLIENT_SECRET,
+      googleRedirectUri,
+    )
   : null;
 const PASSWORD_RESET_EXPIRY_MS = 1000 * 60 * 60; // 1 hour
 const EMAIL_VERIFICATION_EXPIRY_MS = 1000 * 60 * 60 * 24; // 24 hours
@@ -83,7 +88,10 @@ type PagePermissionKey = (typeof PAGE_PERMISSION_KEYS)[number];
 
 const PAGE_ROUTE_PERMISSION_MAP: Record<
   PagePermissionKey,
-  Array<{ method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "ALL"; pathPattern: string }>
+  Array<{
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "ALL";
+    pathPattern: string;
+  }>
 > = {
   OVERVIEW: [
     { method: "GET", pathPattern: "/api/admin/summary" },
@@ -104,13 +112,28 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
   SUBSCRIPTION_MANAGE: [
     { method: "GET", pathPattern: "/api/admin/subscriptions" },
     { method: "GET", pathPattern: "/admin/subscriptions" },
-    { method: "POST", pathPattern: "/api/admin/users/:id/cancel-subscription-schedule" },
-    { method: "POST", pathPattern: "/api/admin/users/:id/cancel-subscription-immediately" },
+    {
+      method: "POST",
+      pathPattern: "/api/admin/users/:id/cancel-subscription-schedule",
+    },
+    {
+      method: "POST",
+      pathPattern: "/api/admin/users/:id/cancel-subscription-immediately",
+    },
     { method: "POST", pathPattern: "/api/admin/users/:id/resume-subscription" },
-    { method: "POST", pathPattern: "/api/admin/users/:id/refresh-subscription" },
+    {
+      method: "POST",
+      pathPattern: "/api/admin/users/:id/refresh-subscription",
+    },
     { method: "GET", pathPattern: "/api/admin/users/:id/invoices" },
-    { method: "POST", pathPattern: "/admin/users/:id/cancel-subscription-schedule" },
-    { method: "POST", pathPattern: "/admin/users/:id/cancel-subscription-immediately" },
+    {
+      method: "POST",
+      pathPattern: "/admin/users/:id/cancel-subscription-schedule",
+    },
+    {
+      method: "POST",
+      pathPattern: "/admin/users/:id/cancel-subscription-immediately",
+    },
     { method: "POST", pathPattern: "/admin/users/:id/resume-subscription" },
     { method: "POST", pathPattern: "/admin/users/:id/refresh-subscription" },
     { method: "GET", pathPattern: "/admin/users/:id/invoices" },
@@ -129,13 +152,22 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
     { method: "ALL", pathPattern: "/api/admin/users/:userId/posts*" },
     { method: "ALL", pathPattern: "/api/admin/:userId/posts/:postId/approve" },
     { method: "ALL", pathPattern: "/api/admin/users/:userId/media*" },
-    { method: "GET", pathPattern: "/api/admin/users/:userId/connected-platforms" },
-    { method: "GET", pathPattern: "/api/social-media/platform/get-all-performed-links" },
+    {
+      method: "GET",
+      pathPattern: "/api/admin/users/:userId/connected-platforms",
+    },
+    {
+      method: "GET",
+      pathPattern: "/api/social-media/platform/get-all-performed-links",
+    },
     { method: "ALL", pathPattern: "/admin/users/:userId/posts*" },
     { method: "ALL", pathPattern: "/admin/:userId/posts/:postId/approve" },
     { method: "ALL", pathPattern: "/admin/users/:userId/media*" },
     { method: "GET", pathPattern: "/admin/users/:userId/connected-platforms" },
-    { method: "GET", pathPattern: "/social-media/platform/get-all-performed-links" },
+    {
+      method: "GET",
+      pathPattern: "/social-media/platform/get-all-performed-links",
+    },
   ],
   COUPON_MANAGE: [
     { method: "ALL", pathPattern: "/api/admin/coupons*" },
@@ -145,9 +177,7 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
     { method: "ALL", pathPattern: "/api/admin/enterprise-plan*" },
     { method: "ALL", pathPattern: "/admin/enterprise-plan*" },
   ],
-  SUPPORT: [
-    { method: "ALL", pathPattern: "/api/contact/admin/submissions*" },
-  ],
+  SUPPORT: [{ method: "ALL", pathPattern: "/api/contact/admin/submissions*" }],
   SUBMISSIONS: [
     { method: "ALL", pathPattern: "/api/admin/submissions*" },
     { method: "ALL", pathPattern: "/admin/submissions*" },
@@ -178,7 +208,9 @@ function normalizePathPattern(pathPattern: string) {
 }
 
 function expandPagePermissions(pagePermissions: PagePermissionKey[]) {
-  const expanded = pagePermissions.flatMap((permissionKey) => PAGE_ROUTE_PERMISSION_MAP[permissionKey]);
+  const expanded = pagePermissions.flatMap(
+    (permissionKey) => PAGE_ROUTE_PERMISSION_MAP[permissionKey],
+  );
   const unique = new Map<string, { method: string; pathPattern: string }>();
 
   for (const permission of expanded) {
@@ -196,16 +228,29 @@ function expandPagePermissions(pagePermissions: PagePermissionKey[]) {
   return Array.from(unique.values());
 }
 
-function inferPagePermissions(adminRoutePermissions: Array<{ method: string; pathPattern: string; active: boolean }>) {
+function inferPagePermissions(
+  adminRoutePermissions: Array<{
+    method: string;
+    pathPattern: string;
+    active: boolean;
+  }>,
+) {
   const activePermissionKeys = new Set(
     adminRoutePermissions
       .filter((permission) => permission.active)
-      .map((permission) => `${permission.method.toUpperCase()}|${normalizePathPattern(permission.pathPattern)}`)
+      .map(
+        (permission) =>
+          `${permission.method.toUpperCase()}|${normalizePathPattern(permission.pathPattern)}`,
+      ),
   );
 
   return PAGE_PERMISSION_KEYS.filter((pageKey) => {
     const requiredPermissions = expandPagePermissions([pageKey]);
-    return requiredPermissions.every((permission) => activePermissionKeys.has(`${permission.method}|${permission.pathPattern}`));
+    return requiredPermissions.every((permission) =>
+      activePermissionKeys.has(
+        `${permission.method}|${permission.pathPattern}`,
+      ),
+    );
   });
 }
 
@@ -236,7 +281,9 @@ async function ensurePlanAvailable(planCode: string) {
     active: true,
     limit: 100,
   });
-  const hasYearlyPrice = allPrices.data.some((p) => p.recurring?.interval === "year");
+  const hasYearlyPrice = allPrices.data.some(
+    (p) => p.recurring?.interval === "year",
+  );
 
   const synced = await prisma.plan.upsert({
     where: { code: planCode },
@@ -244,17 +291,23 @@ async function ensurePlanAvailable(planCode: string) {
       name: product.name,
       category: toPlanCategory(product.metadata.category),
       isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
-      platformLimit: product.metadata.platformLimit ? parseInt(product.metadata.platformLimit) : null,
-      baseVisualQuota: product.metadata.baseVisualQuota ? parseInt(product.metadata.baseVisualQuota) : null,
-      basePostQuota: product.metadata.basePostQuota ? parseInt(product.metadata.basePostQuota) : null,
+      platformLimit: product.metadata.platformLimit
+        ? parseInt(product.metadata.platformLimit)
+        : null,
+      baseVisualQuota: product.metadata.baseVisualQuota
+        ? parseInt(product.metadata.baseVisualQuota)
+        : null,
+      basePostQuota: product.metadata.basePostQuota
+        ? parseInt(product.metadata.basePostQuota)
+        : null,
       postLimitType: toPostLimitType(product.metadata.postLimitType),
       schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
       priceStandardCents: product.metadata.priceStandardCents
         ? parseInt(product.metadata.priceStandardCents)
-        : defaultPrice?.unit_amount ?? 0,
+        : (defaultPrice?.unit_amount ?? 0),
       priceFounderCents: product.metadata.priceFounderCents
         ? parseInt(product.metadata.priceFounderCents)
-        : defaultPrice?.unit_amount ?? 0,
+        : (defaultPrice?.unit_amount ?? 0),
       stripePriceStandardId: defaultPrice?.id,
       hasYearlyPrice,
     },
@@ -263,17 +316,23 @@ async function ensurePlanAvailable(planCode: string) {
       name: product.name,
       category: toPlanCategory(product.metadata.category),
       isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
-      platformLimit: product.metadata.platformLimit ? parseInt(product.metadata.platformLimit) : null,
-      baseVisualQuota: product.metadata.baseVisualQuota ? parseInt(product.metadata.baseVisualQuota) : null,
-      basePostQuota: product.metadata.basePostQuota ? parseInt(product.metadata.basePostQuota) : null,
+      platformLimit: product.metadata.platformLimit
+        ? parseInt(product.metadata.platformLimit)
+        : null,
+      baseVisualQuota: product.metadata.baseVisualQuota
+        ? parseInt(product.metadata.baseVisualQuota)
+        : null,
+      basePostQuota: product.metadata.basePostQuota
+        ? parseInt(product.metadata.basePostQuota)
+        : null,
       postLimitType: toPostLimitType(product.metadata.postLimitType),
       schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
       priceStandardCents: product.metadata.priceStandardCents
         ? parseInt(product.metadata.priceStandardCents)
-        : defaultPrice?.unit_amount ?? 0,
+        : (defaultPrice?.unit_amount ?? 0),
       priceFounderCents: product.metadata.priceFounderCents
         ? parseInt(product.metadata.priceFounderCents)
-        : defaultPrice?.unit_amount ?? 0,
+        : (defaultPrice?.unit_amount ?? 0),
       stripePriceStandardId: defaultPrice?.id,
       hasYearlyPrice,
     },
@@ -334,13 +393,17 @@ router.get("/enterprise-invite/validate", async (req, res) => {
   const schema = z.object({ token: z.string().min(1) });
   const parsed = schema.safeParse(req.query);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "Invalid query", details: parsed.error.flatten() });
   }
 
   const token = parsed.data.token;
   const resolved = await resolveEnterpriseInvite(token);
   if (!resolved.invite || resolved.error) {
-    return res.status(400).json({ valid: false, error: resolved.error || "Invalid invite" });
+    return res
+      .status(400)
+      .json({ valid: false, error: resolved.error || "Invalid invite" });
   }
 
   const invite = resolved.invite;
@@ -385,14 +448,14 @@ router.get("/enterprise-invite/validate", async (req, res) => {
       userEmailVerified: existingUser?.emailVerified ?? null,
       proposal: invite.proposal
         ? {
-          id: invite.proposal.id,
-          planCode: invite.proposal.planCode,
-          planName: invite.proposal.planName,
-          amount: Number(invite.proposal.amount),
-          billingCycle: invite.proposal.billingCycle,
-          currency: invite.proposal.currency,
-          status: invite.proposal.status,
-        }
+            id: invite.proposal.id,
+            planCode: invite.proposal.planCode,
+            planName: invite.proposal.planName,
+            amount: Number(invite.proposal.amount),
+            billingCycle: invite.proposal.billingCycle,
+            currency: invite.proposal.currency,
+            status: invite.proposal.status,
+          }
         : null,
     },
   });
@@ -401,7 +464,9 @@ router.get("/enterprise-invite/validate", async (req, res) => {
 router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
   const parsed = enterpriseInviteSignupSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
   const { token, password, name } = parsed.data;
@@ -442,7 +507,8 @@ router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
       );
 
       return res.status(200).json({
-        message: "Account already exists and is not verified. Verification email sent again.",
+        message:
+          "Account already exists and is not verified. Verification email sent again.",
         requiresVerification: true,
         requiresLogin: false,
         email,
@@ -553,7 +619,8 @@ router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
   );
 
   return res.status(201).json({
-    message: "Account created from enterprise invite. Check your email to verify.",
+    message:
+      "Account created from enterprise invite. Check your email to verify.",
     requiresVerification: true,
     email,
     planCode: invite.planCode,
@@ -564,7 +631,9 @@ router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
 router.post("/signup", authLimiter, async (req, res) => {
   const parsed = credentialsSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
   const { email, password, pendingPlanCode } = parsed.data;
@@ -640,7 +709,9 @@ router.post("/signup", authLimiter, async (req, res) => {
 router.post("/login", authLimiter, async (req, res) => {
   const parsed = credentialsSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
   const email = parsed.data.email.toLowerCase();
@@ -676,7 +747,9 @@ router.post("/admin/login", authLimiter, async (req, res) => {
 
   const parsed = credentialsSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
   const email = parsed.data.email.toLowerCase();
@@ -763,8 +836,12 @@ router.get("/me", requireAuth, async (req, res) => {
   }
 
   // Determine plan category: from subscription, or from pendingPlanCode if no subscription
-  let planCategory: PlanCategory | null = (finalSubscription?.plan?.category as PlanCategory) || null;
-  let planResolutionPath: "from_subscription" | "from_pending_plan_code" | "unknown" = "unknown";
+  let planCategory: PlanCategory | null =
+    (finalSubscription?.plan?.category as PlanCategory) || null;
+  let planResolutionPath:
+    | "from_subscription"
+    | "from_pending_plan_code"
+    | "unknown" = "unknown";
 
   // Only query for pendingPlan if we don't have a subscription and user has pendingPlanCode
   if (!planCategory && user.pendingPlanCode) {
@@ -790,15 +867,17 @@ router.get("/me", requireAuth, async (req, res) => {
           pendingPlanCode: user.pendingPlanCode,
         });
         // Clear invalid pendingPlanCode to prevent stuck state (fire-and-forget)
-        prisma.user.update({
-          where: { id: userId },
-          data: { pendingPlanCode: null },
-        }).catch((err) => {
-          logger.error("Failed to clear invalid pendingPlanCode", {
-            userId,
-            error: err instanceof Error ? err.message : String(err),
+        prisma.user
+          .update({
+            where: { id: userId },
+            data: { pendingPlanCode: null },
+          })
+          .catch((err) => {
+            logger.error("Failed to clear invalid pendingPlanCode", {
+              userId,
+              error: err instanceof Error ? err.message : String(err),
+            });
           });
-        });
       }
     } catch (error) {
       logger.error("Error looking up pendingPlanCode", {
@@ -823,7 +902,10 @@ router.get("/me", requireAuth, async (req, res) => {
     userId,
     planCategory,
     planResolutionPath,
-    hasActiveSubscription: !!finalSubscription && (finalSubscription.status === "ACTIVE" || finalSubscription.status === "TRIALING"),
+    hasActiveSubscription:
+      !!finalSubscription &&
+      (finalSubscription.status === "ACTIVE" ||
+        finalSubscription.status === "TRIALING"),
     subscriptionStatus: finalSubscription?.status,
     hasPendingPlanCode: !!user.pendingPlanCode,
   });
@@ -831,18 +913,19 @@ router.get("/me", requireAuth, async (req, res) => {
   // Build subscription object: use actual subscription if exists, otherwise use pendingPlanCode
   const subscriptionObj = finalSubscription
     ? {
-      planCode: finalSubscription.planCode,
-      planCategory: (finalSubscription.plan?.category as PlanCategory) || null,
-      status: finalSubscription.status,
-      priceType: finalSubscription.priceType,
-    }
+        planCode: finalSubscription.planCode,
+        planCategory:
+          (finalSubscription.plan?.category as PlanCategory) || null,
+        status: finalSubscription.status,
+        priceType: finalSubscription.priceType,
+      }
     : planCategory
       ? {
-        planCode: user.pendingPlanCode || null,
-        planCategory: planCategory as PlanCategory,
-        status: "INCOMPLETE" as const,
-        priceType: "STANDARD" as const,
-      }
+          planCode: user.pendingPlanCode || null,
+          planCategory: planCategory as PlanCategory,
+          status: "INCOMPLETE" as const,
+          priceType: "STANDARD" as const,
+        }
       : null;
 
   const permissions =
@@ -864,7 +947,9 @@ router.post("/request-password-reset", async (req, res) => {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
   const { email } = parsed.data;
@@ -901,11 +986,15 @@ router.post("/reset-password", async (req, res) => {
 
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
   const { token, password } = parsed.data;
-  const resetToken = await prisma.passwordResetToken.findUnique({ where: { token } });
+  const resetToken = await prisma.passwordResetToken.findUnique({
+    where: { token },
+  });
   if (!resetToken) {
     return res.status(400).json({ error: "Invalid or expired token" });
   }
@@ -946,7 +1035,9 @@ router.post("/change-password", requireAuth, async (req, res) => {
 
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
   const currentPassword = parsed.data["current-password"];
@@ -954,11 +1045,15 @@ router.post("/change-password", requireAuth, async (req, res) => {
   const confirmPassword = parsed.data["confirm-password"];
 
   if (newPassword !== confirmPassword) {
-    return res.status(400).json({ error: "New password and confirm password do not match" });
+    return res
+      .status(400)
+      .json({ error: "New password and confirm password do not match" });
   }
 
   if (currentPassword === newPassword) {
-    return res.status(400).json({ error: "New password must be different from current password" });
+    return res
+      .status(400)
+      .json({ error: "New password must be different from current password" });
   }
 
   const user = await prisma.user.findUnique({
@@ -983,10 +1078,15 @@ router.post("/change-password", requireAuth, async (req, res) => {
   }
 
   if (!user.passwordHash) {
-    return res.status(400).json({ error: "Password change is unavailable for this account" });
+    return res
+      .status(400)
+      .json({ error: "Password change is unavailable for this account" });
   }
 
-  const isCurrentPasswordValid = await comparePassword(currentPassword, user.passwordHash);
+  const isCurrentPasswordValid = await comparePassword(
+    currentPassword,
+    user.passwordHash,
+  );
   if (!isCurrentPasswordValid) {
     return res.status(400).json({ error: "Current password is incorrect" });
   }
@@ -1020,7 +1120,9 @@ router.post("/google", async (req, res) => {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
   if (!googleClient || !env.GOOGLE_CLIENT_ID) {
@@ -1094,11 +1196,15 @@ router.post("/verify-email", async (req, res) => {
   const schema = z.object({ token: z.string() });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
   const token = parsed.data.token;
-  const record = await prisma.emailVerificationToken.findUnique({ where: { token } });
+  const record = await prisma.emailVerificationToken.findUnique({
+    where: { token },
+  });
   if (!record || record.usedAt || record.expiresAt < new Date()) {
     return res.status(400).json({ error: "Invalid or expired token" });
   }
@@ -1134,7 +1240,9 @@ router.post("/resend-verification", async (req, res) => {
   const user = await prisma.user.findUnique({ where: { email } });
 
   if (!user) {
-    logger.warn("Resend verification requested for non-existent email", { email });
+    logger.warn("Resend verification requested for non-existent email", {
+      email,
+    });
 
     return res.status(404).json({
       success: false,
@@ -1143,7 +1251,9 @@ router.post("/resend-verification", async (req, res) => {
   }
 
   if (user.emailVerified) {
-    logger.warn("Resend verification requested for already verified email", { email });
+    logger.warn("Resend verification requested for already verified email", {
+      email,
+    });
 
     return res.status(400).json({
       success: false,
@@ -1181,7 +1291,8 @@ router.post("/resend-verification", async (req, res) => {
 
   return res.status(200).json({
     success: true,
-    message: "Verification email has been sent successfully. Please check your inbox.",
+    message:
+      "Verification email has been sent successfully. Please check your inbox.",
   });
 });
 
@@ -1228,7 +1339,8 @@ function safeUser(user: {
     onboardingStep: user.onboardingStep ?? 1,
     calendarOnboardingCompleted: user.calendarOnboardingCompleted ?? false,
     visualOnboardingCompleted: user.visualOnboardingCompleted ?? false,
-    fullManagementOnboardingCompleted: user.fullManagementOnboardingCompleted ?? false,
+    fullManagementOnboardingCompleted:
+      user.fullManagementOnboardingCompleted ?? false,
     pendingPlanCode: user.pendingPlanCode ?? null,
     avatarStorageKey,
     avatarUrl,
@@ -1239,28 +1351,33 @@ function safeUser(user: {
 function setAuthCookie(res: express.Response, token: string) {
   const isSecure = env.COOKIE_SECURE === "true";
 
+  res.cookie("token", token, {
+    httpOnly: true,
+    secure: isSecure,
+    sameSite: isSecure ? "none" : "lax",
+    path: "/",
+    maxAge: 1000 * 60 * 60 * 24 * 7,
+  });
+
+  //TODO: Override for development to allow testing on localhost without secure cookies
   // res.cookie("token", token, {
   //   httpOnly: true,
-  //   secure: isSecure,
-  //   sameSite: isSecure ? "none" : "lax",
+  //   secure: false,
+  //   sameSite: "none",
   //   path: "/",
   //   maxAge: 1000 * 60 * 60 * 24 * 7,
   // });
-
-
-  //TODO: Override for development to allow testing on localhost without secure cookies
-  res.cookie("token", token, {
-  httpOnly: true,
-  secure: false,
-  sameSite: "none",
-  path: "/",
-  maxAge: 1000 * 60 * 60 * 24 * 7,
-});
 }
 
 function issueSession(
   res: express.Response,
-  user: { id: string; email: string; role: Role; isFounder: boolean; status: UserStatus }
+  user: {
+    id: string;
+    email: string;
+    role: Role;
+    isFounder: boolean;
+    status: UserStatus;
+  },
 ) {
   const token = signAccessToken({
     id: user.id,
@@ -1281,43 +1398,45 @@ async function ensureSeedAdmin() {
   const passwordHash = await hashPassword(env.ADMIN_PASSWORD);
   const routePermissions = expandPagePermissions(SEED_ADMIN_PAGE_PERMISSIONS);
 
-  seedAdminPromise = prisma.$transaction(async (tx) => {
-    const admin = await tx.user.upsert({
-      where: { email },
-      update: {
-        role: "SUPER_ADMIN",
-        passwordHash,
-        emailVerified: true,
-        emailVerifiedAt: new Date(),
-        onboardingCompleted: true,
-      },
-      create: {
-        email,
-        role: "SUPER_ADMIN",
-        passwordHash,
-        emailVerified: true,
-        emailVerifiedAt: new Date(),
-        onboardingCompleted: true,
-        isFounder: false,
-      },
-    });
-
-    await tx.adminRoutePermission.deleteMany({
-      where: { adminUserId: admin.id },
-    });
-
-    if (routePermissions.length) {
-      await tx.adminRoutePermission.createMany({
-        data: routePermissions.map((permission) => ({
-          adminUserId: admin.id,
-          method: permission.method,
-          pathPattern: permission.pathPattern,
-          active: true,
-          grantedByAdminId: admin.id,
-        })),
+  seedAdminPromise = prisma
+    .$transaction(async (tx) => {
+      const admin = await tx.user.upsert({
+        where: { email },
+        update: {
+          role: "SUPER_ADMIN",
+          passwordHash,
+          emailVerified: true,
+          emailVerifiedAt: new Date(),
+          onboardingCompleted: true,
+        },
+        create: {
+          email,
+          role: "SUPER_ADMIN",
+          passwordHash,
+          emailVerified: true,
+          emailVerifiedAt: new Date(),
+          onboardingCompleted: true,
+          isFounder: false,
+        },
       });
-    }
-  }).then(() => undefined);
+
+      await tx.adminRoutePermission.deleteMany({
+        where: { adminUserId: admin.id },
+      });
+
+      if (routePermissions.length) {
+        await tx.adminRoutePermission.createMany({
+          data: routePermissions.map((permission) => ({
+            adminUserId: admin.id,
+            method: permission.method,
+            pathPattern: permission.pathPattern,
+            active: true,
+            grantedByAdminId: admin.id,
+          })),
+        });
+      }
+    })
+    .then(() => undefined);
 
   return seedAdminPromise;
 }
@@ -1346,11 +1465,14 @@ router.get("/google/callback", async (req, res) => {
   }
 
   if (!env.GOOGLE_CLIENT_SECRET) {
-    logger.error("Google OAuth GET callback blocked: missing GOOGLE_CLIENT_SECRET", {
-      hasClientId: Boolean(env.GOOGLE_CLIENT_ID),
-      hasClientSecret: Boolean(env.GOOGLE_CLIENT_SECRET),
-      redirectUri: googleRedirectUri,
-    });
+    logger.error(
+      "Google OAuth GET callback blocked: missing GOOGLE_CLIENT_SECRET",
+      {
+        hasClientId: Boolean(env.GOOGLE_CLIENT_ID),
+        hasClientSecret: Boolean(env.GOOGLE_CLIENT_SECRET),
+        redirectUri: googleRedirectUri,
+      },
+    );
     return res.redirect(`${FRONTEND}/login?error=google_not_configured`);
   }
 
@@ -1370,10 +1492,11 @@ router.get("/google/callback", async (req, res) => {
       return res.redirect(`${FRONTEND}/login?error=no_email`);
     }
 
-    const pendingPlanCode =
-      typeof state === "string" ? state : undefined;
+    const pendingPlanCode = typeof state === "string" ? state : undefined;
 
-    let user = await prisma.user.findUnique({ where: { email: payload.email } });
+    let user = await prisma.user.findUnique({
+      where: { email: payload.email },
+    });
 
     if (!user) {
       user = await prisma.user.create({
@@ -1443,11 +1566,14 @@ router.post("/google/callback", async (req, res) => {
   }
 
   if (!env.GOOGLE_CLIENT_SECRET) {
-    logger.error("Google OAuth callback blocked: missing GOOGLE_CLIENT_SECRET", {
-      hasClientId: Boolean(env.GOOGLE_CLIENT_ID),
-      hasClientSecret: Boolean(env.GOOGLE_CLIENT_SECRET),
-      redirectUri: googleRedirectUri,
-    });
+    logger.error(
+      "Google OAuth callback blocked: missing GOOGLE_CLIENT_SECRET",
+      {
+        hasClientId: Boolean(env.GOOGLE_CLIENT_ID),
+        hasClientSecret: Boolean(env.GOOGLE_CLIENT_SECRET),
+        redirectUri: googleRedirectUri,
+      },
+    );
     return res.status(500).json({ error: "Google OAuth not configured" });
   }
 
@@ -1486,7 +1612,9 @@ router.post("/google/callback", async (req, res) => {
     }
 
     // Same logic as existing Google route
-    let user = await prisma.user.findUnique({ where: { email: payload.email } });
+    let user = await prisma.user.findUnique({
+      where: { email: payload.email },
+    });
 
     if (!user) {
       user = await prisma.user.create({
