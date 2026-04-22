@@ -434,7 +434,12 @@ router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
           expiresAt,
         },
       });
-      await sendVerificationEmail(email, verificationToken, invite.planCode);
+      await sendVerificationEmail(
+        email,
+        verificationToken,
+        invite.planCode,
+        existing.name ?? invite.fullName ?? undefined,
+      );
 
       return res.status(200).json({
         message: "Account already exists and is not verified. Verification email sent again.",
@@ -540,7 +545,12 @@ router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
     },
   });
 
-  await sendVerificationEmail(email, verificationToken, invite.planCode);
+  await sendVerificationEmail(
+    email,
+    verificationToken,
+    invite.planCode,
+    user.name ?? invite.fullName ?? undefined,
+  );
 
   return res.status(201).json({
     message: "Account created from enterprise invite. Check your email to verify.",
@@ -613,7 +623,12 @@ router.post("/signup", authLimiter, async (req, res) => {
   });
   await ensureUserProviderRoutingConfig(user.id);
 
-  await sendVerificationEmail(email, verificationToken, normalizedPendingPlanCode);
+  await sendVerificationEmail(
+    email,
+    verificationToken,
+    normalizedPendingPlanCode,
+    user.name ?? undefined,
+  );
 
   // Do not issue session until email verified.
   return res.status(201).json({
@@ -1146,7 +1161,8 @@ router.post("/resend-verification", async (req, res) => {
   const emailResult = await sendVerificationEmail(
     email,
     token,
-    user.pendingPlanCode || undefined
+    user.pendingPlanCode || undefined,
+    user.name ?? undefined,
   );
 
   if (!emailResult.sent) {

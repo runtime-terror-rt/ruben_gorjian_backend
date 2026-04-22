@@ -802,7 +802,7 @@ router.post("/users", async (req, res) => {
     await prisma.emailVerificationToken.create({
       data: { userId: user.id, token, expiresAt },
     });
-    await sendVerificationEmail(user.email, token, planCode);
+    await sendVerificationEmail(user.email, token, planCode, user.name ?? undefined);
   }
 
   await createAuditLog({
@@ -1553,7 +1553,7 @@ router.post("/users/:id/resend-verification", async (req, res) => {
     data: { userId: id, token, expiresAt },
   });
 
-  await sendVerificationEmail(user.email, token, user.pendingPlanCode ?? undefined);
+  await sendVerificationEmail(user.email, token, user.pendingPlanCode ?? undefined, user.name ?? undefined);
 
   await prisma.adminOperation.update({
     where: { key: idempotencyKey },
