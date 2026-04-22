@@ -53,7 +53,10 @@ type SchedulerLifecycleAction =
   | "failed"
   | "canceled";
 
-const SCHEDULER_ADMIN_EMAIL = (env.SCHEDULER_ADMIN_EMAIL || "Office@talexia.us").trim();
+const SCHEDULER_ADMIN_EMAIL = (
+  (env as typeof env & { SCHEDULER_ADMIN_EMAIL?: string }).SCHEDULER_ADMIN_EMAIL ||
+  "Office@talexia.us"
+).trim();
 
 type SchedulerNotificationPost = {
   id: string;
@@ -711,6 +714,7 @@ export class SchedulerService {
       return;
     }
 
+    const userEmail = post.user.email.trim().toLowerCase();
     const scheduleLabel = this.getScheduleLabel(post.scheduleType);
     const actionLabel = this.getActionLabel(action);
     const when = post.scheduledFor ? post.scheduledFor.toISOString() : "TBD";
@@ -755,7 +759,7 @@ export class SchedulerService {
     const adminEmails = await this.listAdminEmails();
     await Promise.all(
       adminEmails.map(async (email) => {
-        if (email.trim().toLowerCase() === post.user.email.trim().toLowerCase()) {
+        if (email.trim().toLowerCase() === userEmail) {
           return;
         }
         const payload = {
