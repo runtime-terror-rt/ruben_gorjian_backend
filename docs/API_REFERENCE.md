@@ -266,6 +266,11 @@ Request body:
 }
 ```
 
+Behavior:
+- Sends a password reset email when the account exists
+- Always returns a success-shaped response to avoid leaking whether the email is registered
+- In non-production, the response may also include the reset token for local testing
+
 ### POST `/auth/reset-password`
 
 Request body:
