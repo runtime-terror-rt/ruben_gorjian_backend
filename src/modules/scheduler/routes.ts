@@ -72,17 +72,7 @@ function resolveSessionErrorStatus(message: string) {
 
 router.use(requireAuth);
 
-function requireUserSchedulerCreate(req: express.Request, res: express.Response, next: express.NextFunction) {
-  if (!req.user) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-  if (req.user.role !== "USER") {
-    return res.status(403).json({ error: "Only user role can create schedules" });
-  }
-  return next();
-}
-
-router.post("/posts", requireUserSchedulerCreate, upload.array("files", 20), async (req, res) => {
+router.post("/posts", upload.array("files", 20), async (req, res) => {
   const rawData = req.body?.data;
   if (typeof rawData !== "string" || !rawData.trim()) {
     return res.status(400).json({
@@ -204,7 +194,7 @@ router.get("/posts/:id", async (req, res) => {
   }
 });
 
-router.patch("/posts/:id/publish-status", requireAdmin, async (req, res) => {
+router.patch("/posts/:id/publish-status", requireAuth, requireAdmin, async (req, res) => {
   const parsed = schedulerPublishStatusSchema.safeParse(req.body);
   if (!parsed.success) {
     return res
@@ -222,7 +212,7 @@ router.patch("/posts/:id/publish-status", requireAdmin, async (req, res) => {
   }
 });
 
-router.post("/sessions", requireUserSchedulerCreate, async (req, res) => {
+router.post("/sessions", async (req, res) => {
   const parsed = schedulerCreateSessionSchema.safeParse(req.body);
   if (!parsed.success) {
     return res
@@ -258,7 +248,7 @@ router.patch("/sessions/:id", async (req, res) => {
   }
 });
 
-router.patch("/sessions/:id/status", requireAdmin, async (req, res) => {
+router.patch("/sessions/:id/status", requireAuth, requireAdmin, async (req, res) => {
   const parsed = schedulerUpdateSessionStatusSchema.safeParse(req.body);
   if (!parsed.success) {
     return res
