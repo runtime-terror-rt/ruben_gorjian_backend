@@ -139,6 +139,56 @@
         "description": "Actionable alerts computed from quota, subscription, failures and account health"
       },
       "response": []
+    },
+    {
+      "name": "Dashboard - Subscription Progress",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/dashboard/overview/subscription-progress",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "dashboard",
+            "overview",
+            "subscription-progress"
+          ]
+        },
+        "description": "Shows current add-on state including purchased video hours and platform quantity."
+      },
+      "response": []
+    },
+    {
+      "name": "Scheduler - Book Video Session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"scheduleType\": \"VIDEO_SESSION\",\n  \"scheduledAt\": \"{{videoSessionScheduledAt}}\",\n  \"sessionTitle\": \"Video Session Booking\",\n  \"sessionNotes\": \"Booked from Postman after add-on purchase\",\n  \"sessionDurationMinutes\": {{sessionDurationMinutes}}\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/scheduler/sessions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "scheduler",
+            "sessions"
+          ]
+        },
+        "description": "Books a video session and should fail with payment-required until the add-on hours are purchased."
+      },
+      "response": []
     }
   ],
   "variable": [
@@ -150,6 +200,16 @@
     {
       "key": "authToken",
       "value": "your_user_token_here",
+      "type": "string"
+    },
+    {
+      "key": "videoSessionScheduledAt",
+      "value": "2026-04-24T10:00:00.000Z",
+      "type": "string"
+    },
+    {
+      "key": "sessionDurationMinutes",
+      "value": "60",
       "type": "string"
     }
   ]

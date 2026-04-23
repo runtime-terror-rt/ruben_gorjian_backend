@@ -104,6 +104,67 @@ export async function upsertPlanFromPrice(price: Stripe.Price | null | undefined
   return { planCode, priceType: isFounderPrice ? PriceType.FOUNDER : PriceType.STANDARD };
 }
 
+async function handleVideoSessionAddonCheckout(session: Stripe.Checkout.Session, stripeEventId: string) {
+  const metadata = session.metadata || {};
+  const userId = metadata.userId;
+  const subscriptionId = metadata.subscriptionId;
+  const videoSessionHours = Math.max(0, parseInt(metadata.videoSessionHours || "0"));
+
+  if (!userId || !subscriptionId || videoSessionHours <= 0) {
+    logger.warn("Video session add-on checkout completed with missing metadata", {
+      stripeEventId,
+      metadata,
+    });
+    return;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const alreadyProcessed = await tx.processedWebhookEvent.findUnique({
+      where: { eventId: stripeEventId },
+    });
+    if (alreadyProcessed) {
+      logger.info("Skipping already-processed add-on webhook event", { stripeEventId });
+      return;
+    }
+
+    const subscription = await tx.subscription.findUnique({
+      where: { id: subscriptionId },
+      select: {
+        id: true,
+        userId: true,
+        videoAddonEnabled: true,
+        videoSessionHours: true,
+      },
+    });
+
+    if (!subscription || subscription.userId !== userId) {
+      throw new Error("Video session add-on subscription not found");
+    }
+
+    await tx.subscription.update({
+      where: { id: subscription.id },
+      data: {
+        videoAddonEnabled: true,
+        videoSessionHours: {
+          increment: videoSessionHours,
+        },
+        updatedAt: new Date(),
+      },
+    });
+
+    await tx.processedWebhookEvent.create({
+      data: { eventId: stripeEventId, type: "checkout.session.completed.video_session_addon" },
+    });
+  });
+
+  logger.info("Video session add-on credited", {
+    stripeEventId,
+    userId,
+    subscriptionId,
+    videoSessionHours,
+  });
+}
+
 export async function billingWebhook(req: Request, res: Response) {
   if (!stripeClient || !env.STRIPE_WEBHOOK_SECRET) {
     // Stripe not configured; ignore webhook gracefully
@@ -187,6 +248,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
     ? new Date(metadata.termsAcceptedAt)
     : new Date();
   const isEnterpriseCheckout = Boolean(metadata.enterpriseProposalId);
+
+  if (metadata.type === "video_session_addon") {
+    await handleVideoSessionAddonCheckout(session, stripeEventId);
+    return;
+  }
 
   if (metadata.type === "visual_topup") {
     await handleVisualTopupCheckout(session, stripeEventId);
@@ -554,12 +620,26 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   const newPlanCode = planInfo?.planCode || local.planCode;
   const newPriceType = planInfo?.priceType || local.priceType;
   const isPlanChange = local.planCode !== newPlanCode;
-  const addonPlatformQty = parseInt(subscription.metadata?.addonPlatformQty || "0");
-  const videoAddonEnabled = (subscription.metadata?.videoAddonEnabled || "").toLowerCase() === "true";
-  const videoSessionHours = parseInt(subscription.metadata?.videoSessionHours || "0");
-  const billingCycle = (subscription.metadata?.billingCycle || "monthly").toLowerCase() === "yearly"
-    ? BillingCycle.YEARLY
-    : BillingCycle.MONTHLY;
+  const metadata = subscription.metadata ?? {};
+  const hasAddonPlatformQty = Object.prototype.hasOwnProperty.call(metadata, "addonPlatformQty");
+  const hasVideoAddonEnabled = Object.prototype.hasOwnProperty.call(metadata, "videoAddonEnabled");
+  const hasVideoSessionHours = Object.prototype.hasOwnProperty.call(metadata, "videoSessionHours");
+  const hasBillingCycle = Object.prototype.hasOwnProperty.call(metadata, "billingCycle");
+
+  const addonPlatformQty = hasAddonPlatformQty
+    ? parseInt(metadata.addonPlatformQty || "0")
+    : local.addonPlatformQty;
+  const videoAddonEnabled = hasVideoAddonEnabled
+    ? (metadata.videoAddonEnabled || "").toLowerCase() === "true"
+    : local.videoAddonEnabled;
+  const videoSessionHours = hasVideoSessionHours
+    ? parseInt(metadata.videoSessionHours || "0")
+    : local.videoSessionHours;
+  const billingCycle = hasBillingCycle
+    ? (metadata.billingCycle || "monthly").toLowerCase() === "yearly"
+      ? BillingCycle.YEARLY
+      : BillingCycle.MONTHLY
+    : local.billingCycle;
 
   // Get old plan code before update for logging
   const oldPlanCode = local.planCode;

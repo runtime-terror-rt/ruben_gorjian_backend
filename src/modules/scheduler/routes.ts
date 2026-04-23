@@ -62,8 +62,18 @@ function resolveSessionErrorStatus(message: string) {
     lowered.includes("active subscription is required") ||
     lowered.includes("reached your") ||
     lowered.includes("no remaining") ||
+    lowered.includes("purchase more before booking") ||
+    lowered.includes("video session add-on is not enabled") ||
+    lowered.includes("insufficient video session hours") ||
     lowered.includes("only admin")
   ) {
+    if (
+      lowered.includes("purchase more before booking") ||
+      lowered.includes("insufficient video session hours") ||
+      lowered.includes("video session add-on is not enabled")
+    ) {
+      return 402;
+    }
     return 403;
   }
   if (lowered.includes("not found")) return 404;
