@@ -2,7 +2,7 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import Stripe from "stripe";
-import { Role, UserStatus } from "@prisma/client";
+import { EnterpriseInviteStatus, Role, UserStatus } from "@prisma/client";
 import { OAuth2Client } from "google-auth-library";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
@@ -101,6 +101,8 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
   SUBSCRIPTION_MANAGE: [
     { method: "GET", pathPattern: "/api/admin/subscriptions" },
     { method: "GET", pathPattern: "/admin/subscriptions" },
+    { method: "ALL", pathPattern: "/api/admin/enterprise-plan*" },
+    { method: "ALL", pathPattern: "/admin/enterprise-plan*" },
     { method: "POST", pathPattern: "/api/admin/users/:id/cancel-subscription-schedule" },
     { method: "POST", pathPattern: "/api/admin/users/:id/cancel-subscription-immediately" },
     { method: "POST", pathPattern: "/api/admin/users/:id/resume-subscription" },
@@ -275,6 +277,169 @@ const credentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   pendingPlanCode: z.string().optional(), // Optional plan code selected before signup
+});
+
+const enterpriseInviteSignupSchema = z.object({
+  token: z.string().min(1),
+  password: z.string().min(8),
+  name: z.string().trim().min(1).max(120).optional(),
+});
+
+async function resolveEnterpriseInvite(token: string) {
+  const invite = await prisma.enterprisePlanInvite.findUnique({
+    where: { inviteToken: token },
+  });
+
+  if (!invite) {
+    return { error: "Invalid invite token" as const, invite: null };
+  }
+
+  if (invite.status === EnterpriseInviteStatus.CANCELED) {
+    return { error: "Invite is canceled" as const, invite: null };
+  }
+
+  if (invite.status === EnterpriseInviteStatus.SIGNED_UP) {
+    return { error: "Invite already used" as const, invite: null };
+  }
+
+  if (invite.expiresAt.getTime() < Date.now()) {
+    if (invite.status !== EnterpriseInviteStatus.EXPIRED) {
+      await prisma.enterprisePlanInvite.update({
+        where: { id: invite.id },
+        data: { status: EnterpriseInviteStatus.EXPIRED },
+      });
+    }
+    return { error: "Invite expired" as const, invite: null };
+  }
+
+  return { invite, error: null };
+}
+
+router.get("/enterprise-invite/validate", async (req, res) => {
+  const schema = z.object({ token: z.string().min(1) });
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() });
+  }
+
+  const token = parsed.data.token;
+  const resolved = await resolveEnterpriseInvite(token);
+  if (!resolved.invite || resolved.error) {
+    return res.status(400).json({ valid: false, error: resolved.error || "Invalid invite" });
+  }
+
+  const invite = resolved.invite;
+  if (invite.status === EnterpriseInviteStatus.PENDING) {
+    await prisma.enterprisePlanInvite.update({
+      where: { id: invite.id },
+      data: {
+        status: EnterpriseInviteStatus.VIEWED,
+        viewedAt: new Date(),
+      },
+    });
+  }
+
+  const existingUser = await prisma.user.findUnique({
+    where: { email: invite.email.toLowerCase() },
+    select: { id: true, emailVerified: true },
+  });
+
+  return res.json({
+    valid: true,
+    invite: {
+      email: invite.email,
+      fullName: invite.fullName,
+      companyName: invite.companyName,
+      planCode: invite.planCode,
+      socialPlatforms: invite.socialPlatforms,
+      reelsPerMonth: invite.reelsPerMonth,
+      microReelsPerMonth: invite.microReelsPerMonth,
+      proPhotoShootFrequency: invite.proPhotoShootFrequency,
+      proPhotoShootLength: invite.proPhotoShootLength,
+      captionHashtags: invite.captionHashtags,
+      scheduling: invite.scheduling,
+      expiresAt: invite.expiresAt,
+      userExists: Boolean(existingUser),
+      userEmailVerified: existingUser?.emailVerified ?? null,
+    },
+  });
+});
+
+router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
+  const parsed = enterpriseInviteSignupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const { token, password, name } = parsed.data;
+  const resolved = await resolveEnterpriseInvite(token);
+  if (!resolved.invite || resolved.error) {
+    return res.status(400).json({ error: resolved.error || "Invalid invite" });
+  }
+
+  const invite = resolved.invite;
+  const email = invite.email.toLowerCase();
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        pendingPlanCode: invite.planCode,
+        pendingPlanCodeSetAt: new Date(),
+      },
+    });
+
+    return res.status(409).json({
+      error: "Email already registered. Please login to continue.",
+      code: "USER_EXISTS",
+      email,
+      planCode: invite.planCode,
+    });
+  }
+
+  await ensurePlanAvailable(invite.planCode);
+
+  const passwordHash = await hashPassword(password);
+  const verificationToken = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_EXPIRY_MS);
+
+  const user = await prisma.user.create({
+    data: {
+      name: name ?? invite.fullName ?? null,
+      email,
+      passwordHash,
+      role: "USER",
+      emailVerified: false,
+      pendingPlanCode: invite.planCode,
+      pendingPlanCodeSetAt: new Date(),
+      emailVerifications: {
+        create: {
+          token: verificationToken,
+          expiresAt,
+        },
+      },
+    },
+  });
+  await ensureUserProviderRoutingConfig(user.id);
+
+  await prisma.enterprisePlanInvite.update({
+    where: { id: invite.id },
+    data: {
+      status: EnterpriseInviteStatus.SIGNED_UP,
+      signedUpAt: new Date(),
+      createdUserId: user.id,
+    },
+  });
+
+  await sendVerificationEmail(email, verificationToken, invite.planCode);
+
+  return res.status(201).json({
+    message: "Account created from enterprise invite. Check your email to verify.",
+    requiresVerification: true,
+    email,
+    planCode: invite.planCode,
+  });
 });
 
 router.post("/signup", authLimiter, async (req, res) => {
