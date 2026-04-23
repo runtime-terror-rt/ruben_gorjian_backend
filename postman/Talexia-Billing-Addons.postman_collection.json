@@ -1,0 +1,125 @@
+{
+  "info": {
+    "_postman_id": "talexia-billing-addons-2026",
+    "name": "Talexia Billing Add-ons",
+    "description": "Standalone collection for billing add-on APIs: pricing, video-session checkout, and platform quantity upgrade.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{authToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Get Add-on Pricing",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/billing/addons/pricing",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "billing",
+            "addons",
+            "pricing"
+          ]
+        },
+        "description": "Returns add-on pricing and active subscription add-on state."
+      },
+      "response": []
+    },
+    {
+      "name": "Buy Video Session Hours",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"videoSessionHours\": {{videoSessionHours}}\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/billing/addons/video-session/checkout",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "billing",
+            "addons",
+            "video-session",
+            "checkout"
+          ]
+        },
+        "description": "Creates one-time Stripe checkout for video session hours at $495/hr."
+      },
+      "response": []
+    },
+    {
+      "name": "Add Platform Quantity",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"addonPlatformQty\": {{platformAddonQty}}\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/billing/addons/platforms/checkout",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "billing",
+            "addons",
+            "platforms",
+            "checkout"
+          ]
+        },
+        "description": "Upgrades active subscription by increasing recurring platform add-on quantity."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "videoSessionHours",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "platformAddonQty",
+      "value": "1",
+      "type": "string"
+    }
+  ]
+}

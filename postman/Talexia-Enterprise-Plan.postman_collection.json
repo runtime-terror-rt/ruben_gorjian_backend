@@ -357,6 +357,89 @@
             "description": "Starts Stripe checkout using the quoted enterprise price stored in the database."
           },
           "response": []
+        },
+        {
+          "name": "Get Add-on Pricing",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/addons/pricing",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "addons",
+                "pricing"
+              ]
+            },
+            "description": "Returns the current video-session and platform add-on pricing plus the active subscription snapshot."
+          },
+          "response": []
+        },
+        {
+          "name": "Buy Video Session Hours",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"videoSessionHours\": {{videoSessionHours}}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/addons/video-session/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "addons",
+                "video-session",
+                "checkout"
+              ]
+            },
+            "description": "Starts a one-time Stripe checkout for prepaid video session hours at $495/hr."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Platform Quantity",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"addonPlatformQty\": {{platformAddonQty}}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/addons/platforms/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "addons",
+                "platforms",
+                "checkout"
+              ]
+            },
+            "description": "Updates the active subscription with extra platform quantity at the configured recurring add-on price."
+          },
+          "response": []
         }
       ]
     }
@@ -401,6 +484,14 @@
     {
       "key": "enterprisePlanCode",
       "value": "FM_25"
+    },
+    {
+      "key": "videoSessionHours",
+      "value": "1"
+    },
+    {
+      "key": "platformAddonQty",
+      "value": "1"
     }
   ]
 }

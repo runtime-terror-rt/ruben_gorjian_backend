@@ -27,6 +27,32 @@ const NY_SALES_TAX_BPS = 862.5;
 const YEARLY_MULTIPLIER = 12 * 0.8;
 const ALLOWED_FULL_MANAGEMENT_PLAN_CODES = new Set(["FMP-20", "FMP-35", "FM-70"]);
 
+async function ensureStripeCustomerForUser(userId: string, currentCustomerId?: string | null) {
+  if (currentCustomerId) {
+    return currentCustomerId;
+  }
+
+  if (!stripeClient) {
+    throw new Error("Stripe not configured");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+
+  if (!user?.email) {
+    throw new Error("Unable to create a Stripe customer for this user");
+  }
+
+  const customer = await stripeClient.customers.create({
+    email: user.email,
+    metadata: { userId },
+  });
+
+  return customer.id;
+}
+
 type ApplicableCoupon = {
   id: string;
   code: string;
@@ -1122,6 +1148,235 @@ router.post("/checkout", requireAuth, async (req, res) => {
       estimatedTotalCents,
       addonPlatformQty,
       videoSessionHours,
+    },
+  });
+});
+
+router.get("/addons/pricing", requireAuth, async (req, res) => {
+  const activeSubscription = await getActiveSubscription(req.user!.id);
+
+  return res.json({
+    videoSession: {
+      unitAmountCents: VIDEO_SESSION_HOURLY_RATE_CENTS,
+      currency: "usd",
+      label: "$495/hr",
+    },
+    platformAddon: {
+      monthlyUnitAmountCents: PLATFORM_ADDON_MONTHLY_CENTS,
+      yearlyUnitAmountCents: PLATFORM_ADDON_MONTHLY_CENTS * 12,
+      monthlyLabel: "$5/month",
+      yearlyLabel: "$60/year",
+    },
+    activeSubscription: activeSubscription
+      ? {
+        id: activeSubscription.id,
+        planCode: activeSubscription.planCode,
+        billingCycle: activeSubscription.billingCycle,
+        status: activeSubscription.status,
+        addonPlatformQty: activeSubscription.addonPlatformQty ?? 0,
+        videoAddonEnabled: activeSubscription.videoAddonEnabled ?? false,
+        videoSessionHours: activeSubscription.videoSessionHours ?? 0,
+      }
+      : null,
+  });
+});
+
+router.post("/addons/video-session/checkout", requireAuth, async (req, res) => {
+  const schema = z.object({
+    videoSessionHours: z.coerce.number().int().min(1).max(40),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const hours = parsed.data.videoSessionHours;
+  const activeSubscription = await getActiveSubscription(req.user!.id);
+
+  if (!activeSubscription) {
+    return res.status(404).json({ error: "Active subscription not found" });
+  }
+
+  if (!stripeClient) {
+    return res.status(503).json({ error: "Stripe not configured" });
+  }
+
+  const nyTaxRateId = env.STRIPE_NY_SALES_TAX_RATE_ID;
+  if (!nyTaxRateId) {
+    return res.status(503).json({
+      error: "NY sales tax rate is not configured",
+      requiredEnv: "STRIPE_NY_SALES_TAX_RATE_ID",
+    });
+  }
+
+  const customerId = await ensureStripeCustomerForUser(req.user!.id, activeSubscription.stripeCustomerId);
+  const subtotalCents = VIDEO_SESSION_HOURLY_RATE_CENTS * hours;
+  const estimatedTaxCents = Math.round((subtotalCents * NY_SALES_TAX_BPS) / 10_000);
+  const estimatedTotalCents = subtotalCents + estimatedTaxCents;
+
+  const metadata = {
+    type: "video_session_addon",
+    userId: req.user!.id,
+    subscriptionId: activeSubscription.id,
+    planCode: activeSubscription.planCode,
+    videoSessionHours: String(hours),
+    unitAmountCents: String(VIDEO_SESSION_HOURLY_RATE_CENTS),
+  };
+
+  const session = await stripeClient.checkout.sessions.create({
+    mode: "payment",
+    line_items: [
+      {
+        price_data: {
+          currency: "usd",
+          unit_amount: VIDEO_SESSION_HOURLY_RATE_CENTS,
+          product_data: {
+            name: "Video Session Add-on",
+            description: "$495 per hour",
+          },
+        },
+        quantity: hours,
+        tax_rates: [nyTaxRateId],
+      },
+    ],
+    customer: customerId,
+    customer_update: { address: "auto", name: "auto" },
+    billing_address_collection: "required",
+    success_url: `${env.FRONTEND_URL}/billing/success?type=video-session-addon`,
+    cancel_url: `${env.FRONTEND_URL}/billing/cancel?type=video-session-addon`,
+    metadata,
+    payment_intent_data: {
+      metadata,
+    },
+  });
+
+  return res.status(201).json({
+    checkoutUrl: session.url,
+    addon: {
+      type: "VIDEO_SESSION",
+      videoSessionHours: hours,
+      unitAmountCents: VIDEO_SESSION_HOURLY_RATE_CENTS,
+      subtotalCents,
+      estimatedTaxCents,
+      estimatedTotalCents,
+    },
+  });
+});
+
+router.post("/addons/platforms/checkout", requireAuth, async (req, res) => {
+  const schema = z.object({
+    addonPlatformQty: z.coerce.number().int().min(1).max(10),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const requestedQty = parsed.data.addonPlatformQty;
+  const activeSubscription = await getActiveSubscription(req.user!.id);
+
+  if (!activeSubscription) {
+    return res.status(404).json({ error: "Active subscription not found" });
+  }
+
+  if (!activeSubscription.stripeSubscriptionId) {
+    return res.status(400).json({ error: "Active Stripe subscription not found" });
+  }
+
+  if (activeSubscription.plan.platformLimit === null || activeSubscription.plan.platformLimit === undefined) {
+    return res.status(400).json({ error: "Current plan does not support platform add-ons" });
+  }
+
+  if (!stripeClient) {
+    return res.status(503).json({ error: "Stripe not configured" });
+  }
+
+  const billingCycle = activeSubscription.billingCycle;
+  const addonPriceId =
+    billingCycle === BillingCycle.YEARLY
+      ? env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID
+      : env.STRIPE_PLATFORM_ADDON_PRICE_ID;
+
+  if (!addonPriceId) {
+    return res.status(503).json({
+      error: "Platform add-on price is not configured",
+      requiredEnv:
+        billingCycle === BillingCycle.YEARLY
+          ? "STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID"
+          : "STRIPE_PLATFORM_ADDON_PRICE_ID",
+    });
+  }
+
+  const stripeSubscription = await stripeClient.subscriptions.retrieve(activeSubscription.stripeSubscriptionId, {
+    expand: ["items.data.price"],
+  });
+
+  const baseItem = stripeSubscription.items.data[0];
+  if (!baseItem) {
+    return res.status(400).json({ error: "Unable to resolve the base subscription item" });
+  }
+
+  const existingAddonItem = stripeSubscription.items.data.find((item) => item.price.id === addonPriceId);
+  const currentAddonQty = activeSubscription.addonPlatformQty ?? 0;
+  const nextAddonQty = currentAddonQty + requestedQty;
+
+  const items: Stripe.SubscriptionUpdateParams.Item[] = [{ id: baseItem.id }];
+  if (existingAddonItem) {
+    items.push({ id: existingAddonItem.id, quantity: nextAddonQty });
+  } else {
+    items.push({ price: addonPriceId, quantity: nextAddonQty });
+  }
+
+  const updatedStripeSubscription = await stripeClient.subscriptions.update(activeSubscription.stripeSubscriptionId, {
+    items,
+    proration_behavior: "always_invoice",
+    payment_behavior: "error_if_incomplete",
+    metadata: {
+      ...(stripeSubscription.metadata ?? {}),
+      userId: req.user!.id,
+      planCode: activeSubscription.planCode,
+      billingCycle: activeSubscription.billingCycle === BillingCycle.YEARLY ? "yearly" : "monthly",
+      addonPlatformQty: String(nextAddonQty),
+      videoAddonEnabled: String(activeSubscription.videoAddonEnabled ?? false),
+      videoSessionHours: String(activeSubscription.videoSessionHours ?? 0),
+    },
+  });
+
+  const updatedSubscription = await prisma.subscription.update({
+    where: { id: activeSubscription.id },
+    data: {
+      addonPlatformQty: nextAddonQty,
+      updatedAt: new Date(),
+    },
+  });
+
+  return res.json({
+    success: true,
+    subscription: {
+      id: updatedSubscription.id,
+      planCode: updatedSubscription.planCode,
+      addonPlatformQty: updatedSubscription.addonPlatformQty,
+      billingCycle: updatedSubscription.billingCycle,
+      status: updatedSubscription.status,
+    },
+    stripe: {
+      id: updatedStripeSubscription.id,
+      status: updatedStripeSubscription.status,
+    },
+    addon: {
+      type: "PLATFORM",
+      requestedQty,
+      currentQty: currentAddonQty,
+      nextQty: nextAddonQty,
+      unitAmountCents: billingCycle === BillingCycle.YEARLY
+        ? PLATFORM_ADDON_MONTHLY_CENTS * 12
+        : PLATFORM_ADDON_MONTHLY_CENTS,
+      estimatedSubtotalCents:
+        (billingCycle === BillingCycle.YEARLY
+          ? PLATFORM_ADDON_MONTHLY_CENTS * 12
+          : PLATFORM_ADDON_MONTHLY_CENTS) * requestedQty,
     },
   });
 });
