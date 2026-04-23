@@ -35,6 +35,7 @@ import { virtualAdminRouter } from "./modules/admin/virtual-admin-routes";
 import { adminOverviewRouter } from "./modules/admin/overview/routes";
 import { faqRouter } from "./modules/faq/routes";
 import { caseStudiesRouter } from "./modules/case-studies/routes";
+import { enterprisePlanPublicRouter } from "./modules/enterprise-plan/public-routes";
 
 export const app = express();
 
@@ -96,6 +97,9 @@ app.get("/health", (_req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+app.use("/", enterprisePlanPublicRouter);
+app.use("/api", enterprisePlanPublicRouter);
 
 app.use("/auth", authRouter);
 app.use("/api/auth", authRouter);
