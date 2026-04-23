@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import { env } from "../../config/env";
 import { logger } from "../../lib/logger";
+import { buildTalexiaEmailHeader, getTalexiaLogoAttachment } from "../../lib/email-branding";
 
 type SchedulerEmailPayload = {
   to: string;
@@ -34,12 +35,7 @@ function buildSchedulerEmailHtml(payload: SchedulerEmailPayload) {
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-        <tr>
-          <td style="background:#0f172a;padding:28px 36px;text-align:center;">
-            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.4px;">Talexia</h1>
-            <p style="margin:8px 0 0;color:#94a3b8;font-size:13px;">Scheduler Notification</p>
-          </td>
-        </tr>
+${buildTalexiaEmailHeader("Scheduler Notification", "Automated updates from Talexia")}
         <tr>
           <td style="padding:28px 36px 24px;">
             <h2 style="margin:0 0 16px;color:#0f172a;font-size:20px;font-weight:700;">${escapeHtml(payload.subject)}</h2>
@@ -81,6 +77,7 @@ export async function sendSchedulerEmail(payload: SchedulerEmailPayload) {
   if (!transporter || !env.CONTACT_FROM_EMAIL) {
     return { sent: false, reason: "Email not configured" };
   }
+  const logoAttachment = getTalexiaLogoAttachment();
 
   try {
     const html = buildSchedulerEmailHtml(payload);
@@ -91,6 +88,7 @@ export async function sendSchedulerEmail(payload: SchedulerEmailPayload) {
       subject: payload.subject,
       text: payload.body,
       html,
+      ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
     });
     return { sent: true };
   } catch (error) {

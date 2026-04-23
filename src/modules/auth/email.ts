@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { env } from "../../config/env";
+import { buildTalexiaEmailHeader, getTalexiaLogoAttachment } from "../../lib/email-branding";
 
 function verificationBaseUrl() {
   return env.FRONTEND_URL ?? "http://localhost:3000";
@@ -46,6 +47,7 @@ export async function sendVerificationEmail(
     secure: SMTP_PORT === 465,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
   });
+  const logoAttachment = getTalexiaLogoAttachment();
 
   const verificationUrl = `${verificationBaseUrl().replace(/\/$/, "")}/verify?token=${encodeURIComponent(
     token
@@ -59,12 +61,7 @@ export async function sendVerificationEmail(
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-        <tr>
-          <td style="background:#0f172a;padding:32px 40px;text-align:center;">
-            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">Talexia</h1>
-            <p style="margin:8px 0 0;color:#94a3b8;font-size:14px;">Email Verification</p>
-          </td>
-        </tr>
+${buildTalexiaEmailHeader("Email Verification")}
         <tr>
           <td style="padding:40px 40px 32px;">
             <p style="margin:0 0 20px;color:#1e293b;font-size:16px;">Hi ${greetingName},</p>
@@ -104,6 +101,7 @@ export async function sendVerificationEmail(
     subject: "Verify your Talexia account",
     text: `Confirm your email to finish setting up your Talexia account.\n\nVerify: ${verificationUrl}\n\nIf you didn't request this, you can ignore it.`,
     html,
+    ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
     ...(CONTACT_TO_EMAIL ? { bcc: CONTACT_TO_EMAIL } : {}),
   });
 
@@ -127,6 +125,7 @@ export async function sendPasswordResetEmail(
     secure: SMTP_PORT === 465,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
   });
+  const logoAttachment = getTalexiaLogoAttachment();
 
   const resetUrl = `${passwordResetBaseUrl().replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(
     token,
@@ -140,12 +139,7 @@ export async function sendPasswordResetEmail(
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-        <tr>
-          <td style="background:#0f172a;padding:32px 40px;text-align:center;">
-            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">Talexia</h1>
-            <p style="margin:8px 0 0;color:#94a3b8;font-size:14px;">Password Reset</p>
-          </td>
-        </tr>
+${buildTalexiaEmailHeader("Password Reset", "Reset your password with a secure link")}
         <tr>
           <td style="padding:40px 40px 32px;">
             <p style="margin:0 0 20px;color:#1e293b;font-size:16px;">Hi ${greetingName},</p>
@@ -186,6 +180,7 @@ export async function sendPasswordResetEmail(
     subject: "Reset your Talexia password",
     text: `We received a request to reset your Talexia password.\n\nReset password: ${resetUrl}\n\nIf you did not request this, you can ignore this email.`,
     html,
+    ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
     ...(CONTACT_TO_EMAIL ? { bcc: CONTACT_TO_EMAIL } : {}),
   });
 
@@ -214,6 +209,7 @@ export async function sendEnterprisePlanInviteEmail(params: {
     secure: SMTP_PORT === 465,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
   });
+  const logoAttachment = getTalexiaLogoAttachment();
 
   const inviteUrl = `${verificationBaseUrl().replace(/\/$/, "")}/enterprise-plan/accept?token=${encodeURIComponent(
     params.token
@@ -231,12 +227,7 @@ export async function sendEnterprisePlanInviteEmail(params: {
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-        <tr>
-          <td style="background:#0f172a;padding:32px 40px;text-align:center;">
-            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">Talexia</h1>
-            <p style="margin:8px 0 0;color:#94a3b8;font-size:14px;">Enterprise Plan Invitation</p>
-          </td>
-        </tr>
+${buildTalexiaEmailHeader("Enterprise Plan Invitation", "A custom enterprise plan invitation is ready")}
         <tr>
           <td style="padding:40px 40px 32px;">
             <p style="margin:0 0 20px;color:#1e293b;font-size:16px;">Hi ${recipientName},</p>
@@ -273,6 +264,7 @@ export async function sendEnterprisePlanInviteEmail(params: {
     subject: "Your Talexia Enterprise Plan Is Ready",
     text: `You have been invited to activate a custom Talexia Enterprise plan (${params.planCode}).\n\nOpen: ${inviteUrl}`,
     html,
+    ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
     ...(CONTACT_TO_EMAIL ? { bcc: CONTACT_TO_EMAIL } : {}),
   });
 
@@ -309,6 +301,7 @@ export async function sendInvoiceEmail(
     secure: SMTP_PORT === 465,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
   });
+  const logoAttachment = getTalexiaLogoAttachment();
 
   const greeting = `Hi ${resolveRecipientName(extra?.userName, email)},`;
   const invoiceDate = extra?.date ?? new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
@@ -328,13 +321,7 @@ export async function sendInvoiceEmail(
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-        <!-- Header -->
-        <tr>
-          <td style="background:#0f172a;padding:32px 40px;text-align:center;">
-            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">Talexia</h1>
-            <p style="margin:8px 0 0;color:#94a3b8;font-size:14px;">Payment Confirmed</p>
-          </td>
-        </tr>
+${buildTalexiaEmailHeader("Payment Confirmed", "Your payment was processed successfully")}
         <!-- Body -->
         <tr>
           <td style="padding:40px 40px 32px;">
@@ -427,6 +414,7 @@ export async function sendInvoiceEmail(
     subject: `Talexia Invoice ${invoiceNumber} – Payment Confirmed`,
     text: textLines.join("\n"),
     html,
+    ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
   });
 
   return { sent: true };
