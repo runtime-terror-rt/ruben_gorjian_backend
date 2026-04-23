@@ -34,6 +34,7 @@ import { isAdmin, normalizeDateRange } from "./functions";
 import { logActivity } from "../dashboard/activity-logger";
 
 const SCHEDULER_UPLOAD_CONTEXT = "SCHEDULER_POST";
+const SCHEDULE_MIN_BREAK_MINUTES = 90;
 
 type SchedulerTargetAccount = {
   id: string | null;
@@ -402,11 +403,12 @@ export class SchedulerService {
   private async assertScheduleDayAvailability(scheduledAt: Date, excludePostId?: string) {
     const { start, end } = this.getUtcDayRange(scheduledAt);
 
-    const existingCount = await prisma.post.count({
+    const existingSchedules = await prisma.post.findMany({
       where: {
         scheduledFor: {
           gte: start,
           lt: end,
+          not: null,
         },
         ...(excludePostId ? { id: { not: excludePostId } } : {}),
         OR: [
@@ -420,10 +422,41 @@ export class SchedulerService {
           },
         ],
       },
+      select: {
+        id: true,
+        scheduledFor: true,
+      },
     });
 
-    if (existingCount > 0) {
-      throw new Error("This date is already booked. Only one schedule is allowed per day");
+    let closestConflictMinutes: number | null = null;
+    let closestConflictAt: Date | null = null;
+
+    for (const schedule of existingSchedules) {
+      if (!schedule.scheduledFor) {
+        continue;
+      }
+
+      const minutesDiff = Math.abs(
+        (scheduledAt.getTime() - schedule.scheduledFor.getTime()) / (1000 * 60)
+      );
+
+      if (minutesDiff < SCHEDULE_MIN_BREAK_MINUTES) {
+        if (closestConflictMinutes === null || minutesDiff < closestConflictMinutes) {
+          closestConflictMinutes = minutesDiff;
+          closestConflictAt = schedule.scheduledFor;
+        }
+      }
+    }
+
+    if (closestConflictMinutes !== null) {
+      const remainingMinutes = Math.max(
+        1,
+        Math.ceil(SCHEDULE_MIN_BREAK_MINUTES - closestConflictMinutes)
+      );
+      const bookedAt = closestConflictAt ? closestConflictAt.toISOString() : "this time";
+      throw new Error(
+        `Schedule booked at ${bookedAt}. Please schedule after ${remainingMinutes} min. Minimum break is ${SCHEDULE_MIN_BREAK_MINUTES} min.`
+      );
     }
   }
 
@@ -954,10 +987,6 @@ export class SchedulerService {
   }
 
   async createScheduledPost(actor: Actor, input: SchedulerCreateInput) {
-  if (actor.role !== "USER") {
-    throw new Error("Only user role can create schedules");
-  }
-
   const userId = await this.resolveTargetUser(actor, input.userId);
 
     if (input.scheduledAt <= new Date()) {
@@ -1235,10 +1264,6 @@ export class SchedulerService {
   actor: Actor,
   input: SchedulerCreateSessionInput
 ) {
-  if (actor.role !== "USER") {
-    throw new Error("Only user role can create schedules");
-  }
-
   const userId = await this.resolveTargetUser(actor, input.userId);
     if (input.scheduledAt <= new Date()) {
       throw new Error("Scheduled time must be in the future");
