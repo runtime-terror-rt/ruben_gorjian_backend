@@ -108,7 +108,10 @@ router.get("/admin/submissions", requireAuth, requireAdmin, async (req, res, nex
     const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 20));
     const status = req.query.status as string | undefined;
 
-    const where = status ? { status } : {};
+    const where = {
+      source: "landing",
+      ...(status ? { status } : {}),
+    };
 
     const total = await prisma.contactSubmission.count({ where });
     const submissions = await prisma.contactSubmission.findMany({

@@ -399,7 +399,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
     termsAccepted: z.literal(true, { message: "Terms & Conditions must be accepted" }),
     addonPlatformQty: z.coerce.number().int().min(0).max(10).optional().default(0),
     videoSessionHours: z.coerce.number().int().min(0).max(40).optional().default(0),
-    couponCode: z.string().trim().min(3).max(64).optional(),
+    couponCode: z.union([z.string().trim().min(3).max(64), z.literal("")]).optional(),
     // Backward compatibility for older frontend payload.
     videoAddonEnabled: z.boolean().optional().default(false),
   });
@@ -410,6 +410,9 @@ router.post("/checkout", requireAuth, async (req, res) => {
   }
 
   const { planCode, billingCycle, addonPlatformQty } = parsed.data;
+  const couponCode = parsed.data.couponCode && parsed.data.couponCode.trim().length > 0
+    ? parsed.data.couponCode.trim()
+    : undefined;
   const videoSessionHours = parsed.data.videoSessionHours > 0
     ? parsed.data.videoSessionHours
     : parsed.data.videoAddonEnabled
@@ -526,7 +529,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
     const priceType = eligibleForFounder ? PriceType.FOUNDER : PriceType.STANDARD;
 
     const couponResult = await resolveApplicableCoupon({
-      couponCode: parsed.data.couponCode,
+      couponCode,
       userId,
       normalizedPlanCode,
     });
@@ -970,6 +973,16 @@ router.post("/checkout", requireAuth, async (req, res) => {
   const userId = req.user!.id;
   const proposal = enterpriseProposal!;
 
+  const couponResult = await resolveApplicableCoupon({
+    couponCode,
+    userId,
+    normalizedPlanCode,
+  });
+  if (couponResult.error) {
+    return res.status(400).json({ error: couponResult.error });
+  }
+  const applicableCoupon = couponResult.coupon;
+
   if (proposal.status === EnterpriseProposalStatus.PAYMENT_COMPLETED) {
     return res.status(409).json({
       success: false,
@@ -1061,26 +1074,143 @@ router.post("/checkout", requireAuth, async (req, res) => {
     });
   }
 
-  const session = await stripeClient.checkout.sessions.create({
-    mode: "subscription",
-    line_items: [
-      {
+  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+    {
+      price_data: {
+        currency: "usd",
+        recurring: { interval: proposal.billingCycle === BillingCycle.YEARLY ? "year" : "month" },
+        unit_amount: quotedAmountCents,
+        product_data: {
+          name: proposal.planName,
+          description: `Custom enterprise plan for ${proposal.companyName}`,
+        },
+      },
+      quantity: 1,
+      tax_rates: [nyTaxRateId],
+    },
+  ];
+
+  const cartSubtotalCentsParts: number[] = [quotedAmountCents];
+  const proposalInterval = proposal.billingCycle === BillingCycle.YEARLY ? "year" : "month";
+
+  if (addonPlatformQty > 0) {
+    if (proposalInterval === "year" && env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID) {
+      lineItems.push({
+        price: env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID,
+        quantity: addonPlatformQty,
+        tax_rates: [nyTaxRateId],
+      });
+      const yearlyUnitCents = PLATFORM_ADDON_MONTHLY_CENTS * 12;
+      cartSubtotalCentsParts.push(yearlyUnitCents * addonPlatformQty);
+    } else if (proposalInterval === "month" && env.STRIPE_PLATFORM_ADDON_PRICE_ID) {
+      lineItems.push({
+        price: env.STRIPE_PLATFORM_ADDON_PRICE_ID,
+        quantity: addonPlatformQty,
+        tax_rates: [nyTaxRateId],
+      });
+      cartSubtotalCentsParts.push(PLATFORM_ADDON_MONTHLY_CENTS * addonPlatformQty);
+    } else {
+      const addonUnitCents = proposalInterval === "year"
+        ? PLATFORM_ADDON_MONTHLY_CENTS * 12
+        : PLATFORM_ADDON_MONTHLY_CENTS;
+
+      lineItems.push({
         price_data: {
           currency: "usd",
-          recurring: { interval: proposal.billingCycle === BillingCycle.YEARLY ? "year" : "month" },
-          unit_amount: quotedAmountCents,
+          recurring: { interval: proposalInterval },
+          unit_amount: addonUnitCents,
           product_data: {
-            name: proposal.planName,
-            description: `Custom enterprise plan for ${proposal.companyName}`,
+            name: "Additional Platform",
+            description:
+              proposalInterval === "year"
+                ? "$60/year per extra platform"
+                : "$5/month per extra platform",
           },
         },
-        quantity: 1,
+        quantity: addonPlatformQty,
         tax_rates: [nyTaxRateId],
+      });
+      cartSubtotalCentsParts.push(addonUnitCents * addonPlatformQty);
+    }
+  }
+
+  if (videoSessionHours > 0) {
+    lineItems.push({
+      price_data: {
+        currency: "usd",
+        unit_amount: VIDEO_SESSION_HOURLY_RATE_CENTS,
+        product_data: {
+          name: "Video Session",
+          description: "$495 per hour",
+        },
       },
-    ],
+      quantity: videoSessionHours,
+      tax_rates: [nyTaxRateId],
+    });
+    cartSubtotalCentsParts.push(VIDEO_SESSION_HOURLY_RATE_CENTS * videoSessionHours);
+  }
+
+  const subtotalCents = cartSubtotalCentsParts.reduce((sum, value) => sum + value, 0);
+  let couponDiscountCents = 0;
+  if (applicableCoupon) {
+    couponDiscountCents = calculateCouponDiscountCents(applicableCoupon, subtotalCents);
+  }
+
+  const discountedSubtotalCents = Math.max(subtotalCents - couponDiscountCents, 0);
+
+  let checkoutDiscounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
+  if (applicableCoupon && couponDiscountCents > 0) {
+    try {
+      let stripeCoupon: Stripe.Coupon;
+      if (applicableCoupon.discountType === "percentage") {
+        const percentOff = Math.max(0, Math.min(100, Number(applicableCoupon.discountValue)));
+        stripeCoupon = await stripeClient.coupons.create(
+          {
+            duration: "once",
+            percent_off: percentOff,
+            name: `Talexia Coupon ${applicableCoupon.code}`,
+            metadata: {
+              source: "talexia_internal_coupon",
+              couponId: applicableCoupon.id,
+              couponCode: applicableCoupon.code,
+            },
+          },
+          { idempotencyKey: `coupon-${applicableCoupon.code}-pct-${percentOff}` }
+        );
+      } else {
+        stripeCoupon = await stripeClient.coupons.create(
+          {
+            duration: "once",
+            amount_off: couponDiscountCents,
+            currency: "usd",
+            name: `Talexia Coupon ${applicableCoupon.code}`,
+            metadata: {
+              source: "talexia_internal_coupon",
+              couponId: applicableCoupon.id,
+              couponCode: applicableCoupon.code,
+            },
+          },
+          { idempotencyKey: `coupon-${applicableCoupon.code}-amt-${couponDiscountCents}` }
+        );
+      }
+      checkoutDiscounts = [{ coupon: stripeCoupon.id }];
+    } catch (error) {
+      logger.error("Failed to create Stripe coupon for enterprise checkout", {
+        couponCode: applicableCoupon.code,
+        error,
+      });
+      return res.status(500).json({ error: "Unable to apply coupon at this time" });
+    }
+  }
+
+  const session = await stripeClient.checkout.sessions.create({
+    mode: "subscription",
+    line_items: lineItems,
+    ...(checkoutDiscounts ? { discounts: checkoutDiscounts } : {}),
     ...(stripeCustomerId ? { customer: stripeCustomerId } : {}),
     ...(stripeCustomerId ? { customer_update: { address: "auto", name: "auto" } } : {}),
     billing_address_collection: "required",
+    ...(checkoutDiscounts ? {} : { allow_promotion_codes: true }),
     success_url: `${env.FRONTEND_URL}/billing/success`,
     cancel_url: `${env.FRONTEND_URL}/billing/cancel`,
     subscription_data: {
@@ -1096,6 +1226,13 @@ router.post("/checkout", requireAuth, async (req, res) => {
         videoSessionHours: videoSessionHours.toString(),
         enterpriseProposalId: proposal.id,
         enterpriseProposalPriceCents: quotedAmountCents.toString(),
+        ...(applicableCoupon
+          ? {
+            couponId: applicableCoupon.id,
+            couponCode: applicableCoupon.code,
+            couponDiscountCents: couponDiscountCents.toString(),
+          }
+          : {}),
       },
     },
     metadata: {
@@ -1110,6 +1247,13 @@ router.post("/checkout", requireAuth, async (req, res) => {
       videoSessionHours: videoSessionHours.toString(),
       enterpriseProposalId: proposal.id,
       enterpriseProposalPriceCents: quotedAmountCents.toString(),
+      ...(applicableCoupon
+        ? {
+          couponId: applicableCoupon.id,
+          couponCode: applicableCoupon.code,
+          couponDiscountCents: couponDiscountCents.toString(),
+        }
+        : {}),
     },
   });
 
@@ -1123,8 +1267,8 @@ router.post("/checkout", requireAuth, async (req, res) => {
     },
   });
 
-  const estimatedTaxCents = Math.round((quotedAmountCents * NY_SALES_TAX_BPS) / 10_000);
-  const estimatedTotalCents = quotedAmountCents + estimatedTaxCents;
+  const estimatedTaxCents = Math.round((discountedSubtotalCents * NY_SALES_TAX_BPS) / 10_000);
+  const estimatedTotalCents = discountedSubtotalCents + estimatedTaxCents;
 
   logActivity({
     userId,
@@ -1139,10 +1283,10 @@ router.post("/checkout", requireAuth, async (req, res) => {
     cart: {
       planCode: normalizedPlanCode,
       billingCycle: proposal.billingCycle === BillingCycle.YEARLY ? "yearly" : "monthly",
-      subtotalCents: quotedAmountCents,
-      couponCode: null,
-      couponDiscountCents: 0,
-      discountedSubtotalCents: quotedAmountCents,
+      subtotalCents,
+      couponCode: applicableCoupon?.code ?? null,
+      couponDiscountCents,
+      discountedSubtotalCents,
       taxRatePercent: 8.625,
       estimatedTaxCents,
       estimatedTotalCents,
