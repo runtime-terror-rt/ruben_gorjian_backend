@@ -1,7 +1,23 @@
 import fs from "fs";
 import path from "path";
 
-const logoFilePath = path.resolve(process.cwd(), "public/logo/Talexia_logo.png");
+function resolveTalexiaLogoPath() {
+  const candidatePaths = [
+    path.resolve(process.cwd(), "public/logo/Talexia_logo.png"),
+    path.resolve(__dirname, "../../public/logo/Talexia_logo.png"),
+    path.resolve(__dirname, "../public/logo/Talexia_logo.png"),
+  ];
+
+  for (const candidate of candidatePaths) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+const logoFilePath = resolveTalexiaLogoPath();
 const logoCid = "talexia-logo-inline";
 
 function escapeHtml(value: string) {
@@ -14,7 +30,7 @@ function escapeHtml(value: string) {
 }
 
 export function getTalexiaLogoAttachment() {
-  if (!fs.existsSync(logoFilePath)) {
+  if (!logoFilePath) {
     return null;
   }
 
@@ -27,7 +43,7 @@ export function getTalexiaLogoAttachment() {
 }
 
 export function buildTalexiaEmailHeader(eyebrow: string, title?: string) {
-  const logoMarkup = fs.existsSync(logoFilePath)
+  const logoMarkup = logoFilePath
     ? `<img src="cid:${logoCid}" alt="Talexia" style="display:block;width:96px;max-width:100%;height:auto;" />`
     : `<div style="color:#ffffff;font-size:28px;font-weight:800;letter-spacing:-0.04em;line-height:1;">Talexia</div>`;
 
