@@ -181,6 +181,7 @@ Frontend payload values currently used by billing endpoints:
 - Brand
 - Dashboard
 - Settings
+- FAQ
 - Submissions
 - Admin submissions
 - Visits
@@ -1564,6 +1565,79 @@ Base path: `/smtp-test`
 Checks if SMTP host/port is reachable.
 
 ---
+
+## FAQ
+
+Base path:
+- `/faq`
+- `/api/faq`
+
+FAQ entries include a `pageType` field for page-level filtering.
+
+Allowed values:
+- `FAQ_PAGE`
+- `PRICING_PAGE`
+
+UI labels map to API values as follows:
+- FAQ Page -> `FAQ_PAGE`
+- Pricing Page -> `PRICING_PAGE`
+
+### GET `/faq`
+
+Active FAQs only.
+
+Query params:
+- `page`
+- `limit`
+- `pageType` optional, one of `FAQ_PAGE` or `PRICING_PAGE`
+
+### GET `/faq/admin`
+
+Admin only.
+
+Query params:
+- `page`
+- `limit`
+- `pageType` optional, one of `FAQ_PAGE` or `PRICING_PAGE`
+
+### POST `/faq`
+
+Admin only.
+
+Request body:
+```json
+{
+  "question": "How do I upgrade my plan?",
+  "answer": "Go to billing settings and choose your new plan.",
+  "displayOrder": 1,
+  "pageType": "FAQ_PAGE",
+  "isActive": true
+}
+```
+
+### PATCH `/faq/:id`
+
+Admin only.
+
+Request body supports partial updates for:
+- `question`
+- `answer`
+- `displayOrder`
+- `pageType`
+- `isActive`
+
+### PATCH `/faq/:id/status`
+
+Request body:
+```json
+{
+  "status": "ACTIVE"
+}
+```
+
+### DELETE `/faq/:id`
+
+Admin only.
 
 ## Frontend implementation notes
 

@@ -615,6 +615,7 @@ model Faq {
   question         String
   answer           String
   displayOrder     Int      @default(0)
+  pageType         FaqPageType @default(FAQ_PAGE)
   isActive         Boolean  @default(true)
   createdByAdminId String?
   updatedByAdminId String?
@@ -622,8 +623,15 @@ model Faq {
   updatedAt        DateTime @updatedAt
 
   @@index([isActive])
+  @@index([pageType])
+  @@index([isActive, pageType])
   @@index([displayOrder])
   @@index([createdAt])
+}
+
+enum FaqPageType {
+  FAQ_PAGE
+  PRICING_PAGE
 }
 
 model CaseStudy {
