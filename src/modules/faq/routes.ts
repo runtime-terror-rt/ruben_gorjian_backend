@@ -59,28 +59,16 @@ function buildFaqWhereClause(pageType?: FaqPageType, isActive?: boolean) {
 
 // Get FAQs - active only
 router.get("/", async (req, res) => {
-  const { page, limit, pageType } = faqListQuerySchema.parse(req.query);
-  const skip = (page - 1) * limit;
+  const { pageType } = faqListQuerySchema.parse(req.query);
+
   const where = buildFaqWhereClause(pageType, true);
 
-  const [faqs, total] = await Promise.all([
-    prisma.faq.findMany({
-      where,
-      orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
-      skip,
-      take: limit,
-    }),
-    prisma.faq.count({ where }),
-  ]);
+  const faqs = await prisma.faq.findMany({
+    where,
+    orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+  });
 
-  const pagination: PaginationMeta = {
-    page,
-    limit,
-    total,
-    totalPages: Math.ceil(total / limit),
-  };
-
-  return res.json({ success: true, data: faqs, pagination });
+  return res.json({ success: true, data: faqs });
 });
 
 // Get all FAQs - admin only
