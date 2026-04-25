@@ -109,7 +109,7 @@ router.get("/admin/submissions", requireAuth, requireAdmin, async (req, res, nex
     const status = req.query.status as string | undefined;
 
     const where = {
-      source: "landing",
+      // source: "landing",
       ...(status ? { status } : {}),
     };
 
