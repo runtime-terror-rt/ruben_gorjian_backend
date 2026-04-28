@@ -1,13 +1,26 @@
 pipeline {
-    agent any
+    agent {
+        docker {
+            image 'node:20-alpine' // lightweight + production-ready
+            args '-u root:root'    // avoid permission issues
+        }
+    }
+
     stages {
-        stage('hello') {
+        stage('Install Dependencies') {
             steps {
                 echo "================RUBEN================"
-                echo "Design the pipeline"
-                echo "Hello World - Change"
+                echo "Running inside Node container"
                 echo "================RUBEN================"
-                sh "npm install"
+
+                sh '''
+                    # Verify runtime
+                    node -v
+                    npm -v
+
+                    # Install dependencies
+                    npm install
+                '''
             }
         }
     }
