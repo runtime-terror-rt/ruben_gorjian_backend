@@ -4,6 +4,7 @@ pipeline {
         stage('hello') {
             steps {
                 echo "================RUBEN================"
+                echo "Design the pipeline"
                 echo "Hello World - Change"
                 echo "================RUBEN================"
             }
