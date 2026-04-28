@@ -7,6 +7,7 @@ pipeline {
                 echo "Design the pipeline"
                 echo "Hello World - Change"
                 echo "================RUBEN================"
+                sh "npm i"
             }
         }
     }
