@@ -688,23 +688,77 @@ export class SocialMediaService {
     }
   }
 
+  // async createConnectLinkForUser(
+  //   user: User,
+  //   payload: { redirectUrl: string; platform: string; showCalendar?: boolean },
+  // ) {
+  //   const platform = this.normalizePlatform(payload.platform);
+  //   const prismaPlatform = this.toPrismaPlatform(platform);
+
+  //   const existing = await this.prisma.socialPlatformLink.findUnique({
+  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+  //   });
+
+  //   if (!existing) {
+  //     await this.enforceLinkLimit(user.id);
+  //   }
+
+  //   const username = this.uploadPostUsername(user);
+  //   await this.createOrReuseUploadPostProfile(username);
+
+  //   const linkResult = await this.api("/uploadposts/users/generate-jwt", {
+  //     method: "POST",
+  //     headers: { "Content-Type": "application/json" },
+  //     body: JSON.stringify({
+  //       username,
+  //       platforms: [platform],
+  //       redirect_url: payload.redirectUrl,
+  //       show_calendar: payload.showCalendar ?? true,
+  //     }),
+  //   });
+
+  //   const connectMeta = this.extractConnectMeta(linkResult);
+
+  //   await this.prisma.socialPlatformLink.upsert({
+  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+  //     update: {
+  //       linkedAt: new Date(),
+  //       externalRef: connectMeta.externalRef,
+  //       externalProfileUrl: connectMeta.externalProfileUrl,
+  //     },
+  //     create: {
+  //       userId: user.id,
+  //       platform: prismaPlatform,
+  //       externalRef: connectMeta.externalRef,
+  //       externalProfileUrl: connectMeta.externalProfileUrl,
+  //     },
+  //   });
+
+  //   return {
+  //     success: true,
+  //     username,
+  //     platform,
+  //     connect: linkResult,
+  //   };
+  // }
+
   async createConnectLinkForUser(
     user: User,
     payload: { redirectUrl: string; platform: string; showCalendar?: boolean },
   ) {
     const platform = this.normalizePlatform(payload.platform);
-    const prismaPlatform = this.toPrismaPlatform(platform);
-
-    const existing = await this.prisma.socialPlatformLink.findUnique({
-      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
-    });
-
-    if (!existing) {
-      await this.enforceLinkLimit(user.id);
-    }
 
     const username = this.uploadPostUsername(user);
+
+    // Ensure UploadPost profile exists
     await this.createOrReuseUploadPostProfile(username);
+
+    // 🔐 Generate state (IMPORTANT)
+    const state = JSON.stringify({
+      userId: user.id,
+      platform,
+      nonce: crypto.randomUUID(),
+    });
 
     const linkResult = await this.api("/uploadposts/users/generate-jwt", {
       method: "POST",
@@ -712,34 +766,77 @@ export class SocialMediaService {
       body: JSON.stringify({
         username,
         platforms: [platform],
-        redirect_url: payload.redirectUrl,
+        redirect_url: payload.redirectUrl, // frontend URL
         show_calendar: payload.showCalendar ?? true,
+        state,
       }),
-    });
-
-    const connectMeta = this.extractConnectMeta(linkResult);
-
-    await this.prisma.socialPlatformLink.upsert({
-      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
-      update: {
-        linkedAt: new Date(),
-        externalRef: connectMeta.externalRef,
-        externalProfileUrl: connectMeta.externalProfileUrl,
-      },
-      create: {
-        userId: user.id,
-        platform: prismaPlatform,
-        externalRef: connectMeta.externalRef,
-        externalProfileUrl: connectMeta.externalProfileUrl,
-      },
     });
 
     return {
       success: true,
-      username,
       platform,
       connect: linkResult,
+      username,
     };
+  }
+
+  async finalizePlatformConnection(
+    user: User,
+    payload: {
+      platform: string;
+      externalRef: string;
+      profileUrl?: string;
+      state?: string;
+    },
+  ) {
+    const { platform, externalRef, profileUrl, state } = payload;
+
+    if (!platform || !externalRef) {
+      throw new BadRequestException({
+        message: "Missing required connection data",
+      });
+    }
+
+    // 🔐 Validate state (VERY IMPORTANT)
+    if (!state) {
+      throw new BadRequestException({
+        message: "Missing state",
+      });
+    }
+
+    const parsedState = JSON.parse(state);
+
+    if (parsedState.userId !== user.id) {
+      throw new BadRequestException({
+        message: "Invalid state user mismatch",
+      });
+    }
+
+    const normalizedPlatform = this.normalizePlatform(platform);
+    const prismaPlatform = this.toPrismaPlatform(normalizedPlatform);
+
+    // ✅ SAFE DB WRITE (only after successful connection)
+    await this.prisma.socialPlatformLink.upsert({
+      where: {
+        userId_platform: {
+          userId: user.id,
+          platform: prismaPlatform,
+        },
+      },
+      update: {
+        linkedAt: new Date(),
+        externalRef,
+        externalProfileUrl: profileUrl,
+      },
+      create: {
+        userId: user.id,
+        platform: prismaPlatform,
+        externalRef,
+        externalProfileUrl: profileUrl,
+      },
+    });
+
+    return { success: true };
   }
 
   // async disconnectLinkForUser(user: User, payload: { platform: string }) {
@@ -1426,6 +1523,7 @@ export class SocialMediaService {
       connect: result.connect,
     };
   }
+
   status(query: { jobId?: string; requestId?: string }) {
     if (!query.jobId && !query.requestId) {
       throw new BadRequestException("Provide jobId or requestId");
