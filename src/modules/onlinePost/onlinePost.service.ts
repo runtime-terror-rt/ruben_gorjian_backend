@@ -819,7 +819,11 @@ export class SocialMediaService {
     const normalizedPlatform = this.normalizePlatform(platform);
     const prismaPlatform = this.toPrismaPlatform(normalizedPlatform);
 
-    // 🔥 Fetch fresh data from UploadPost (NOT JWT)
+    // � ensure profile exists before fetching
+    const username = this.uploadPostUsername(user);
+    await this.createOrReuseUploadPostProfile(username);
+
+    // �🔥 Fetch fresh data from UploadPost (NOT JWT)
     const result = await this.api("/uploadposts/users/me", {
       method: "GET",
     });
