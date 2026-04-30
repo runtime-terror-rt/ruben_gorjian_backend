@@ -56,7 +56,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"planName\": \"Enterprise Growth\",\n  \"companyName\": \"Omega Holdings\",\n  \"fullName\": \"Md Masud Rana\",\n  \"email\": \"enterprise.client@example.com\",\n  \"socialPlatforms\": [\"INSTAGRAM\", \"FACEBOOK\", \"TIKTOK\"],\n  \"reelsPerMonth\": 20,\n  \"microReelsPerMonth\": 30,\n  \"proPhotoShootFrequency\": \"Monthly\",\n  \"proPhotoShootLength\": \"4 hours\",\n  \"captionHashtags\": true,\n  \"scheduling\": true,\n  \"amount\": 1250,\n  \"billingCycle\": \"MONTHLY\",\n  \"expiresInDays\": 7\n}"
+              "raw": "{\n  \"planName\": \"Enterprise Growth\",\n  \"companyName\": \"Omega Holdings\",\n  \"fullName\": \"Md Masud Rana\",\n  \"email\": \"enterprise.client@example.com\",\n  \"industry\": \"RESTAURANT_HOSPITALITY\",\n  \"socialPlatforms\": [\n    \"INSTAGRAM\",\n    \"FACEBOOK\",\n    \"TIKTOK\"\n  ],\n  \"postsPerMonth\": 40,\n  \"reelsPerMonth\": 20,\n  \"microReelsPerMonth\": 30,\n  \"proPhotoShootFrequency\": \"Monthly\",\n  \"proPhotoShootLength\": \"4 hours\",\n  \"captionHashtags\": true,\n  \"scheduling\": true,\n  \"amount\": 1250,\n  \"billingCycle\": \"MONTHLY\",\n  \"expiresInDays\": 7,\n  \"internalNotes\": \"Priority client. Needs onboarding follow-up.\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/admin/enterprise-plan/invites",
@@ -71,6 +71,37 @@
               ]
             },
             "description": "Creates the enterprise proposal, stores the quoted price in the database, and sends the invite email."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Enterprise Invite",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"planName\": \"Enterprise Growth\",\n  \"companyName\": \"Omega Holdings\",\n  \"fullName\": \"Md Masud Rana\",\n  \"email\": \"enterprise.client@example.com\",\n  \"industry\": \"RESTAURANT_HOSPITALITY\",\n  \"socialPlatforms\": [\n    \"INSTAGRAM\",\n    \"FACEBOOK\",\n    \"TIKTOK\"\n  ],\n  \"postsPerMonth\": 40,\n  \"reelsPerMonth\": 20,\n  \"microReelsPerMonth\": 30,\n  \"proPhotoShootFrequency\": \"Monthly\",\n  \"proPhotoShootLength\": \"4 hours\",\n  \"captionHashtags\": true,\n  \"scheduling\": true,\n  \"amount\": 1350,\n  \"billingCycle\": \"MONTHLY\",\n  \"expiresInDays\": 14,\n  \"internalNotes\": \"Updated quote after scope change.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/enterprise-plan/invites/{{enterpriseInviteId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "enterprise-plan",
+                "invites",
+                "{{enterpriseInviteId}}"
+              ]
+            },
+            "description": "Updates the enterprise proposal, invite snapshot, and custom plan price in one request."
           },
           "response": []
         },
@@ -249,7 +280,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"token\": \"{{enterpriseInviteToken}}\",\n  \"password\": \"{{enterpriseUserPassword}}\",\n  \"name\": \"{{enterpriseUserName}}\"\n}"
+               "raw": "{\n  \"token\": \"{{enterpriseInviteToken}}\",\n  \"password\": \"{{enterpriseUserPassword}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/auth/signup-enterprise-invite",
