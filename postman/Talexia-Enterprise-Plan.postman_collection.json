@@ -2,12 +2,12 @@
   "info": {
     "_postman_id": "talexia-enterprise-plan-2026",
     "name": "Talexia Enterprise Plan",
-    "description": "Admin-driven Enterprise invite flow: invite create, invite validate, enterprise signup, verify, login, and checkout.",
+    "description": "Standalone enterprise quote flow: admin creates a custom proposal, client signs up first, verifies email, logs in, then completes checkout.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
-      "name": "Auth (Admin)",
+      "name": "Admin Auth",
       "item": [
         {
           "name": "Admin Login",
@@ -35,7 +35,7 @@
                 "login"
               ]
             },
-            "description": "Logs in admin. Postman cookie jar stores auth cookie for the next admin requests."
+            "description": "Logs in an admin user. Postman cookie jar should keep the session for the next admin requests."
           },
           "response": []
         }
@@ -56,7 +56,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"companyName\": \"Omega Holdings\",\n  \"fullName\": \"Md Masud Rana\",\n  \"email\": \"enterprise.client@example.com\",\n  \"socialPlatforms\": [\"INSTAGRAM\", \"FACEBOOK\", \"TIKTOK\"],\n  \"reelsPerMonth\": 20,\n  \"microReelsPerMonth\": 30,\n  \"proPhotoShootFrequency\": \"Monthly\",\n  \"proPhotoShootLength\": \"4 hours\",\n  \"captionHashtags\": true,\n  \"scheduling\": true,\n  \"planCode\": \"FM_25\",\n  \"expiresInDays\": 7\n}"
+              "raw": "{\n  \"planName\": \"Enterprise Growth\",\n  \"companyName\": \"Omega Holdings\",\n  \"fullName\": \"Md Masud Rana\",\n  \"email\": \"enterprise.client@example.com\",\n  \"industry\": \"RESTAURANT_HOSPITALITY\",\n  \"socialPlatforms\": [\n    \"INSTAGRAM\",\n    \"FACEBOOK\",\n    \"TIKTOK\"\n  ],\n  \"postsPerMonth\": 40,\n  \"reelsPerMonth\": 20,\n  \"microReelsPerMonth\": 30,\n  \"proPhotoShootFrequency\": \"Monthly\",\n  \"proPhotoShootLength\": \"4 hours\",\n  \"captionHashtags\": true,\n  \"scheduling\": true,\n  \"amount\": 1250,\n  \"billingCycle\": \"MONTHLY\",\n  \"expiresInDays\": 7,\n  \"internalNotes\": \"Priority client. Needs onboarding follow-up.\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/admin/enterprise-plan/invites",
@@ -70,7 +70,38 @@
                 "invites"
               ]
             },
-            "description": "Creates invite + sends email with token link."
+            "description": "Creates the enterprise proposal, stores the quoted price in the database, and sends the invite email."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Enterprise Invite",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"planName\": \"Enterprise Growth\",\n  \"companyName\": \"Omega Holdings\",\n  \"fullName\": \"Md Masud Rana\",\n  \"email\": \"enterprise.client@example.com\",\n  \"industry\": \"RESTAURANT_HOSPITALITY\",\n  \"socialPlatforms\": [\n    \"INSTAGRAM\",\n    \"FACEBOOK\",\n    \"TIKTOK\"\n  ],\n  \"postsPerMonth\": 40,\n  \"reelsPerMonth\": 20,\n  \"microReelsPerMonth\": 30,\n  \"proPhotoShootFrequency\": \"Monthly\",\n  \"proPhotoShootLength\": \"4 hours\",\n  \"captionHashtags\": true,\n  \"scheduling\": true,\n  \"amount\": 1350,\n  \"billingCycle\": \"MONTHLY\",\n  \"expiresInDays\": 14,\n  \"internalNotes\": \"Updated quote after scope change.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/enterprise-plan/invites/{{enterpriseInviteId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "enterprise-plan",
+                "invites",
+                "{{enterpriseInviteId}}"
+              ]
+            },
+            "description": "Updates the enterprise proposal, invite snapshot, and custom plan price in one request."
           },
           "response": []
         },
@@ -80,7 +111,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/admin/enterprise-plan/invites?status=PENDING&page=1&pageSize=20",
+              "raw": "{{baseUrl}}/api/admin/enterprise-plan/invites?status=PENDING&search=Omega&page=1&pageSize=20",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -96,6 +127,10 @@
                   "value": "PENDING"
                 },
                 {
+                  "key": "search",
+                  "value": "Omega"
+                },
+                {
                   "key": "page",
                   "value": "1"
                 },
@@ -104,7 +139,100 @@
                   "value": "20"
                 }
               ]
-            }
+            },
+            "description": "Lists enterprise invites with optional search and status filters."
+          },
+          "response": []
+        },
+        {
+          "name": "Resend Enterprise Invite",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/enterprise-plan/invites/{{enterpriseInviteId}}/resend",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "enterprise-plan",
+                "invites",
+                "{{enterpriseInviteId}}",
+                "resend"
+              ]
+            },
+            "description": "Refreshes the token and sends the invite email again."
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Enterprise Invite",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/enterprise-plan/invites/{{enterpriseInviteId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "enterprise-plan",
+                "invites",
+                "{{enterpriseInviteId}}",
+                "cancel"
+              ]
+            },
+            "description": "Cancels an invite and marks its enterprise proposal as canceled."
+          },
+          "response": []
+        },
+        {
+          "name": "Enterprise Invite Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/enterprise-plan/invites/{{enterpriseInviteId}}/details",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "enterprise-plan",
+                "invites",
+                "{{enterpriseInviteId}}",
+                "details"
+              ]
+            },
+            "description": "Returns invite + proposal + user + related subscription details."
+          },
+          "response": []
+        },
+        {
+          "name": "Permanent Delete Enterprise Invite",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/enterprise-plan/invites/{{enterpriseInviteId}}/permanent",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "enterprise-plan",
+                "invites",
+                "{{enterpriseInviteId}}",
+                "permanent"
+              ]
+            },
+            "description": "Hard delete invite/proposal records; removes custom plan if unused."
           },
           "response": []
         }
@@ -114,7 +242,7 @@
       "name": "Enterprise Client",
       "item": [
         {
-          "name": "Validate Invite Token",
+          "name": "Validate Enterprise Invite",
           "request": {
             "method": "GET",
             "header": [],
@@ -136,7 +264,7 @@
                 }
               ]
             },
-            "description": "Validates invite token before signup page submit."
+            "description": "Validates the invite token and returns the quoted enterprise proposal preview."
           },
           "response": []
         },
@@ -152,7 +280,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"token\": \"{{enterpriseInviteToken}}\",\n  \"password\": \"StrongPass123!\",\n  \"name\": \"Md Masud Rana\"\n}"
+               "raw": "{\n  \"token\": \"{{enterpriseInviteToken}}\",\n  \"password\": \"{{enterpriseUserPassword}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/auth/signup-enterprise-invite",
@@ -165,7 +293,7 @@
                 "signup-enterprise-invite"
               ]
             },
-            "description": "Creates account from invite and sends verification email."
+            "description": "Creates the account first and sends verification email before payment."
           },
           "response": []
         },
@@ -194,12 +322,12 @@
                 "verify-email"
               ]
             },
-            "description": "Verifies email and starts authenticated session."
+            "description": "Verifies the email and opens the authenticated session."
           },
           "response": []
         },
         {
-          "name": "User Login",
+          "name": "Login",
           "request": {
             "method": "POST",
             "header": [
@@ -210,7 +338,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"enterprise.client@example.com\",\n  \"password\": \"StrongPass123!\"\n}"
+              "raw": "{\n  \"email\": \"{{enterpriseUserEmail}}\",\n  \"password\": \"{{enterpriseUserPassword}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/auth/login",
@@ -222,12 +350,18 @@
                 "auth",
                 "login"
               ]
-            }
+            },
+            "description": "Signs in the enterprise user after verification."
           },
           "response": []
-        },
+        }
+      ]
+    },
+    {
+      "name": "Billing",
+      "item": [
         {
-          "name": "Checkout Subscription",
+          "name": "Checkout Enterprise Plan",
           "request": {
             "method": "POST",
             "header": [
@@ -238,7 +372,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"planCode\": \"FM_25\",\n  \"billingCycle\": \"monthly\",\n  \"termsAccepted\": true,\n  \"addonPlatformQty\": 0,\n  \"videoSessionHours\": 0\n}"
+              "raw": "{\n  \"planCode\": \"{{enterprisePlanCode}}\",\n  \"billingCycle\": \"monthly\",\n  \"termsAccepted\": true,\n  \"addonPlatformQty\": 0,\n  \"videoSessionHours\": 0\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/billing/checkout",
@@ -251,7 +385,90 @@
                 "checkout"
               ]
             },
-            "description": "Runs after signup+verification, respecting signup-before-payment flow."
+            "description": "Starts Stripe checkout using the quoted enterprise price stored in the database."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Add-on Pricing",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/addons/pricing",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "addons",
+                "pricing"
+              ]
+            },
+            "description": "Returns the current video-session and platform add-on pricing plus the active subscription snapshot."
+          },
+          "response": []
+        },
+        {
+          "name": "Buy Video Session Hours",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"videoSessionHours\": {{videoSessionHours}}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/addons/video-session/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "addons",
+                "video-session",
+                "checkout"
+              ]
+            },
+            "description": "Starts a one-time Stripe checkout for prepaid video session hours at $495/hr."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Platform Quantity",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"addonPlatformQty\": {{platformAddonQty}}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/addons/platforms/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "addons",
+                "platforms",
+                "checkout"
+              ]
+            },
+            "description": "Updates the active subscription with extra platform quantity at the configured recurring add-on price."
           },
           "response": []
         }
@@ -276,8 +493,36 @@
       "value": "paste_token_from_email"
     },
     {
+      "key": "enterpriseInviteId",
+      "value": "paste_invite_id"
+    },
+    {
       "key": "emailVerificationToken",
       "value": "paste_verification_token"
+    },
+    {
+      "key": "enterpriseUserEmail",
+      "value": "enterprise.client@example.com"
+    },
+    {
+      "key": "enterpriseUserPassword",
+      "value": "StrongPass123!"
+    },
+    {
+      "key": "enterpriseUserName",
+      "value": "Md Masud Rana"
+    },
+    {
+      "key": "enterprisePlanCode",
+      "value": "FM_25"
+    },
+    {
+      "key": "videoSessionHours",
+      "value": "1"
+    },
+    {
+      "key": "platformAddonQty",
+      "value": "1"
     }
   ]
 }

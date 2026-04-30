@@ -2,7 +2,6 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
-import rateLimit from "express-rate-limit";
 import { env } from "./config/env";
 import { authRouter } from "./modules/auth/routes";
 import { billingRouter } from "./modules/billing/routes";
@@ -36,30 +35,32 @@ import { virtualAdminRouter } from "./modules/admin/virtual-admin-routes";
 import { adminOverviewRouter } from "./modules/admin/overview/routes";
 import { faqRouter } from "./modules/faq/routes";
 import { caseStudiesRouter } from "./modules/case-studies/routes";
+import { enterprisePlanPublicRouter } from "./modules/enterprise-plan/public-routes";
 
 export const app = express();
 
 const noopLimiter: express.RequestHandler = (_req, _res, next) => next();
 
-// Rate limiting (disabled in development)
-const limiter =
-  env.NODE_ENV === "production"
-    ? rateLimit({
-        windowMs: 15 * 60 * 1000, // 15 minutes
-        max: 100,
-        message: {
-          error: "Too many requests from this IP, please try again later.",
-        },
-        standardHeaders: true,
-        legacyHeaders: false,
-        skip: (req) => req.path === "/health" || req.path === "/auth/me",
-        handler: (req, res, _next, options) => {
-          const msg = options.message ?? { error: "Too many requests" };
-          logger.warn("Rate limit hit", { path: req.path });
-          res.status(options.statusCode ?? 429).json(msg);
-        },
-      })
-    : noopLimiter;
+// TEMP: Rate limiting is fully disabled for now.
+const limiter = noopLimiter;
+// const limiter =
+//   env.NODE_ENV === "production"
+//     ? rateLimit({
+//         windowMs: 15 * 60 * 1000, // 15 minutes
+//         max: 100,
+//         message: {
+//           error: "Too many requests from this IP, please try again later.",
+//         },
+//         standardHeaders: true,
+//         legacyHeaders: false,
+//         skip: (req) => req.path === "/health" || req.path === "/auth/me",
+//         handler: (req, res, _next, options) => {
+//           const msg = options.message ?? { error: "Too many requests" };
+//           logger.warn("Rate limit hit", { path: req.path });
+//           res.status(options.statusCode ?? 429).json(msg);
+//         },
+//       })
+//     : noopLimiter;
 
 const allowedOrigins = (env.FRONTEND_URL || "http://localhost:3000")
   .split(",")
@@ -97,6 +98,9 @@ app.get("/health", (_req, res) => {
   });
 });
 
+app.use("/", enterprisePlanPublicRouter);
+app.use("/api", enterprisePlanPublicRouter);
+
 app.use("/auth", authRouter);
 app.use("/api/auth", authRouter);
 app.use("/billing", billingRouter);
@@ -110,8 +114,6 @@ app.use("/ai", aiRouter);
 app.use(["/social", "/api/social"], socialRouter);
 app.use("/posts", postsRouter);
 app.use("/posts", enhancedPostsRouter);
-app.use("/scheduler", schedulerRouter);
-app.use("/api/scheduler", schedulerRouter);
 app.use("/scheduler", schedulerRouter);
 app.use("/api/scheduler", schedulerRouter);
 app.use("/api/admin", adminRouter);

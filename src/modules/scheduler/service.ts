@@ -54,7 +54,10 @@ type SchedulerLifecycleAction =
   | "failed"
   | "canceled";
 
-const SCHEDULER_ADMIN_EMAIL = (env.SCHEDULER_ADMIN_EMAIL || "Office@talexia.us").trim();
+const SCHEDULER_ADMIN_EMAIL = (
+  (env as typeof env & { SCHEDULER_ADMIN_EMAIL?: string }).SCHEDULER_ADMIN_EMAIL ||
+  "Office@talexia.us"
+).trim();
 
 type SchedulerNotificationPost = {
   id: string;
@@ -464,6 +467,45 @@ export class SchedulerService {
     return Math.ceil(sessionDurationMinutes / 60);
   }
 
+  private async adjustVideoSessionHours(
+    tx: Prisma.TransactionClient,
+    subscriptionId: string,
+    deltaHours: number
+  ) {
+    if (deltaHours === 0) {
+      return;
+    }
+
+    const requiredHours = Math.abs(deltaHours);
+    const result =
+      deltaHours > 0
+        ? await tx.subscription.updateMany({
+            where: {
+              id: subscriptionId,
+              videoAddonEnabled: true,
+              videoSessionHours: { gte: requiredHours },
+            },
+            data: {
+              videoSessionHours: { decrement: requiredHours },
+            },
+          })
+        : await tx.subscription.updateMany({
+            where: { id: subscriptionId },
+            data: {
+              videoSessionHours: { increment: requiredHours },
+              videoAddonEnabled: true,
+            },
+          });
+
+    if (result.count === 0) {
+      throw new Error(
+        deltaHours > 0
+          ? "Insufficient video session hours. Please purchase more before booking."
+          : "Unable to adjust video session hours"
+      );
+    }
+  }
+
   private assertVideoAddonHours(
     subscription: Awaited<ReturnType<SchedulerService["getSchedulingSubscription"]>>,
     sessionDurationMinutes: number
@@ -744,6 +786,7 @@ export class SchedulerService {
       return;
     }
 
+    const userEmail = post.user.email.trim().toLowerCase();
     const scheduleLabel = this.getScheduleLabel(post.scheduleType);
     const actionLabel = this.getActionLabel(action);
     const when = post.scheduledFor ? post.scheduledFor.toISOString() : "TBD";
@@ -788,7 +831,7 @@ export class SchedulerService {
     const adminEmails = await this.listAdminEmails();
     await Promise.all(
       adminEmails.map(async (email) => {
-        if (email.trim().toLowerCase() === post.user.email.trim().toLowerCase()) {
+        if (email.trim().toLowerCase() === userEmail) {
           return;
         }
         const payload = {
@@ -1272,8 +1315,16 @@ export class SchedulerService {
       this.assertVideoAddonHours(subscription, input.sessionDurationMinutes);
     }
     await this.enforceSessionQuota(userId, input.scheduleType, subscription);
+    const requiredVideoHours =
+      input.scheduleType === "VIDEO_SESSION"
+        ? this.getVideoHoursNeededFromMinutes(input.sessionDurationMinutes)
+        : 0;
 
     const postId = await prisma.$transaction(async (tx) => {
+      if (input.scheduleType === "VIDEO_SESSION") {
+        await this.adjustVideoSessionHours(tx, subscription!.id, requiredVideoHours);
+      }
+
       const post = await tx.post.create({
         data: {
           userId,
@@ -1349,8 +1400,21 @@ export class SchedulerService {
       this.assertVideoAddonHours(subscription, nextDurationMinutes);
     }
     await this.enforceSessionQuota(existingPost.userId, scheduleType, subscription, existingPost.id);
+    const previousVideoHours =
+      scheduleType === "VIDEO_SESSION"
+        ? this.getVideoHoursNeededFromMinutes(existingPost.sessionDurationMinutes ?? 0)
+        : 0;
+    const nextVideoHours =
+      scheduleType === "VIDEO_SESSION"
+        ? this.getVideoHoursNeededFromMinutes(nextDurationMinutes)
+        : 0;
+    const videoHoursDelta = nextVideoHours - previousVideoHours;
 
     await prisma.$transaction(async (tx) => {
+      if (scheduleType === "VIDEO_SESSION") {
+        await this.adjustVideoSessionHours(tx, subscription.id, videoHoursDelta);
+      }
+
       await tx.post.update({
         where: { id: postId },
         data: {

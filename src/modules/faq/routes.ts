@@ -6,10 +6,15 @@ import { requireAdmin } from "../../middleware/requireAdmin";
 
 const router = express.Router();
 
+const faqPageTypeSchema = z.enum(["FAQ_PAGE", "PRICING_PAGE"]);
+
+type FaqPageType = z.infer<typeof faqPageTypeSchema>;
+
 const faqPayloadSchema = z.object({
   question: z.string().trim().min(1, "Question is required"),
   answer: z.string().trim().min(1, "Answer is required"),
   displayOrder: z.coerce.number().int().min(0).optional().default(0),
+  pageType: faqPageTypeSchema.default("FAQ_PAGE"),
   isActive: z.boolean().optional().default(true),
 });
 
@@ -18,6 +23,7 @@ const faqUpdateSchema = z
     question: z.string().trim().min(1).optional(),
     answer: z.string().trim().min(1).optional(),
     displayOrder: z.coerce.number().int().min(0).optional(),
+    pageType: faqPageTypeSchema.optional(),
     isActive: z.boolean().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
@@ -33,6 +39,10 @@ const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(10),
 });
 
+const faqListQuerySchema = paginationSchema.extend({
+  pageType: faqPageTypeSchema.optional(),
+});
+
 type PaginationMeta = {
   page: number;
   limit: number;
@@ -40,43 +50,41 @@ type PaginationMeta = {
   totalPages: number;
 };
 
-// Get FAQs - available for authenticated  active only
-router.get("/", async (req, res) => {
-  const { page, limit } = paginationSchema.parse(req.query);
-  const skip = (page - 1) * limit;
-
-  const [faqs, total] = await Promise.all([
-    prisma.faq.findMany({
-      where: { isActive: true },
-      orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
-      skip,
-      take: limit,
-    }),
-    prisma.faq.count({ where: { isActive: true } }),
-  ]);
-
-  const pagination: PaginationMeta = {
-    page,
-    limit,
-    total,
-    totalPages: Math.ceil(total / limit),
+function buildFaqWhereClause(pageType?: FaqPageType, isActive?: boolean) {
+  return {
+    ...(typeof isActive === "boolean" ? { isActive } : {}),
+    ...(pageType ? { pageType } : {}),
   };
+}
 
-  return res.json({ success: true, data: faqs, pagination });
+// Get FAQs - active only
+router.get("/", async (req, res) => {
+  const { pageType } = faqListQuerySchema.parse(req.query);
+
+  const where = buildFaqWhereClause(pageType, true);
+
+  const faqs = await prisma.faq.findMany({
+    where,
+    orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+  });
+
+  return res.json({ success: true, data: faqs });
 });
 
 // Get all FAQs - admin only
 router.get("/admin", requireAuth, requireAdmin, async (req, res) => {
-  const { page, limit } = paginationSchema.parse(req.query);
+  const { page, limit, pageType } = faqListQuerySchema.parse(req.query);
   const skip = (page - 1) * limit;
+  const where = buildFaqWhereClause(pageType);
 
   const [faqs, total] = await Promise.all([
     prisma.faq.findMany({
+      where,
       orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
       skip,
       take: limit,
     }),
-    prisma.faq.count(),
+    prisma.faq.count({ where }),
   ]);
 
   const pagination: PaginationMeta = {
@@ -101,6 +109,7 @@ router.post("/", requireAuth, requireAdmin, async (req, res) => {
       question: parsed.data.question,
       answer: parsed.data.answer,
       displayOrder: parsed.data.displayOrder,
+      pageType: parsed.data.pageType,
       isActive: parsed.data.isActive,
       createdByAdminId: req.user!.id,
       updatedByAdminId: req.user!.id,

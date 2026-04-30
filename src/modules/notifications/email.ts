@@ -3,6 +3,7 @@ import { env } from "../../config/env";
 import { Submission } from "@prisma/client";
 import { logger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
+import { buildTalexiaEmailHeader, getTalexiaLogoAttachment } from "../../lib/email-branding";
 
 interface SendSubmissionEmailParams {
   type: "created" | "status_updated" | "enhanced_delivery";
@@ -69,12 +70,7 @@ function buildSubmissionEmailHtml(params: {
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-        <tr>
-          <td style="background:#0f172a;padding:32px 40px;text-align:center;">
-            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">Talexia</h1>
-            <p style="margin:8px 0 0;color:#94a3b8;font-size:14px;">${escapeHtml(params.eyebrow)}</p>
-          </td>
-        </tr>
+${buildTalexiaEmailHeader(params.eyebrow, params.title)}
         <tr>
           <td style="padding:40px 40px 32px;">
             ${greetingHtml}
@@ -160,6 +156,7 @@ export async function sendSubmissionEmail(params: SendSubmissionEmailParams) {
       pass: SMTP_PASS,
     },
   });
+  const logoAttachment = getTalexiaLogoAttachment();
 
   const { type, submission, recipientType, previousStatus, deliveryMessage } = params;
   const baseUrl = FRONTEND_URL || "http://localhost:3000";
@@ -335,6 +332,7 @@ export async function sendSubmissionEmail(params: SendSubmissionEmailParams) {
       subject,
       text: body,
       html,
+      ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
     });
 
     logger.info("Submission email sent", {

@@ -45,11 +45,28 @@ export class OnlinePostController {
     try {
       return res.json(
         await this.onlinePostService.createConnectLinkForUser(req.user, {
-          redirectUrl: req.body?.redirectUrl,
           platform: req.body?.platform,
           showCalendar: req.body?.showCalendar,
         }),
       );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+  
+
+  finalizePlatformConnection = async (req: AuthedRequest, res: Response) => {
+    try {
+      const { platform } = req.body || {};
+
+      const result = await this.onlinePostService.finalizePlatformConnection(
+        req.user,
+        {
+          platform,
+        },
+      );
+
+      return res.json(result);
     } catch (error) {
       return handleError(error, res);
     }

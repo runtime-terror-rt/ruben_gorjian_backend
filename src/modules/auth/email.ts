@@ -1,11 +1,40 @@
 import nodemailer from "nodemailer";
 import { env } from "../../config/env";
+import { buildTalexiaEmailHeader, getTalexiaLogoAttachment } from "../../lib/email-branding";
 
 function verificationBaseUrl() {
   return env.FRONTEND_URL ?? "http://localhost:3000";
 }
 
-export async function sendVerificationEmail(email: string, token: string, pendingPlanCode?: string) {
+function passwordResetBaseUrl() {
+  return env.FRONTEND_URL ?? "http://localhost:3000";
+}
+
+function resolveRecipientName(name: string | undefined, email: string): string {
+  const normalizedName = name?.trim();
+  if (normalizedName) {
+    return normalizedName;
+  }
+
+  const localPart = email.split("@")[0]?.trim();
+  if (localPart) {
+    return localPart
+      .replace(/[._-]+/g, " ")
+      .split(" ")
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(" ");
+  }
+
+  return "User";
+}
+
+export async function sendVerificationEmail(
+  email: string,
+  token: string,
+  pendingPlanCode?: string,
+  userName?: string,
+) {
   const { CONTACT_FROM_EMAIL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, CONTACT_TO_EMAIL } = env;
 
   if (!CONTACT_FROM_EMAIL || !SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
@@ -18,10 +47,12 @@ export async function sendVerificationEmail(email: string, token: string, pendin
     secure: SMTP_PORT === 465,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
   });
+  const logoAttachment = getTalexiaLogoAttachment();
 
   const verificationUrl = `${verificationBaseUrl().replace(/\/$/, "")}/verify?token=${encodeURIComponent(
     token
   )}${pendingPlanCode ? `&planCode=${encodeURIComponent(pendingPlanCode)}` : ""}`;
+  const greetingName = resolveRecipientName(userName, email);
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -30,15 +61,10 @@ export async function sendVerificationEmail(email: string, token: string, pendin
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-        <tr>
-          <td style="background:#0f172a;padding:32px 40px;text-align:center;">
-            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">Talexia</h1>
-            <p style="margin:8px 0 0;color:#94a3b8;font-size:14px;">Email Verification</p>
-          </td>
-        </tr>
+${buildTalexiaEmailHeader("Email Verification")}
         <tr>
           <td style="padding:40px 40px 32px;">
-            <p style="margin:0 0 20px;color:#1e293b;font-size:16px;">Hi there,</p>
+            <p style="margin:0 0 20px;color:#1e293b;font-size:16px;">Hi ${greetingName},</p>
             <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">
               Confirm your email address to finish setting up your Talexia account.
             </p>
@@ -75,6 +101,86 @@ export async function sendVerificationEmail(email: string, token: string, pendin
     subject: "Verify your Talexia account",
     text: `Confirm your email to finish setting up your Talexia account.\n\nVerify: ${verificationUrl}\n\nIf you didn't request this, you can ignore it.`,
     html,
+    ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
+    ...(CONTACT_TO_EMAIL ? { bcc: CONTACT_TO_EMAIL } : {}),
+  });
+
+  return { sent: true };
+}
+
+export async function sendPasswordResetEmail(
+  email: string,
+  token: string,
+  userName?: string,
+) {
+  const { CONTACT_FROM_EMAIL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, CONTACT_TO_EMAIL } = env;
+
+  if (!CONTACT_FROM_EMAIL || !SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
+    return { sent: false, reason: "Email not configured" };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+  const logoAttachment = getTalexiaLogoAttachment();
+
+  const resetUrl = `${passwordResetBaseUrl().replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(
+    token,
+  )}`;
+  const greetingName = resolveRecipientName(userName, email);
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+${buildTalexiaEmailHeader("Password Reset", "Reset your password with a secure link")}
+        <tr>
+          <td style="padding:40px 40px 32px;">
+            <p style="margin:0 0 20px;color:#1e293b;font-size:16px;">Hi ${greetingName},</p>
+            <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">
+              We received a request to reset your Talexia password.
+            </p>
+            <p style="margin:0 0 24px;color:#475569;font-size:14px;line-height:1.6;">
+              Click the button below to choose a new password. This link will expire in 1 hour.
+            </p>
+            <table cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+              <tr>
+                <td><a href="${resetUrl}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">Reset Password</a></td>
+              </tr>
+            </table>
+            <p style="margin:0 0 8px;color:#94a3b8;font-size:13px;line-height:1.6;">
+              If the button does not work, copy this link and open it in your browser:
+            </p>
+            <p style="margin:0;color:#64748b;font-size:12px;line-height:1.6;word-break:break-all;">${resetUrl}</p>
+            <p style="margin:20px 0 0;color:#94a3b8;font-size:12px;line-height:1.6;">
+              If you did not request this, you can safely ignore this email.
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;">
+            <p style="margin:0;color:#94a3b8;font-size:12px;">© ${new Date().getFullYear()} Talexia. All rights reserved.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  await transporter.sendMail({
+    from: CONTACT_FROM_EMAIL,
+    to: email,
+    subject: "Reset your Talexia password",
+    text: `We received a request to reset your Talexia password.\n\nReset password: ${resetUrl}\n\nIf you did not request this, you can ignore this email.`,
+    html,
+    ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
     ...(CONTACT_TO_EMAIL ? { bcc: CONTACT_TO_EMAIL } : {}),
   });
 
@@ -85,8 +191,19 @@ export async function sendEnterprisePlanInviteEmail(params: {
   email: string;
   token: string;
   planCode: string;
+  planName?: string;
+  amount?: number;
+  billingCycle?: "monthly" | "yearly";
   fullName?: string;
   companyName?: string;
+  socialPlatforms?: string[];
+  postsPerMonth?: number | null;
+  reelsPerMonth?: number | null;
+  microReelsPerMonth?: number | null;
+  proPhotoShootFrequency?: string | null;
+  proPhotoShootLength?: string | null;
+  captionHashtags?: boolean | null;
+  scheduling?: boolean | null;
 }) {
   const { CONTACT_FROM_EMAIL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, CONTACT_TO_EMAIL } = env;
 
@@ -100,11 +217,17 @@ export async function sendEnterprisePlanInviteEmail(params: {
     secure: SMTP_PORT === 465,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
   });
+  const logoAttachment = getTalexiaLogoAttachment();
 
-  const inviteUrl = `${verificationBaseUrl().replace(/\/$/, "")}/enterprise-plan/accept?token=${encodeURIComponent(
-    params.token
-  )}`;
-  const recipientName = params.fullName || "there";
+  const _inviteBase = verificationBaseUrl().replace(/\/$/, "");
+  const inviteUrl = `${_inviteBase}/enterprise-plan/accept?token=${encodeURIComponent(params.token)}${params.planCode ? `&planCode=${encodeURIComponent(
+    params.planCode
+  )}` : ""}`;
+  const recipientName = resolveRecipientName(params.fullName, params.email);
+  const quotedAmount = typeof params.amount === "number"
+    ? params.amount.toFixed(2)
+    : null;
+  const billingCycleLabel = params.billingCycle === "yearly" ? "Yearly" : "Monthly";
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -113,23 +236,63 @@ export async function sendEnterprisePlanInviteEmail(params: {
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-        <tr>
-          <td style="background:#0f172a;padding:32px 40px;text-align:center;">
-            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">Talexia</h1>
-            <p style="margin:8px 0 0;color:#94a3b8;font-size:14px;">Enterprise Plan Invitation</p>
-          </td>
-        </tr>
+${buildTalexiaEmailHeader("Enterprise Plan Invitation", "A custom enterprise plan invitation is ready")}
         <tr>
           <td style="padding:40px 40px 32px;">
             <p style="margin:0 0 20px;color:#1e293b;font-size:16px;">Hi ${recipientName},</p>
             <p style="margin:0 0 16px;color:#475569;font-size:15px;line-height:1.6;">
               You have been invited to activate a custom Talexia Enterprise plan.
             </p>
-            <p style="margin:0 0 8px;color:#475569;font-size:14px;line-height:1.6;"><strong>Plan Code:</strong> ${params.planCode}</p>
-            ${params.companyName ? `<p style="margin:0 0 24px;color:#475569;font-size:14px;line-height:1.6;"><strong>Company:</strong> ${params.companyName}</p>` : "<div style=\"height:16px\"></div>"}
+            <!-- Plan details table -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:24px;">
+              <tr style="background:#f8fafc;">
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;font-weight:600;border-bottom:1px solid #e2e8f0;">Plan Code</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;font-weight:600;border-bottom:1px solid #e2e8f0;">${params.planCode}</td>
+              </tr>
+              ${params.planName ? `<tr>
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Plan Name</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.planName}</td>
+              </tr>` : ""}
+              ${quotedAmount ? `<tr style="background:#f8fafc;">
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Quoted Price</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">$${quotedAmount} / ${billingCycleLabel.toLowerCase()}</td>
+              </tr>` : ""}
+              ${params.companyName ? `<tr>
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Company</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.companyName}</td>
+              </tr>` : ""}
+              ${params.socialPlatforms && params.socialPlatforms.length ? `<tr style="background:#f8fafc;">
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Social Platforms</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.socialPlatforms.join(", ")}</td>
+              </tr>` : ""}
+              ${typeof params.postsPerMonth === "number" ? `<tr>
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Posts / month</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.postsPerMonth}</td>
+              </tr>` : ""}
+              ${typeof params.reelsPerMonth === "number" ? `<tr style="background:#f8fafc;">
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Reels / month</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.reelsPerMonth}</td>
+              </tr>` : ""}
+              ${typeof params.microReelsPerMonth === "number" ? `<tr>
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Micro Reels / month</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.microReelsPerMonth}</td>
+              </tr>` : ""}
+              ${params.proPhotoShootFrequency ? `<tr style="background:#f8fafc;">
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Pro Photoshoot Frequency</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.proPhotoShootFrequency}${params.proPhotoShootLength ? ` — ${params.proPhotoShootLength}` : ""}</td>
+              </tr>` : ""}
+              ${typeof params.captionHashtags === "boolean" ? `<tr>
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Caption Hashtags</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.captionHashtags ? "Yes" : "No"}</td>
+              </tr>` : ""}
+              ${typeof params.scheduling === "boolean" ? `<tr style="background:#f8fafc;">
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Scheduling</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.scheduling ? "Yes" : "No"}</td>
+              </tr>` : ""}
+            </table>
             <table cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
               <tr>
-                <td><a href="${inviteUrl}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">View Enterprise Plan</a></td>
+                <td><a href="${inviteUrl}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">Review Plan</a></td>
               </tr>
             </table>
             <p style="margin:0 0 8px;color:#94a3b8;font-size:13px;line-height:1.6;">If the button does not work, copy and open this link:</p>
@@ -153,6 +316,7 @@ export async function sendEnterprisePlanInviteEmail(params: {
     subject: "Your Talexia Enterprise Plan Is Ready",
     text: `You have been invited to activate a custom Talexia Enterprise plan (${params.planCode}).\n\nOpen: ${inviteUrl}`,
     html,
+    ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
     ...(CONTACT_TO_EMAIL ? { bcc: CONTACT_TO_EMAIL } : {}),
   });
 
@@ -189,8 +353,9 @@ export async function sendInvoiceEmail(
     secure: SMTP_PORT === 465,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
   });
+  const logoAttachment = getTalexiaLogoAttachment();
 
-  const greeting = extra?.userName ? `Hi ${extra.userName},` : "Hi there,";
+  const greeting = `Hi ${resolveRecipientName(extra?.userName, email)},`;
   const invoiceDate = extra?.date ?? new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const planLabel = extra?.planName ? extra.planName.replace(/_/g, " ") : "Subscription";
   const cycleLabel = extra?.billingCycle ?? "Monthly";
@@ -208,13 +373,7 @@ export async function sendInvoiceEmail(
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-        <!-- Header -->
-        <tr>
-          <td style="background:#0f172a;padding:32px 40px;text-align:center;">
-            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">Talexia</h1>
-            <p style="margin:8px 0 0;color:#94a3b8;font-size:14px;">Payment Confirmed</p>
-          </td>
-        </tr>
+${buildTalexiaEmailHeader("Payment Confirmed", "Your payment was processed successfully")}
         <!-- Body -->
         <tr>
           <td style="padding:40px 40px 32px;">
@@ -307,6 +466,7 @@ export async function sendInvoiceEmail(
     subject: `Talexia Invoice ${invoiceNumber} – Payment Confirmed`,
     text: textLines.join("\n"),
     html,
+    ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
   });
 
   return { sent: true };

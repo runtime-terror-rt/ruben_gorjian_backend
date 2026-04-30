@@ -15,6 +15,7 @@ const PAGE_PERMISSION_KEYS = [
 	"SCHEDULE_MANAGE",
 	"POST_MANAGE",
 	"COUPON_MANAGE",
+	"ENTERPRISE_PLAN",
 	"SUPPORT",
 	"SUBMISSIONS",
 	"FAQ",
@@ -54,8 +55,6 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<PagePermissionKey, RoutePermissionInput[
 	SUBSCRIPTION_MANAGE: [
 		{ method: "GET", pathPattern: "/api/admin/subscriptions", description: "View subscriptions" },
 		{ method: "GET", pathPattern: "/admin/subscriptions", description: "View subscriptions (legacy mount)" },
-		{ method: "ALL", pathPattern: "/api/admin/enterprise-plan*", description: "Manage enterprise invites" },
-		{ method: "ALL", pathPattern: "/admin/enterprise-plan*", description: "Manage enterprise invites (legacy mount)" },
 		{ method: "POST", pathPattern: "/api/admin/users/:id/cancel-subscription-schedule", description: "Schedule cancellation" },
 		{ method: "POST", pathPattern: "/api/admin/users/:id/cancel-subscription-immediately", description: "Immediate cancellation" },
 		{ method: "POST", pathPattern: "/api/admin/users/:id/resume-subscription", description: "Resume subscription" },
@@ -70,8 +69,12 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<PagePermissionKey, RoutePermissionInput[
 	SCHEDULE_MANAGE: [
 		{ method: "GET", pathPattern: "/api/admin/users/:id/scheduled-items", description: "View user scheduled items" },
 		{ method: "GET", pathPattern: "/api/admin/calendars", description: "View admin calendar data" },
+		{ method: "ALL", pathPattern: "/api/scheduler/sessions*", description: "Manage scheduler sessions" },
+		{ method: "ALL", pathPattern: "/api/scheduler/posts*", description: "Manage scheduler posts" },
 		{ method: "GET", pathPattern: "/admin/users/:id/scheduled-items", description: "View user scheduled items (legacy mount)" },
 		{ method: "GET", pathPattern: "/admin/calendars", description: "View admin calendar data (legacy mount)" },
+		{ method: "ALL", pathPattern: "/scheduler/sessions*", description: "Manage scheduler sessions (legacy mount)" },
+		{ method: "ALL", pathPattern: "/scheduler/posts*", description: "Manage scheduler posts (legacy mount)" },
 	],
 	POST_MANAGE: [
 		{ method: "ALL", pathPattern: "/api/admin/users/:userId/posts*", description: "Manage admin posts" },
@@ -88,6 +91,10 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<PagePermissionKey, RoutePermissionInput[
 	COUPON_MANAGE: [
 		{ method: "ALL", pathPattern: "/api/admin/coupons*", description: "Manage coupons" },
 		{ method: "ALL", pathPattern: "/admin/coupons*", description: "Manage coupons (legacy mount)" },
+	],
+	ENTERPRISE_PLAN: [
+		{ method: "ALL", pathPattern: "/api/admin/enterprise-plan*", description: "Manage enterprise plans" },
+		{ method: "ALL", pathPattern: "/admin/enterprise-plan*", description: "Manage enterprise plans (legacy mount)" },
 	],
 	SUPPORT: [
 		{ method: "ALL", pathPattern: "/api/contact/admin/submissions*", description: "Manage support submissions" },
@@ -645,14 +652,8 @@ router.delete("/:id", async (req, res) => {
 	}
 
 	await prisma.$transaction(async (tx) => {
-		await tx.adminRoutePermission.deleteMany({ where: { adminUserId: adminId } });
-		await tx.user.update({
-			where: { id: adminId },
-			data: {
-				role: "USER",
-				status: "DELETED",
-				deletedAt: new Date(),
-			},
+		await tx.adminRoutePermission.deleteMany({
+			where: { adminUserId: adminId },
 		});
 
 		await tx.auditLog.create({
@@ -662,14 +663,19 @@ router.delete("/:id", async (req, res) => {
 				action: "DELETE_USER",
 				targetUserId: adminId,
 				metadata: {
-					softDeleted: true,
+					hardDeleted: true,
 					source: "virtual-admin-routes",
 				} as Prisma.InputJsonValue,
 			},
 		});
+
+		// 🔥 actual hard delete
+		await tx.user.delete({
+			where: { id: adminId },
+		});
 	});
 
-	return res.json({ success: true });
+	return res.json({ success: true, message: "Permanently deleted" });
 });
 
 

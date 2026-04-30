@@ -1,6 +1,5 @@
 import express from "express";
 import { z } from "zod";
-import rateLimit from "express-rate-limit";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/requireAuth";
 import type { PlanCategory } from "../../types/plan-category";
@@ -11,14 +10,17 @@ const router = express.Router();
 
 router.use(requireAuth);
 
-// Rate limiting for onboarding endpoints (stricter than general API)
-const onboardingLimiter = rateLimit({
-  windowMs: 30 * 60 * 1000, // 30 minutes
-  max: 40, // 40 requests per 30 minutes
-  message: { error: "Too many onboarding requests. Please try again later." },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+const noopLimiter: express.RequestHandler = (_req, _res, next) => next();
+
+// TEMP: Onboarding rate limit is fully disabled for now.
+const onboardingLimiter = noopLimiter;
+// const onboardingLimiter = rateLimit({
+//   windowMs: 30 * 60 * 1000, // 30 minutes
+//   max: 40, // 40 requests per 30 minutes
+//   message: { error: "Too many onboarding requests. Please try again later." },
+//   standardHeaders: true,
+//   legacyHeaders: false,
+// });
 
 // Standardized error response helper
 function errorResponse(message: string, details?: unknown): { error: string; details?: unknown } {

@@ -31,7 +31,7 @@ const s3Client =
 const caseStudyPayloadSchema = z.object({
   title: z.string().trim().min(1, "Title is required"),
   location: z.string().trim().min(1, "Location is required"),
-  displayOrder: z.coerce.number().int().min(0).optional().default(0),
+  displayOrder: z.coerce.number().int().min(1, "displayOrder must be at least 1").optional().default(1),
   cycleTitle: z.string().trim().min(1, "cycleTitle is required"),
   services: z.array(z.string().trim().min(1)).min(1, "At least one service is required"),
   tagline: z.string().trim().min(1, "Tagline is required"),
@@ -45,7 +45,7 @@ const caseStudyUpdateSchema = z
   .object({
     title: z.string().trim().min(1).optional(),
     location: z.string().trim().min(1).optional(),
-    displayOrder: z.coerce.number().int().min(0).optional(),
+    displayOrder: z.coerce.number().int().min(1, "displayOrder must be at least 1").optional(),
     cycleTitle: z.string().trim().min(1).optional(),
     services: z.array(z.string().trim().min(1)).min(1).optional(),
     tagline: z.string().trim().min(1).optional(),
@@ -230,7 +230,7 @@ type PaginationMeta = {
 };
 
 // Get active case studies - available for authenticated users/admins
-router.get("/", requireAuth, async (req, res) => {
+router.get("/", async (req, res) => {
   const { page, limit } = paginationSchema.parse(req.query);
   const skip = (page - 1) * limit;
 
@@ -313,6 +313,17 @@ router.post(
     return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
+    const duplicateDisplayOrder = await prisma.caseStudy.findFirst({
+      where: { displayOrder: parsed.data.displayOrder },
+      select: { id: true },
+    });
+
+    if (duplicateDisplayOrder) {
+      return res.status(409).json({
+        error: `displayOrder ${parsed.data.displayOrder} already exists. Please use a unique displayOrder.`,
+      });
+    }
+
     try {
       const logoUrl = await uploadMediaFile(logoFile, "logo");
       const images = await Promise.all(imageFiles.map((file) => uploadMediaFile(file, "image")));
@@ -363,6 +374,22 @@ router.patch(
   const existing = await prisma.caseStudy.findUnique({ where: { id: caseStudyId } });
   if (!existing) {
     return res.status(404).json({ error: "Case study not found" });
+  }
+
+  if (parsed.data.displayOrder !== undefined) {
+    const duplicateDisplayOrder = await prisma.caseStudy.findFirst({
+      where: {
+        displayOrder: parsed.data.displayOrder,
+        id: { not: caseStudyId },
+      },
+      select: { id: true },
+    });
+
+    if (duplicateDisplayOrder) {
+      return res.status(409).json({
+        error: `displayOrder ${parsed.data.displayOrder} already exists. Please use a unique displayOrder.`,
+      });
+    }
   }
 
     const files = (req.files as CaseStudyFiles | undefined) ?? {};

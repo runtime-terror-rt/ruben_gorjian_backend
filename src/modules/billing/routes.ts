@@ -1,6 +1,6 @@
 import express from "express";
 import Stripe from "stripe";
-import { BillingCycle, CouponStatus, PriceType, SubscriptionStatus } from "@prisma/client";
+import { BillingCycle, CouponStatus, EnterpriseProposalStatus, PriceType, SubscriptionStatus } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/requireAuth";
@@ -25,6 +25,33 @@ const VIDEO_SESSION_HOURLY_RATE_CENTS = 49_500;
 const PLATFORM_ADDON_MONTHLY_CENTS = 500;
 const NY_SALES_TAX_BPS = 862.5;
 const YEARLY_MULTIPLIER = 12 * 0.8;
+const ALLOWED_FULL_MANAGEMENT_PLAN_CODES = new Set(["FMP-20", "FMP-35", "FM-70"]);
+
+async function ensureStripeCustomerForUser(userId: string, currentCustomerId?: string | null) {
+  if (currentCustomerId) {
+    return currentCustomerId;
+  }
+
+  if (!stripeClient) {
+    throw new Error("Stripe not configured");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+
+  if (!user?.email) {
+    throw new Error("Unable to create a Stripe customer for this user");
+  }
+
+  const customer = await stripeClient.customers.create({
+    email: user.email,
+    metadata: { userId },
+  });
+
+  return customer.id;
+}
 
 type ApplicableCoupon = {
   id: string;
@@ -280,8 +307,9 @@ async function resolvePriceForPlanAndCycle(params: {
 router.get("/plans", async (_req, res) => {
   // Serve from DB first (populated by startup sync — avoids a live Stripe call per request)
   const dbPlans = await prisma.plan.findMany({ orderBy: { priceStandardCents: "asc" } });
-  if (dbPlans.length > 0) {
-    return res.json(dbPlans.map(serializePlan));
+  const filteredDbPlans = dbPlans.filter((plan) => ALLOWED_FULL_MANAGEMENT_PLAN_CODES.has(plan.code));
+  if (filteredDbPlans.length > 0) {
+    return res.json(filteredDbPlans.map(serializePlan));
   }
 
   // DB empty — one-time fallback to Stripe (e.g. first boot before sync ran)
@@ -311,7 +339,7 @@ router.get("/plans", async (_req, res) => {
           priceFounderCents: metadata.priceFounderCents ? parseInt(metadata.priceFounderCents) : price?.unit_amount || 0,
           hasYearlyPrice: false,
         };
-      });
+      }).filter((plan) => ALLOWED_FULL_MANAGEMENT_PLAN_CODES.has(plan.code));
 
       return res.json(plans);
     } catch (error) {
@@ -371,7 +399,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
     termsAccepted: z.literal(true, { message: "Terms & Conditions must be accepted" }),
     addonPlatformQty: z.coerce.number().int().min(0).max(10).optional().default(0),
     videoSessionHours: z.coerce.number().int().min(0).max(40).optional().default(0),
-    couponCode: z.string().trim().min(3).max(64).optional(),
+    couponCode: z.union([z.string().trim().min(3).max(64), z.literal("")]).optional(),
     // Backward compatibility for older frontend payload.
     videoAddonEnabled: z.boolean().optional().default(false),
   });
@@ -382,6 +410,9 @@ router.post("/checkout", requireAuth, async (req, res) => {
   }
 
   const { planCode, billingCycle, addonPlatformQty } = parsed.data;
+  const couponCode = parsed.data.couponCode && parsed.data.couponCode.trim().length > 0
+    ? parsed.data.couponCode.trim()
+    : undefined;
   const videoSessionHours = parsed.data.videoSessionHours > 0
     ? parsed.data.videoSessionHours
     : parsed.data.videoAddonEnabled
@@ -390,8 +421,8 @@ router.post("/checkout", requireAuth, async (req, res) => {
   const videoAddonEnabled = videoSessionHours > 0;
   const termsAcceptedAt = new Date();
   const normalizedPlanCode = planCode.trim().toUpperCase();
-  const interval = billingCycle === "yearly" ? "year" : "month";
-  const billingCycleEnum = billingCycle === "yearly" ? BillingCycle.YEARLY : BillingCycle.MONTHLY;
+  let interval: "month" | "year" = billingCycle === "yearly" ? "year" : "month";
+  let billingCycleEnum = billingCycle === "yearly" ? BillingCycle.YEARLY : BillingCycle.MONTHLY;
   const nyTaxRateId = env.STRIPE_NY_SALES_TAX_RATE_ID;
 
   if (!nyTaxRateId) {
@@ -407,11 +438,23 @@ router.post("/checkout", requireAuth, async (req, res) => {
   }
 
   const planFromDb = await prisma.plan.findUnique({ where: { code: normalizedPlanCode } });
+  const enterpriseProposal = planFromDb?.isCustomEnterprise
+    ? await prisma.enterprisePlanProposal.findUnique({ where: { planCode: normalizedPlanCode } })
+    : null;
+
+  if (planFromDb?.isCustomEnterprise && !enterpriseProposal) {
+    return res.status(404).json({ error: "Enterprise proposal not found" });
+  }
+
+  if (enterpriseProposal) {
+    billingCycleEnum = enterpriseProposal.billingCycle;
+    interval = enterpriseProposal.billingCycle === BillingCycle.YEARLY ? "year" : "month";
+  }
 
   let product: Stripe.Product | null = null;
   let defaultPrice: Stripe.Price | null = null;
 
-  if (planFromDb?.stripePriceStandardId) {
+  if (!planFromDb?.isCustomEnterprise && planFromDb?.stripePriceStandardId) {
     try {
       const dbPrice = await stripeClient.prices.retrieve(planFromDb.stripePriceStandardId, {
         expand: ["product"],
@@ -446,72 +489,75 @@ router.post("/checkout", requireAuth, async (req, res) => {
     defaultPrice = (product?.default_price as Stripe.Price | null) || null;
   }
 
-  if (!product) {
-    return res.status(404).json({ error: "Plan not found" });
-  }
-
-  if (!defaultPrice) {
-    return res.status(400).json({ error: "Plan has no price configured" });
-  }
-
-  const standardMonthlyPrice = await resolveStandardMonthlyPrice({
-    product,
-    fallbackPrice: defaultPrice,
-    planStandardCents: planFromDb?.priceStandardCents,
-  });
-  if (!standardMonthlyPrice) {
-    return res.status(400).json({ error: "Plan has no monthly standard price configured" });
-  }
-
-  let price: Stripe.Price = standardMonthlyPrice;
-  if (interval === "year") {
-    try {
-      price = await resolveOrCreateYearlyPrice({
-        product,
-        defaultPrice: standardMonthlyPrice,
-        normalizedPlanCode,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Yearly billing is not available for this plan.";
-      return res.status(400).json({
-        error: `${message} Please choose monthly.`,
-      });
+  const isCustomEnterprisePlan = Boolean(planFromDb?.isCustomEnterprise);
+  if (!isCustomEnterprisePlan) {
+    if (!product) {
+      return res.status(404).json({ error: "Plan not found" });
     }
-  }
 
-  const userId = req.user!.id;
-  const eligibleForFounder = await isFounderEligible(userId);
-  const priceType = eligibleForFounder ? PriceType.FOUNDER : PriceType.STANDARD;
+    if (!defaultPrice) {
+      return res.status(400).json({ error: "Plan has no price configured" });
+    }
 
-  const couponResult = await resolveApplicableCoupon({
-    couponCode: parsed.data.couponCode,
-    userId,
-    normalizedPlanCode,
-  });
-  if (couponResult.error) {
-    return res.status(400).json({ error: couponResult.error });
-  }
-  const applicableCoupon = couponResult.coupon;
+    const standardMonthlyPrice = await resolveStandardMonthlyPrice({
+      product,
+      fallbackPrice: defaultPrice,
+      planStandardCents: planFromDb?.priceStandardCents,
+    });
+    if (!standardMonthlyPrice) {
+      return res.status(400).json({ error: "Plan has no monthly standard price configured" });
+    }
 
-  let priceId = price.id;
+    let price: Stripe.Price = standardMonthlyPrice;
+    if (interval === "year") {
+      try {
+        price = await resolveOrCreateYearlyPrice({
+          product,
+          defaultPrice: standardMonthlyPrice,
+          normalizedPlanCode,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Yearly billing is not available for this plan.";
+        return res.status(400).json({
+          error: `${message} Please choose monthly.`,
+        });
+      }
+    }
 
-  // Ensure plan exists in local DB for FK (always use monthly/default price for plan record)
-  const planPayload = {
-    code: normalizedPlanCode,
-    name: product.name,
-    category: toPlanCategory(product.metadata.category),
-    isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
-    platformLimit: product.metadata.platformLimit ? parseInt(product.metadata.platformLimit) : null,
-    baseVisualQuota: product.metadata.baseVisualQuota ? parseInt(product.metadata.baseVisualQuota) : null,
-    basePostQuota: product.metadata.basePostQuota ? parseInt(product.metadata.basePostQuota) : null,
-    postLimitType: toPostLimitType(product.metadata.postLimitType),
-    schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
-    priceStandardCents: standardMonthlyPrice.unit_amount ?? 0,
-    priceFounderCents: product.metadata.priceFounderCents
-      ? parseInt(product.metadata.priceFounderCents)
-      : standardMonthlyPrice.unit_amount ?? 0,
-    stripePriceStandardId: standardMonthlyPrice.id,
-  };
+    const userId = req.user!.id;
+    const eligibleForFounder = await isFounderEligible(userId);
+    const priceType = eligibleForFounder ? PriceType.FOUNDER : PriceType.STANDARD;
+
+    const couponResult = await resolveApplicableCoupon({
+      couponCode,
+      userId,
+      normalizedPlanCode,
+    });
+    if (couponResult.error) {
+      return res.status(400).json({ error: couponResult.error });
+    }
+    const applicableCoupon = couponResult.coupon;
+
+    let priceId = price.id;
+
+    // Ensure plan exists in local DB for FK (always use monthly/default price for plan record)
+    const planPayload = {
+      code: normalizedPlanCode,
+      name: product.name,
+      category: toPlanCategory(product.metadata.category),
+      isCustomEnterprise: false,
+      isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
+      platformLimit: product.metadata.platformLimit ? parseInt(product.metadata.platformLimit) : null,
+      baseVisualQuota: product.metadata.baseVisualQuota ? parseInt(product.metadata.baseVisualQuota) : null,
+      basePostQuota: product.metadata.basePostQuota ? parseInt(product.metadata.basePostQuota) : null,
+      postLimitType: toPostLimitType(product.metadata.postLimitType),
+      schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
+      priceStandardCents: price.unit_amount ?? 0,
+      priceFounderCents: product.metadata.priceFounderCents
+        ? parseInt(product.metadata.priceFounderCents)
+        : price.unit_amount ?? 0,
+      stripePriceStandardId: price.id,
+    };
 
   await prisma.plan.upsert({
     where: { code: normalizedPlanCode },
@@ -520,8 +566,8 @@ router.post("/checkout", requireAuth, async (req, res) => {
   });
 
   // Check if user has an active subscription to a different plan
-  const activeSubscription = await getActiveSubscription(userId);
-  const isPlanSwitch = activeSubscription && activeSubscription.planCode !== normalizedPlanCode;
+    const activeSubscription = await getActiveSubscription(userId);
+    const isPlanSwitch = activeSubscription && activeSubscription.planCode !== normalizedPlanCode;
 
   // Handle plan switching: cancel old subscription in Stripe if switching plans
   // OR cancel default/free plan subscriptions (those without Stripe subscription ID)
@@ -905,12 +951,338 @@ router.post("/checkout", requireAuth, async (req, res) => {
     description: `Plan ${normalizedPlanCode} (${billingCycle})`,
   }).catch(() => {});
 
+    return res.json({
+      checkoutUrl: session.url,
+      priceType,
+      cart: {
+        planCode: normalizedPlanCode,
+        billingCycle,
+        subtotalCents,
+        couponCode: applicableCoupon?.code ?? null,
+        couponDiscountCents,
+        discountedSubtotalCents,
+        taxRatePercent: 8.625,
+        estimatedTaxCents,
+        estimatedTotalCents,
+        addonPlatformQty,
+        videoSessionHours,
+      },
+    });
+  }
+
+  const userId = req.user!.id;
+  const proposal = enterpriseProposal!;
+
+  const couponResult = await resolveApplicableCoupon({
+    couponCode,
+    userId,
+    normalizedPlanCode,
+  });
+  if (couponResult.error) {
+    return res.status(400).json({ error: couponResult.error });
+  }
+  const applicableCoupon = couponResult.coupon;
+
+  if (proposal.status === EnterpriseProposalStatus.PAYMENT_COMPLETED) {
+    return res.status(409).json({
+      success: false,
+      message: "Enterprise plan payment is already completed",
+      planCode: normalizedPlanCode,
+    });
+  }
+
+  const priceType = PriceType.STANDARD;
+  const quotedAmountCents = Math.round(Number(proposal.amount) * 100);
+
+  const activeSubscription = await getActiveSubscription(userId);
+  const isPlanSwitch = activeSubscription && activeSubscription.planCode !== normalizedPlanCode;
+
+  if (isPlanSwitch) {
+    if (!activeSubscription.stripeSubscriptionId) {
+      await prisma.subscription.update({
+        where: { id: activeSubscription.id },
+        data: {
+          status: SubscriptionStatus.CANCELED,
+          updatedAt: new Date(),
+        },
+      });
+    } else {
+      await prisma.subscription.update({
+        where: { id: activeSubscription.id },
+        data: {
+          status: SubscriptionStatus.CANCELED,
+          updatedAt: new Date(),
+        },
+      });
+    }
+  }
+
+  const existingSubscription = await prisma.subscription.findFirst({
+    where: { userId, status: SubscriptionStatus.INCOMPLETE },
+    orderBy: { createdAt: "desc" },
+  });
+
+  let stripeCustomerId: string | undefined;
+  if (existingSubscription?.stripeCustomerId) {
+    stripeCustomerId = existingSubscription.stripeCustomerId;
+  } else {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (user?.email) {
+      try {
+        const customer = await stripeClient.customers.create({
+          email: user.email,
+          metadata: { userId },
+        });
+        stripeCustomerId = customer.id;
+      } catch (error) {
+        logger.error("Failed to create Stripe customer", error);
+      }
+    }
+  }
+
+  let subscriptionRecord;
+  if (existingSubscription && !isPlanSwitch) {
+    subscriptionRecord = await prisma.subscription.update({
+      where: { id: existingSubscription.id },
+      data: {
+        planCode: normalizedPlanCode,
+        priceType,
+        billingCycle: proposal.billingCycle,
+        status: SubscriptionStatus.INCOMPLETE,
+        stripeCustomerId: stripeCustomerId || existingSubscription.stripeCustomerId,
+        termsAcceptedAt,
+        addonPlatformQty,
+        videoAddonEnabled,
+        videoSessionHours,
+        updatedAt: new Date(),
+      },
+    });
+  } else {
+    subscriptionRecord = await prisma.subscription.create({
+      data: {
+        userId,
+        planCode: normalizedPlanCode,
+        priceType,
+        billingCycle: proposal.billingCycle,
+        status: SubscriptionStatus.INCOMPLETE,
+        stripeCustomerId,
+        termsAcceptedAt,
+        addonPlatformQty,
+        videoAddonEnabled,
+        videoSessionHours,
+      },
+    });
+  }
+
+  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+    {
+      price_data: {
+        currency: "usd",
+        recurring: { interval: proposal.billingCycle === BillingCycle.YEARLY ? "year" : "month" },
+        unit_amount: quotedAmountCents,
+        product_data: {
+          name: proposal.planName,
+          description: `Custom enterprise plan for ${proposal.companyName}`,
+        },
+      },
+      quantity: 1,
+      tax_rates: [nyTaxRateId],
+    },
+  ];
+
+  const cartSubtotalCentsParts: number[] = [quotedAmountCents];
+  const proposalInterval = proposal.billingCycle === BillingCycle.YEARLY ? "year" : "month";
+
+  if (addonPlatformQty > 0) {
+    if (proposalInterval === "year" && env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID) {
+      lineItems.push({
+        price: env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID,
+        quantity: addonPlatformQty,
+        tax_rates: [nyTaxRateId],
+      });
+      const yearlyUnitCents = PLATFORM_ADDON_MONTHLY_CENTS * 12;
+      cartSubtotalCentsParts.push(yearlyUnitCents * addonPlatformQty);
+    } else if (proposalInterval === "month" && env.STRIPE_PLATFORM_ADDON_PRICE_ID) {
+      lineItems.push({
+        price: env.STRIPE_PLATFORM_ADDON_PRICE_ID,
+        quantity: addonPlatformQty,
+        tax_rates: [nyTaxRateId],
+      });
+      cartSubtotalCentsParts.push(PLATFORM_ADDON_MONTHLY_CENTS * addonPlatformQty);
+    } else {
+      const addonUnitCents = proposalInterval === "year"
+        ? PLATFORM_ADDON_MONTHLY_CENTS * 12
+        : PLATFORM_ADDON_MONTHLY_CENTS;
+
+      lineItems.push({
+        price_data: {
+          currency: "usd",
+          recurring: { interval: proposalInterval },
+          unit_amount: addonUnitCents,
+          product_data: {
+            name: "Additional Platform",
+            description:
+              proposalInterval === "year"
+                ? "$60/year per extra platform"
+                : "$5/month per extra platform",
+          },
+        },
+        quantity: addonPlatformQty,
+        tax_rates: [nyTaxRateId],
+      });
+      cartSubtotalCentsParts.push(addonUnitCents * addonPlatformQty);
+    }
+  }
+
+  if (videoSessionHours > 0) {
+    lineItems.push({
+      price_data: {
+        currency: "usd",
+        unit_amount: VIDEO_SESSION_HOURLY_RATE_CENTS,
+        product_data: {
+          name: "Video Session",
+          description: "$495 per hour",
+        },
+      },
+      quantity: videoSessionHours,
+      tax_rates: [nyTaxRateId],
+    });
+    cartSubtotalCentsParts.push(VIDEO_SESSION_HOURLY_RATE_CENTS * videoSessionHours);
+  }
+
+  const subtotalCents = cartSubtotalCentsParts.reduce((sum, value) => sum + value, 0);
+  let couponDiscountCents = 0;
+  if (applicableCoupon) {
+    couponDiscountCents = calculateCouponDiscountCents(applicableCoupon, subtotalCents);
+  }
+
+  const discountedSubtotalCents = Math.max(subtotalCents - couponDiscountCents, 0);
+
+  let checkoutDiscounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
+  if (applicableCoupon && couponDiscountCents > 0) {
+    try {
+      let stripeCoupon: Stripe.Coupon;
+      if (applicableCoupon.discountType === "percentage") {
+        const percentOff = Math.max(0, Math.min(100, Number(applicableCoupon.discountValue)));
+        stripeCoupon = await stripeClient.coupons.create(
+          {
+            duration: "once",
+            percent_off: percentOff,
+            name: `Talexia Coupon ${applicableCoupon.code}`,
+            metadata: {
+              source: "talexia_internal_coupon",
+              couponId: applicableCoupon.id,
+              couponCode: applicableCoupon.code,
+            },
+          },
+          { idempotencyKey: `coupon-${applicableCoupon.code}-pct-${percentOff}` }
+        );
+      } else {
+        stripeCoupon = await stripeClient.coupons.create(
+          {
+            duration: "once",
+            amount_off: couponDiscountCents,
+            currency: "usd",
+            name: `Talexia Coupon ${applicableCoupon.code}`,
+            metadata: {
+              source: "talexia_internal_coupon",
+              couponId: applicableCoupon.id,
+              couponCode: applicableCoupon.code,
+            },
+          },
+          { idempotencyKey: `coupon-${applicableCoupon.code}-amt-${couponDiscountCents}` }
+        );
+      }
+      checkoutDiscounts = [{ coupon: stripeCoupon.id }];
+    } catch (error) {
+      logger.error("Failed to create Stripe coupon for enterprise checkout", {
+        couponCode: applicableCoupon.code,
+        error,
+      });
+      return res.status(500).json({ error: "Unable to apply coupon at this time" });
+    }
+  }
+
+  const session = await stripeClient.checkout.sessions.create({
+    mode: "subscription",
+    line_items: lineItems,
+    ...(checkoutDiscounts ? { discounts: checkoutDiscounts } : {}),
+    ...(stripeCustomerId ? { customer: stripeCustomerId } : {}),
+    ...(stripeCustomerId ? { customer_update: { address: "auto", name: "auto" } } : {}),
+    billing_address_collection: "required",
+    ...(checkoutDiscounts ? {} : { allow_promotion_codes: true }),
+    success_url: `${env.FRONTEND_URL}/billing/success`,
+    cancel_url: `${env.FRONTEND_URL}/billing/cancel`,
+    subscription_data: {
+      metadata: {
+        userId,
+        planCode: normalizedPlanCode,
+        priceType,
+        subscriptionId: subscriptionRecord.id,
+        billingCycle: proposal.billingCycle === BillingCycle.YEARLY ? "yearly" : "monthly",
+        termsAcceptedAt: termsAcceptedAt.toISOString(),
+        addonPlatformQty: addonPlatformQty.toString(),
+        videoAddonEnabled: videoAddonEnabled.toString(),
+        videoSessionHours: videoSessionHours.toString(),
+        enterpriseProposalId: proposal.id,
+        enterpriseProposalPriceCents: quotedAmountCents.toString(),
+        ...(applicableCoupon
+          ? {
+            couponId: applicableCoupon.id,
+            couponCode: applicableCoupon.code,
+            couponDiscountCents: couponDiscountCents.toString(),
+          }
+          : {}),
+      },
+    },
+    metadata: {
+      userId,
+      planCode: normalizedPlanCode,
+      priceType,
+      subscriptionId: subscriptionRecord.id,
+      billingCycle: proposal.billingCycle === BillingCycle.YEARLY ? "yearly" : "monthly",
+      termsAcceptedAt: termsAcceptedAt.toISOString(),
+      addonPlatformQty: addonPlatformQty.toString(),
+      videoAddonEnabled: videoAddonEnabled.toString(),
+      videoSessionHours: videoSessionHours.toString(),
+      enterpriseProposalId: proposal.id,
+      enterpriseProposalPriceCents: quotedAmountCents.toString(),
+      ...(applicableCoupon
+        ? {
+          couponId: applicableCoupon.id,
+          couponCode: applicableCoupon.code,
+          couponDiscountCents: couponDiscountCents.toString(),
+        }
+        : {}),
+    },
+  });
+
+  await prisma.enterprisePlanProposal.update({
+    where: { id: proposal.id },
+    data: {
+      ...(proposal.status === EnterpriseProposalStatus.PENDING
+        ? { status: EnterpriseProposalStatus.VIEWED }
+        : {}),
+      ...(proposal.viewedAt ? {} : { viewedAt: new Date() }),
+    },
+  });
+
+  const estimatedTaxCents = Math.round((discountedSubtotalCents * NY_SALES_TAX_BPS) / 10_000);
+  const estimatedTotalCents = discountedSubtotalCents + estimatedTaxCents;
+
+  logActivity({
+    userId,
+    type: "SUBSCRIPTION_CHECKOUT_STARTED",
+    title: "Subscription Checkout Started",
+    description: `Enterprise plan ${proposal.planName} (${proposal.billingCycle.toLowerCase()})`,
+  }).catch(() => {});
+
   return res.json({
     checkoutUrl: session.url,
     priceType,
     cart: {
       planCode: normalizedPlanCode,
-      billingCycle,
+      billingCycle: proposal.billingCycle === BillingCycle.YEARLY ? "yearly" : "monthly",
       subtotalCents,
       couponCode: applicableCoupon?.code ?? null,
       couponDiscountCents,
@@ -920,6 +1292,235 @@ router.post("/checkout", requireAuth, async (req, res) => {
       estimatedTotalCents,
       addonPlatformQty,
       videoSessionHours,
+    },
+  });
+});
+
+router.get("/addons/pricing", requireAuth, async (req, res) => {
+  const activeSubscription = await getActiveSubscription(req.user!.id);
+
+  return res.json({
+    videoSession: {
+      unitAmountCents: VIDEO_SESSION_HOURLY_RATE_CENTS,
+      currency: "usd",
+      label: "$495/hr",
+    },
+    platformAddon: {
+      monthlyUnitAmountCents: PLATFORM_ADDON_MONTHLY_CENTS,
+      yearlyUnitAmountCents: PLATFORM_ADDON_MONTHLY_CENTS * 12,
+      monthlyLabel: "$5/month",
+      yearlyLabel: "$60/year",
+    },
+    activeSubscription: activeSubscription
+      ? {
+        id: activeSubscription.id,
+        planCode: activeSubscription.planCode,
+        billingCycle: activeSubscription.billingCycle,
+        status: activeSubscription.status,
+        addonPlatformQty: activeSubscription.addonPlatformQty ?? 0,
+        videoAddonEnabled: activeSubscription.videoAddonEnabled ?? false,
+        videoSessionHours: activeSubscription.videoSessionHours ?? 0,
+      }
+      : null,
+  });
+});
+
+router.post("/addons/video-session/checkout", requireAuth, async (req, res) => {
+  const schema = z.object({
+    videoSessionHours: z.coerce.number().int().min(1).max(40),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const hours = parsed.data.videoSessionHours;
+  const activeSubscription = await getActiveSubscription(req.user!.id);
+
+  if (!activeSubscription) {
+    return res.status(404).json({ error: "Active subscription not found" });
+  }
+
+  if (!stripeClient) {
+    return res.status(503).json({ error: "Stripe not configured" });
+  }
+
+  const nyTaxRateId = env.STRIPE_NY_SALES_TAX_RATE_ID;
+  if (!nyTaxRateId) {
+    return res.status(503).json({
+      error: "NY sales tax rate is not configured",
+      requiredEnv: "STRIPE_NY_SALES_TAX_RATE_ID",
+    });
+  }
+
+  const customerId = await ensureStripeCustomerForUser(req.user!.id, activeSubscription.stripeCustomerId);
+  const subtotalCents = VIDEO_SESSION_HOURLY_RATE_CENTS * hours;
+  const estimatedTaxCents = Math.round((subtotalCents * NY_SALES_TAX_BPS) / 10_000);
+  const estimatedTotalCents = subtotalCents + estimatedTaxCents;
+
+  const metadata = {
+    type: "video_session_addon",
+    userId: req.user!.id,
+    subscriptionId: activeSubscription.id,
+    planCode: activeSubscription.planCode,
+    videoSessionHours: String(hours),
+    unitAmountCents: String(VIDEO_SESSION_HOURLY_RATE_CENTS),
+  };
+
+  const session = await stripeClient.checkout.sessions.create({
+    mode: "payment",
+    line_items: [
+      {
+        price_data: {
+          currency: "usd",
+          unit_amount: VIDEO_SESSION_HOURLY_RATE_CENTS,
+          product_data: {
+            name: "Video Session Add-on",
+            description: "$495 per hour",
+          },
+        },
+        quantity: hours,
+        tax_rates: [nyTaxRateId],
+      },
+    ],
+    customer: customerId,
+    customer_update: { address: "auto", name: "auto" },
+    billing_address_collection: "required",
+    success_url: `${env.FRONTEND_URL}/billing/success?type=video-session-addon`,
+    cancel_url: `${env.FRONTEND_URL}/billing/cancel?type=video-session-addon`,
+    metadata,
+    payment_intent_data: {
+      metadata,
+    },
+  });
+
+  return res.status(201).json({
+    checkoutUrl: session.url,
+    addon: {
+      type: "VIDEO_SESSION",
+      videoSessionHours: hours,
+      unitAmountCents: VIDEO_SESSION_HOURLY_RATE_CENTS,
+      subtotalCents,
+      estimatedTaxCents,
+      estimatedTotalCents,
+    },
+  });
+});
+
+router.post("/addons/platforms/checkout", requireAuth, async (req, res) => {
+  const schema = z.object({
+    addonPlatformQty: z.coerce.number().int().min(1).max(10),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const requestedQty = parsed.data.addonPlatformQty;
+  const activeSubscription = await getActiveSubscription(req.user!.id);
+
+  if (!activeSubscription) {
+    return res.status(404).json({ error: "Active subscription not found" });
+  }
+
+  if (!activeSubscription.stripeSubscriptionId) {
+    return res.status(400).json({ error: "Active Stripe subscription not found" });
+  }
+
+  if (activeSubscription.plan.platformLimit === null || activeSubscription.plan.platformLimit === undefined) {
+    return res.status(400).json({ error: "Current plan does not support platform add-ons" });
+  }
+
+  if (!stripeClient) {
+    return res.status(503).json({ error: "Stripe not configured" });
+  }
+
+  const billingCycle = activeSubscription.billingCycle;
+  const addonPriceId =
+    billingCycle === BillingCycle.YEARLY
+      ? env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID
+      : env.STRIPE_PLATFORM_ADDON_PRICE_ID;
+
+  if (!addonPriceId) {
+    return res.status(503).json({
+      error: "Platform add-on price is not configured",
+      requiredEnv:
+        billingCycle === BillingCycle.YEARLY
+          ? "STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID"
+          : "STRIPE_PLATFORM_ADDON_PRICE_ID",
+    });
+  }
+
+  const stripeSubscription = await stripeClient.subscriptions.retrieve(activeSubscription.stripeSubscriptionId, {
+    expand: ["items.data.price"],
+  });
+
+  const baseItem = stripeSubscription.items.data[0];
+  if (!baseItem) {
+    return res.status(400).json({ error: "Unable to resolve the base subscription item" });
+  }
+
+  const existingAddonItem = stripeSubscription.items.data.find((item) => item.price.id === addonPriceId);
+  const currentAddonQty = activeSubscription.addonPlatformQty ?? 0;
+  const nextAddonQty = currentAddonQty + requestedQty;
+
+  const items: Stripe.SubscriptionUpdateParams.Item[] = [{ id: baseItem.id }];
+  if (existingAddonItem) {
+    items.push({ id: existingAddonItem.id, quantity: nextAddonQty });
+  } else {
+    items.push({ price: addonPriceId, quantity: nextAddonQty });
+  }
+
+  const updatedStripeSubscription = await stripeClient.subscriptions.update(activeSubscription.stripeSubscriptionId, {
+    items,
+    proration_behavior: "always_invoice",
+    payment_behavior: "error_if_incomplete",
+    metadata: {
+      ...(stripeSubscription.metadata ?? {}),
+      userId: req.user!.id,
+      planCode: activeSubscription.planCode,
+      billingCycle: activeSubscription.billingCycle === BillingCycle.YEARLY ? "yearly" : "monthly",
+      addonPlatformQty: String(nextAddonQty),
+      videoAddonEnabled: String(activeSubscription.videoAddonEnabled ?? false),
+      videoSessionHours: String(activeSubscription.videoSessionHours ?? 0),
+    },
+  });
+
+  const updatedSubscription = await prisma.subscription.update({
+    where: { id: activeSubscription.id },
+    data: {
+      addonPlatformQty: nextAddonQty,
+      updatedAt: new Date(),
+    },
+  });
+
+  return res.json({
+    success: true,
+    subscription: {
+      id: updatedSubscription.id,
+      planCode: updatedSubscription.planCode,
+      addonPlatformQty: updatedSubscription.addonPlatformQty,
+      billingCycle: updatedSubscription.billingCycle,
+      status: updatedSubscription.status,
+    },
+    stripe: {
+      id: updatedStripeSubscription.id,
+      status: updatedStripeSubscription.status,
+    },
+    addon: {
+      type: "PLATFORM",
+      requestedQty,
+      currentQty: currentAddonQty,
+      nextQty: nextAddonQty,
+      unitAmountCents: billingCycle === BillingCycle.YEARLY
+        ? PLATFORM_ADDON_MONTHLY_CENTS * 12
+        : PLATFORM_ADDON_MONTHLY_CENTS,
+      estimatedSubtotalCents:
+        (billingCycle === BillingCycle.YEARLY
+          ? PLATFORM_ADDON_MONTHLY_CENTS * 12
+          : PLATFORM_ADDON_MONTHLY_CENTS) * requestedQty,
     },
   });
 });
@@ -1372,7 +1973,7 @@ router.get("/current-plan", requireAuth, async (req, res) => {
   try {
     const userId = req.user!.id;
 
-    const activeSubscription = await prisma.subscription.findFirst({
+    let activeSubscription = await prisma.subscription.findFirst({
       where: {
         userId,
         status: {
@@ -1386,6 +1987,52 @@ router.get("/current-plan", requireAuth, async (req, res) => {
         updatedAt: "desc",
       },
     });
+
+    if (!activeSubscription) {
+      const latestSubscription = await prisma.subscription.findFirst({
+        where: { userId },
+        include: { plan: true },
+        orderBy: { updatedAt: "desc" },
+      });
+
+      if (latestSubscription && stripeClient && latestSubscription.stripeSubscriptionId) {
+        try {
+          const stripeSub = await stripeClient.subscriptions.retrieve(latestSubscription.stripeSubscriptionId, {
+            expand: ["schedule"],
+          });
+          const stripeStatus = stripeSub.status;
+          const nextStatus =
+            stripeStatus === "active"
+              ? SubscriptionStatus.ACTIVE
+              : stripeStatus === "trialing"
+                ? SubscriptionStatus.TRIALING
+                : stripeStatus === "past_due"
+                  ? SubscriptionStatus.PAST_DUE
+                  : stripeStatus === "canceled" || stripeStatus === "incomplete_expired"
+                    ? SubscriptionStatus.CANCELED
+                    : latestSubscription.status;
+
+          if (nextStatus !== latestSubscription.status) {
+            activeSubscription = await prisma.subscription.update({
+              where: { id: latestSubscription.id },
+              data: {
+                status: nextStatus,
+                updatedAt: new Date(),
+              },
+              include: { plan: true },
+            });
+          } else if (stripeStatus === "active" || stripeStatus === "trialing") {
+            activeSubscription = latestSubscription;
+          }
+        } catch (error) {
+          logger.warn("Unable to recover enterprise current-plan from Stripe", {
+            userId,
+            subscriptionId: latestSubscription.id,
+            error,
+          });
+        }
+      }
+    }
 
     if (!activeSubscription) {
       return res.status(404).json({
@@ -1615,7 +2262,7 @@ router.get("/history", requireAuth, async (req, res) => {
     const userId = req.user!.id;
 
     // Get current active subscription
-    const currentSubscription = await prisma.subscription.findFirst({
+    let currentSubscription = await prisma.subscription.findFirst({
       where: {
         userId,
         status: {
@@ -1629,6 +2276,56 @@ router.get("/history", requireAuth, async (req, res) => {
         updatedAt: "desc",
       },
     });
+
+    if (!currentSubscription) {
+      const latestSubscription = await prisma.subscription.findFirst({
+        where: { userId },
+        include: {
+          plan: true,
+        },
+        orderBy: {
+          updatedAt: "desc",
+        },
+      });
+
+      if (latestSubscription && stripeClient && latestSubscription.stripeSubscriptionId) {
+        try {
+          const stripeSub = await stripeClient.subscriptions.retrieve(latestSubscription.stripeSubscriptionId);
+          const stripeStatus = stripeSub.status;
+          const nextStatus =
+            stripeStatus === "active"
+              ? SubscriptionStatus.ACTIVE
+              : stripeStatus === "trialing"
+                ? SubscriptionStatus.TRIALING
+                : stripeStatus === "past_due"
+                  ? SubscriptionStatus.PAST_DUE
+                  : stripeStatus === "canceled" || stripeStatus === "incomplete_expired"
+                    ? SubscriptionStatus.CANCELED
+                    : latestSubscription.status;
+
+          if (nextStatus !== latestSubscription.status) {
+            currentSubscription = await prisma.subscription.update({
+              where: { id: latestSubscription.id },
+              data: {
+                status: nextStatus,
+                updatedAt: new Date(),
+              },
+              include: { plan: true },
+            });
+          } else if (stripeStatus === "active" || stripeStatus === "trialing") {
+            currentSubscription = latestSubscription;
+          }
+        } catch (error) {
+          logger.warn("Unable to recover enterprise history subscription from Stripe", {
+            userId,
+            subscriptionId: latestSubscription.id,
+            error,
+          });
+        }
+      } else if (latestSubscription && latestSubscription.plan?.isCustomEnterprise) {
+        currentSubscription = latestSubscription;
+      }
+    }
 
     // Get all subscriptions (both active and past)
     const allSubscriptions = await prisma.subscription.findMany({

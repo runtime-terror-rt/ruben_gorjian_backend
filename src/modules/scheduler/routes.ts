@@ -62,8 +62,18 @@ function resolveSessionErrorStatus(message: string) {
     lowered.includes("active subscription is required") ||
     lowered.includes("reached your") ||
     lowered.includes("no remaining") ||
+    lowered.includes("purchase more before booking") ||
+    lowered.includes("video session add-on is not enabled") ||
+    lowered.includes("insufficient video session hours") ||
     lowered.includes("only admin")
   ) {
+    if (
+      lowered.includes("purchase more before booking") ||
+      lowered.includes("insufficient video session hours") ||
+      lowered.includes("video session add-on is not enabled")
+    ) {
+      return 402;
+    }
     return 403;
   }
   if (lowered.includes("not found")) return 404;
@@ -151,8 +161,10 @@ router.patch("/posts/:id", async (req, res) => {
       .json({ error: "Invalid scheduler update payload", details: formatZodError(parsed.error) });
   }
 
+  const postId = req.params.id as string;
+
   try {
-    const result = await schedulerService.updateScheduledPost(req.user!, req.params.id, parsed.data);
+    const result = await schedulerService.updateScheduledPost(req.user!, postId, parsed.data);
     return res.json({ post: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update scheduled post";
@@ -162,8 +174,10 @@ router.patch("/posts/:id", async (req, res) => {
 });
 
 router.delete("/posts/:id", async (req, res) => {
+  const postId = req.params.id as string;
+
   try {
-    const result = await schedulerService.deleteScheduledPost(req.user!, req.params.id);
+    const result = await schedulerService.deleteScheduledPost(req.user!, postId);
     return res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to delete scheduled post";
@@ -173,8 +187,10 @@ router.delete("/posts/:id", async (req, res) => {
 });
 
 router.get("/posts/:id", async (req, res) => {
+  const postId = req.params.id as string;
+
   try {
-    const post = await schedulerService.getScheduledPost(req.user!, req.params.id);
+    const post = await schedulerService.getScheduledPost(req.user!, postId);
     return res.json({
       post,
       meta: {
@@ -202,8 +218,10 @@ router.patch("/posts/:id/publish-status", requireAuth, requireAdmin, async (req,
       .json({ error: "Invalid publish status payload", details: formatZodError(parsed.error) });
   }
 
+  const postId = req.params.id as string;
+
   try {
-    const post = await schedulerService.updatePublishStatus(req.user!, req.params.id, parsed.data);
+    const post = await schedulerService.updatePublishStatus(req.user!, postId, parsed.data);
     return res.json({ post });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update publish status";
@@ -238,8 +256,10 @@ router.patch("/sessions/:id", async (req, res) => {
       .json({ error: "Invalid scheduler session update payload", details: formatZodError(parsed.error) });
   }
 
+  const sessionId = req.params.id as string;
+
   try {
-    const session = await schedulerService.updateScheduledSession(req.user!, req.params.id, parsed.data);
+    const session = await schedulerService.updateScheduledSession(req.user!, sessionId, parsed.data);
     return res.json({ session });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update session";
@@ -256,8 +276,10 @@ router.patch("/sessions/:id/status", requireAuth, requireAdmin, async (req, res)
       .json({ error: "Invalid scheduler session status payload", details: formatZodError(parsed.error) });
   }
 
+  const sessionId = req.params.id as string;
+
   try {
-    const session = await schedulerService.updateScheduledSessionStatus(req.user!, req.params.id, parsed.data);
+    const session = await schedulerService.updateScheduledSessionStatus(req.user!, sessionId, parsed.data);
     return res.json({ session });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update session status";

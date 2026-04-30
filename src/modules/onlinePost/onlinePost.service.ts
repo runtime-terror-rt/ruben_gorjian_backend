@@ -688,23 +688,98 @@ export class SocialMediaService {
     }
   }
 
-  async createConnectLinkForUser(
-    user: User,
-    payload: { redirectUrl: string; platform: string; showCalendar?: boolean },
-  ) {
-    const platform = this.normalizePlatform(payload.platform);
-    const prismaPlatform = this.toPrismaPlatform(platform);
+  // async createConnectLinkForUser(
+  //   user: User,
+  //   payload: { redirectUrl: string; platform: string; showCalendar?: boolean },
+  // ) {
+  //   const platform = this.normalizePlatform(payload.platform);
+  //   const prismaPlatform = this.toPrismaPlatform(platform);
 
-    const existing = await this.prisma.socialPlatformLink.findUnique({
-      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
-    });
+  //   const existing = await this.prisma.socialPlatformLink.findUnique({
+  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+  //   });
 
-    if (!existing) {
-      await this.enforceLinkLimit(user.id);
+  //   if (!existing) {
+  //     await this.enforceLinkLimit(user.id);
+  //   }
+
+  //   const username = this.uploadPostUsername(user);
+  //   await this.createOrReuseUploadPostProfile(username);
+
+  //   const linkResult = await this.api("/uploadposts/users/generate-jwt", {
+  //     method: "POST",
+  //     headers: { "Content-Type": "application/json" },
+  //     body: JSON.stringify({
+  //       username,
+  //       platforms: [platform],
+  //       redirect_url: payload.redirectUrl,
+  //       show_calendar: payload.showCalendar ?? true,
+  //     }),
+  //   });
+
+  //   const connectMeta = this.extractConnectMeta(linkResult);
+
+  //   await this.prisma.socialPlatformLink.upsert({
+  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+  //     update: {
+  //       linkedAt: new Date(),
+  //       externalRef: connectMeta.externalRef,
+  //       externalProfileUrl: connectMeta.externalProfileUrl,
+  //     },
+  //     create: {
+  //       userId: user.id,
+  //       platform: prismaPlatform,
+  //       externalRef: connectMeta.externalRef,
+  //       externalProfileUrl: connectMeta.externalProfileUrl,
+  //     },
+  //   });
+
+  //   return {
+  //     success: true,
+  //     username,
+  //     platform,
+  //     connect: linkResult,
+  //   };
+  // }
+
+  private buildRedirectUrl(platform?: string) {
+    const baseUrl = process.env.FRONTEND_URL;
+
+    if (!baseUrl) {
+      throw new Error("FRONTEND_URL is not defined");
     }
 
+    const url = new URL("/social/callback", baseUrl);
+
+    // optional UX only (NOT for logic)
+    if (platform) {
+      url.searchParams.set("platform", this.normalizePlatform(platform));
+    }
+
+    return url.toString();
+  }
+
+  async createConnectLinkForUser(
+    user: User,
+    payload: { platform: string; showCalendar?: boolean },
+  ) {
+    const platform = this.normalizePlatform(payload.platform);
     const username = this.uploadPostUsername(user);
+
+    // ensure profile exists
     await this.createOrReuseUploadPostProfile(username);
+
+    // 🔐 secure state (source of truth binding)
+    const state = encodeURIComponent(
+      JSON.stringify({
+        userId: user.id,
+        platform,
+        nonce: crypto.randomUUID(),
+      }),
+    );
+
+    // 🌐 backend-controlled redirect
+    const redirectUrl = this.buildRedirectUrl(platform);
 
     const linkResult = await this.api("/uploadposts/users/generate-jwt", {
       method: "POST",
@@ -712,33 +787,81 @@ export class SocialMediaService {
       body: JSON.stringify({
         username,
         platforms: [platform],
-        redirect_url: payload.redirectUrl,
+        redirect_url: redirectUrl,
         show_calendar: payload.showCalendar ?? true,
+        state,
       }),
     });
 
-    const connectMeta = this.extractConnectMeta(linkResult);
+    return {
+      success: true,
+      platform,
+      connect: linkResult,
+      username,
+      redirectUrl,
+    };
+  }
 
+  async finalizePlatformConnection(
+    user: User,
+    payload: {
+      platform: string;
+    },
+  ) {
+    const { platform } = payload;
+
+    if (!platform) {
+      throw new BadRequestException({
+        message: "Missing platform",
+      });
+    }
+
+    const normalizedPlatform = this.normalizePlatform(platform);
+    const prismaPlatform = this.toPrismaPlatform(normalizedPlatform);
+
+    // � ensure profile exists before fetching
+    const username = this.uploadPostUsername(user);
+    await this.createOrReuseUploadPostProfile(username);
+
+    // �🔥 Fetch fresh data from UploadPost (NOT JWT)
+    const result = await this.api("/uploadposts/users/me", {
+      method: "GET",
+    });
+
+    const platformData = (result as any)?.profile?.social_accounts?.[
+      normalizedPlatform
+    ];
+
+    if (!platformData) {
+      throw new BadRequestException({
+        message: `No connected account found for ${normalizedPlatform}`,
+      });
+    }
+
+    // 💾 safe upsert
     await this.prisma.socialPlatformLink.upsert({
-      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+      where: {
+        userId_platform: {
+          userId: user.id,
+          platform: prismaPlatform,
+        },
+      },
       update: {
         linkedAt: new Date(),
-        externalRef: connectMeta.externalRef,
-        externalProfileUrl: connectMeta.externalProfileUrl,
+        externalRef: platformData?.id ?? null,
+        externalProfileUrl: platformData?.profile_url ?? null,
       },
       create: {
         userId: user.id,
         platform: prismaPlatform,
-        externalRef: connectMeta.externalRef,
-        externalProfileUrl: connectMeta.externalProfileUrl,
+        externalRef: platformData?.id ?? null,
+        externalProfileUrl: platformData?.profile_url ?? null,
       },
     });
 
     return {
       success: true,
-      username,
-      platform,
-      connect: linkResult,
+      platform: prismaPlatform,
     };
   }
 
@@ -1402,7 +1525,7 @@ export class SocialMediaService {
 
     const result = await this.createConnectLinkForUser(user, {
       platform,
-      redirectUrl,
+
       showCalendar: true,
     });
 
@@ -1426,6 +1549,7 @@ export class SocialMediaService {
       connect: result.connect,
     };
   }
+
   status(query: { jobId?: string; requestId?: string }) {
     if (!query.jobId && !query.requestId) {
       throw new BadRequestException("Provide jobId or requestId");

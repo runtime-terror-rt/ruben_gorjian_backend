@@ -1,0 +1,8 @@
+-- CreateEnum
+CREATE TYPE "EnterpriseIndustry" AS ENUM ('RESTAURANT_HOSPITALITY', 'JEWELRY', 'FASHION_APPAREL', 'BEAUTY_WELLNESS', 'HOME_LIFESTYLE', 'HEALTH_FITNESS', 'CORPORATE_PROFESSIONAL_SERVICES', 'E_COMMERCE_PRODUCT_BRAND', 'OTHER');
+
+-- AlterTable
+ALTER TABLE "EnterprisePlanProposal" ADD COLUMN     "industry" "EnterpriseIndustry",
+ADD COLUMN     "industryOther" TEXT,
+ADD COLUMN     "internalNotes" TEXT,
+ADD COLUMN     "postsPerMonth" INTEGER;
