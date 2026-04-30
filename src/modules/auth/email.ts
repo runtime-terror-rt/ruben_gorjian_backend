@@ -220,7 +220,7 @@ export async function sendEnterprisePlanInviteEmail(params: {
   const logoAttachment = getTalexiaLogoAttachment();
 
   const _inviteBase = verificationBaseUrl().replace(/\/$/, "");
-  const inviteUrl = `${_inviteBase}/enterprise-plan/accept?token=${encodeURIComponent(params.token)}${params.planCode ? `&planCode=${encodeURIComponent(
+  const inviteUrl = `${_inviteBase}/enterprise-plan/details?token=${encodeURIComponent(params.token)}${params.planCode ? `&planCode=${encodeURIComponent(
     params.planCode
   )}` : ""}`;
   const recipientName = resolveRecipientName(params.fullName, params.email);
