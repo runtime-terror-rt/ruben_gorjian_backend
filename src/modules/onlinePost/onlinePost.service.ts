@@ -805,48 +805,28 @@ export class SocialMediaService {
   async finalizePlatformConnection(
     user: User,
     payload: {
-      token: string;
-      state: string;
+      platform: string;
     },
   ) {
-    const { token, state } = payload;
+    const { platform } = payload;
 
-    if (!token || !state) {
+    if (!platform) {
       throw new BadRequestException({
-        message: "Missing token or state",
+        message: "Missing platform",
       });
     }
 
-    // 🔐 decode state safely
-    let parsedState: any;
-
-    try {
-      parsedState = JSON.parse(decodeURIComponent(state));
-    } catch {
-      throw new BadRequestException({
-        message: "Invalid state format",
-      });
-    }
-
-    // 🔐 ownership validation
-    if (parsedState.userId !== user.id) {
-      throw new BadRequestException({
-        message: "User mismatch in state",
-      });
-    }
-
-    const normalizedPlatform = this.normalizePlatform(parsedState.platform);
+    const normalizedPlatform = this.normalizePlatform(platform);
     const prismaPlatform = this.toPrismaPlatform(normalizedPlatform);
 
-    // 🔥 UploadPost is source of truth
-    const result = await this.api("/uploadposts/users/validate-jwt", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+    // 🔥 Fetch fresh data from UploadPost (NOT JWT)
+    const result = await this.api("/uploadposts/users/me", {
+      method: "GET",
     });
 
-    const platformData = (result as any)?.profile?.social_accounts?.[normalizedPlatform];
+    const platformData = (result as any)?.profile?.social_accounts?.[
+      normalizedPlatform
+    ];
 
     if (!platformData) {
       throw new BadRequestException({
@@ -854,7 +834,7 @@ export class SocialMediaService {
       });
     }
 
-    // 💾 idempotent DB write
+    // 💾 safe upsert
     await this.prisma.socialPlatformLink.upsert({
       where: {
         userId_platform: {
@@ -1541,7 +1521,7 @@ export class SocialMediaService {
 
     const result = await this.createConnectLinkForUser(user, {
       platform,
- 
+
       showCalendar: true,
     });
 

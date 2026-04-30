@@ -45,7 +45,6 @@ export class OnlinePostController {
     try {
       return res.json(
         await this.onlinePostService.createConnectLinkForUser(req.user, {
-  
           platform: req.body?.platform,
           showCalendar: req.body?.showCalendar,
         }),
@@ -54,25 +53,24 @@ export class OnlinePostController {
       return handleError(error, res);
     }
   };
+  
 
-finalizePlatformConnection = async (req: AuthedRequest, res: Response) => {
-  try {
-    const { token, state } = req.body || {};
+  finalizePlatformConnection = async (req: AuthedRequest, res: Response) => {
+    try {
+      const { platform } = req.body || {};
 
-    const result =
-      await this.onlinePostService.finalizePlatformConnection(
+      const result = await this.onlinePostService.finalizePlatformConnection(
         req.user,
         {
-          token,
-          state,
+          platform,
         },
       );
 
-    return res.json(result);
-  } catch (error) {
-    return handleError(error, res);
-  }
-};
+      return res.json(result);
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
 
   disconnectLinkForLoggedUser = async (req: AuthedRequest, res: Response) => {
     try {
