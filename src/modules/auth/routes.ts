@@ -350,7 +350,6 @@ const credentialsSchema = z.object({
 const enterpriseInviteSignupSchema = z.object({
   token: z.string().min(1),
   password: z.string().min(8),
-  name: z.string().trim().min(1).max(120).optional(),
 });
 
 async function resolveEnterpriseInvite(token: string) {
@@ -469,7 +468,7 @@ router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
       .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
-  const { token, password, name } = parsed.data;
+  const { token, password } = parsed.data;
   const resolved = await resolveEnterpriseInvite(token);
   if (!resolved.invite || resolved.error) {
     return res.status(400).json({ error: resolved.error || "Invalid invite" });
@@ -536,7 +535,7 @@ router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
 
   const user = await prisma.user.create({
     data: {
-      name: name ?? invite.fullName ?? null,
+      name: invite.fullName ?? null,
       email,
       passwordHash,
       role: "USER",

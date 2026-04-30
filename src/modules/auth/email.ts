@@ -196,6 +196,14 @@ export async function sendEnterprisePlanInviteEmail(params: {
   billingCycle?: "monthly" | "yearly";
   fullName?: string;
   companyName?: string;
+  socialPlatforms?: string[];
+  postsPerMonth?: number | null;
+  reelsPerMonth?: number | null;
+  microReelsPerMonth?: number | null;
+  proPhotoShootFrequency?: string | null;
+  proPhotoShootLength?: string | null;
+  captionHashtags?: boolean | null;
+  scheduling?: boolean | null;
 }) {
   const { CONTACT_FROM_EMAIL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, CONTACT_TO_EMAIL } = env;
 
@@ -234,13 +242,56 @@ ${buildTalexiaEmailHeader("Enterprise Plan Invitation", "A custom enterprise pla
             <p style="margin:0 0 16px;color:#475569;font-size:15px;line-height:1.6;">
               You have been invited to activate a custom Talexia Enterprise plan.
             </p>
-            <p style="margin:0 0 8px;color:#475569;font-size:14px;line-height:1.6;"><strong>Plan Code:</strong> ${params.planCode}</p>
-            ${params.planName ? `<p style="margin:0 0 8px;color:#475569;font-size:14px;line-height:1.6;"><strong>Plan Name:</strong> ${params.planName}</p>` : ""}
-            ${quotedAmount ? `<p style="margin:0 0 8px;color:#475569;font-size:14px;line-height:1.6;"><strong>Quoted Price:</strong> $${quotedAmount} / ${billingCycleLabel.toLowerCase()}</p>` : ""}
-            ${params.companyName ? `<p style="margin:0 0 24px;color:#475569;font-size:14px;line-height:1.6;"><strong>Company:</strong> ${params.companyName}</p>` : "<div style=\"height:16px\"></div>"}
+            <!-- Plan details table -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:24px;">
+              <tr style="background:#f8fafc;">
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;font-weight:600;border-bottom:1px solid #e2e8f0;">Plan Code</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;font-weight:600;border-bottom:1px solid #e2e8f0;">${params.planCode}</td>
+              </tr>
+              ${params.planName ? `<tr>
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Plan Name</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.planName}</td>
+              </tr>` : ""}
+              ${quotedAmount ? `<tr style="background:#f8fafc;">
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Quoted Price</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">$${quotedAmount} / ${billingCycleLabel.toLowerCase()}</td>
+              </tr>` : ""}
+              ${params.companyName ? `<tr>
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Company</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.companyName}</td>
+              </tr>` : ""}
+              ${params.socialPlatforms && params.socialPlatforms.length ? `<tr style="background:#f8fafc;">
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Social Platforms</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.socialPlatforms.join(", ")}</td>
+              </tr>` : ""}
+              ${typeof params.postsPerMonth === "number" ? `<tr>
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Posts / month</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.postsPerMonth}</td>
+              </tr>` : ""}
+              ${typeof params.reelsPerMonth === "number" ? `<tr style="background:#f8fafc;">
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Reels / month</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.reelsPerMonth}</td>
+              </tr>` : ""}
+              ${typeof params.microReelsPerMonth === "number" ? `<tr>
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Micro Reels / month</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.microReelsPerMonth}</td>
+              </tr>` : ""}
+              ${params.proPhotoShootFrequency ? `<tr style="background:#f8fafc;">
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Pro Photoshoot Frequency</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.proPhotoShootFrequency}${params.proPhotoShootLength ? ` — ${params.proPhotoShootLength}` : ""}</td>
+              </tr>` : ""}
+              ${typeof params.captionHashtags === "boolean" ? `<tr>
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Caption Hashtags</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.captionHashtags ? "Yes" : "No"}</td>
+              </tr>` : ""}
+              ${typeof params.scheduling === "boolean" ? `<tr style="background:#f8fafc;">
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Scheduling</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.scheduling ? "Yes" : "No"}</td>
+              </tr>` : ""}
+            </table>
             <table cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
               <tr>
-                <td><a href="${inviteUrl}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">View Enterprise Plan</a></td>
+                <td><a href="${inviteUrl}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">Review Plan</a></td>
               </tr>
             </table>
             <p style="margin:0 0 8px;color:#94a3b8;font-size:13px;line-height:1.6;">If the button does not work, copy and open this link:</p>

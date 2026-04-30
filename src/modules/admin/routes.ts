@@ -245,7 +245,9 @@ const enterpriseInviteSchema = z.object({
   companyName: z.string().trim().min(1).max(200),
   fullName: z.string().trim().min(1).max(120),
   email: z.string().email(),
+  industry: z.string().trim().min(1).max(200),
   socialPlatforms: z.array(z.enum(["INSTAGRAM", "FACEBOOK", "TIKTOK", "LINKEDIN", "YOUTUBE"])).min(1),
+  postsPerMonth: z.coerce.number().int().min(0).max(5_000).optional(),
   reelsPerMonth: z.coerce.number().int().min(0).max(500).optional(),
   microReelsPerMonth: z.coerce.number().int().min(0).max(500).optional(),
   proPhotoShootFrequency: z.string().trim().min(1).max(120).optional(),
@@ -255,6 +257,10 @@ const enterpriseInviteSchema = z.object({
   amount: z.coerce.number().positive().max(1_000_000),
   billingCycle: z.enum(["MONTHLY", "YEARLY"]).optional().default("MONTHLY"),
   expiresInDays: z.coerce.number().int().min(1).max(30).optional().default(7),
+  internalNotes: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.string().trim().min(1).max(5_000).optional()
+  ),
 });
 
 async function generateEnterprisePlanCode() {
@@ -316,7 +322,9 @@ router.post("/enterprise-plan/invites", async (req, res) => {
       companyName: data.companyName,
       fullName: data.fullName,
       email: recipientEmail,
+      industry: data.industry.trim(),
       socialPlatforms: data.socialPlatforms,
+      postsPerMonth: data.postsPerMonth,
       reelsPerMonth: data.reelsPerMonth,
       microReelsPerMonth: data.microReelsPerMonth,
       proPhotoShootFrequency: data.proPhotoShootFrequency,
@@ -328,6 +336,7 @@ router.post("/enterprise-plan/invites", async (req, res) => {
       currency: "usd",
       expiresAt,
       status: EnterpriseProposalStatus.PENDING,
+      internalNotes: data.internalNotes?.trim() || null,
       createdByAdminId: req.user!.id,
       createdByAdminEmail: req.user!.email,
     },
@@ -363,6 +372,14 @@ router.post("/enterprise-plan/invites", async (req, res) => {
     planName: data.planName,
     amount,
     billingCycle: billingCycle === BillingCycle.YEARLY ? "yearly" : "monthly",
+    socialPlatforms: data.socialPlatforms,
+    postsPerMonth: data.postsPerMonth ?? null,
+    reelsPerMonth: data.reelsPerMonth ?? null,
+    microReelsPerMonth: data.microReelsPerMonth ?? null,
+    proPhotoShootFrequency: data.proPhotoShootFrequency ?? null,
+    proPhotoShootLength: data.proPhotoShootLength ?? null,
+    captionHashtags: data.captionHashtags ?? null,
+    scheduling: data.scheduling ?? null,
   });
 
   if (!emailResult.sent) {
@@ -402,6 +419,116 @@ router.post("/enterprise-plan/invites", async (req, res) => {
       amount,
       billingCycle: proposal.billingCycle,
     },
+  });
+});
+
+router.patch("/enterprise-plan/invites/:id", async (req, res) => {
+  const parsed = enterpriseInviteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const invite = await prisma.enterprisePlanInvite.findUnique({
+    where: { id: req.params.id },
+    include: {
+      proposal: true,
+    },
+  });
+
+  if (!invite || !invite.proposal) {
+    return res.status(404).json({ error: "Invite not found" });
+  }
+
+  const data = parsed.data;
+  const billingCycle = data.billingCycle === "YEARLY" ? BillingCycle.YEARLY : BillingCycle.MONTHLY;
+  const recipientEmail = data.email.toLowerCase().trim();
+  const amount = Number(data.amount.toFixed(2));
+  const quotedAmountCents = Math.round(amount * 100);
+  const expiresAt = new Date(Date.now() + data.expiresInDays * 24 * 60 * 60 * 1000);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.plan.update({
+      where: { code: invite.planCode },
+      data: {
+        name: data.planName,
+        priceStandardCents: quotedAmountCents,
+        priceFounderCents: quotedAmountCents,
+      },
+    });
+
+    await tx.enterprisePlanProposal.update({
+      where: { id: invite.proposalId },
+      data: {
+        planName: data.planName,
+        companyName: data.companyName,
+        fullName: data.fullName,
+        email: recipientEmail,
+        industry: data.industry.trim(),
+        socialPlatforms: data.socialPlatforms,
+        postsPerMonth: data.postsPerMonth,
+        reelsPerMonth: data.reelsPerMonth,
+        microReelsPerMonth: data.microReelsPerMonth,
+        proPhotoShootFrequency: data.proPhotoShootFrequency,
+        proPhotoShootLength: data.proPhotoShootLength,
+        captionHashtags: data.captionHashtags,
+        scheduling: data.scheduling,
+        amount: new Prisma.Decimal(amount),
+        billingCycle,
+        currency: "usd",
+        expiresAt,
+        internalNotes: data.internalNotes?.trim() || null,
+      },
+    });
+
+    await tx.enterprisePlanInvite.update({
+      where: { id: invite.id },
+      data: {
+        email: recipientEmail,
+        fullName: data.fullName,
+        companyName: data.companyName,
+        socialPlatforms: data.socialPlatforms,
+        reelsPerMonth: data.reelsPerMonth,
+        microReelsPerMonth: data.microReelsPerMonth,
+        proPhotoShootFrequency: data.proPhotoShootFrequency,
+        proPhotoShootLength: data.proPhotoShootLength,
+        captionHashtags: data.captionHashtags,
+        scheduling: data.scheduling,
+        expiresAt,
+      },
+    });
+  });
+
+  const refreshedInvite = await prisma.enterprisePlanInvite.findUnique({
+    where: { id: invite.id },
+    include: {
+      proposal: true,
+    },
+  });
+
+  return res.json({
+    success: true,
+    invite: refreshedInvite
+      ? {
+        id: refreshedInvite.id,
+        email: refreshedInvite.email,
+        fullName: refreshedInvite.fullName,
+        companyName: refreshedInvite.companyName,
+        planCode: refreshedInvite.planCode,
+        status: refreshedInvite.status,
+        expiresAt: refreshedInvite.expiresAt,
+        proposal: refreshedInvite.proposal
+          ? {
+            id: refreshedInvite.proposal.id,
+            planName: refreshedInvite.proposal.planName,
+            amount: Number(refreshedInvite.proposal.amount),
+            billingCycle: refreshedInvite.proposal.billingCycle,
+            currency: refreshedInvite.proposal.currency,
+            status: refreshedInvite.proposal.status,
+            expiresAt: refreshedInvite.proposal.expiresAt,
+          }
+          : null,
+      }
+      : null,
   });
 });
 
@@ -456,6 +583,8 @@ router.get("/enterprise-plan/invites", async (req, res) => {
             currency: true,
             status: true,
             expiresAt: true,
+            industry: true,
+            postsPerMonth: true,
           },
         },
         createdAt: true,
@@ -478,6 +607,8 @@ router.get("/enterprise-plan/invites", async (req, res) => {
         currency: item.proposal.currency,
         status: item.proposal.status,
         expiresAt: item.proposal.expiresAt,
+        industry: item.proposal.industry,
+        postsPerMonth: item.proposal.postsPerMonth,
         paidAt: item.paidAt,
       }
       : null,
@@ -558,6 +689,15 @@ router.get("/enterprise-plan/invites/:id/details", async (req, res) => {
         viewedAt: invite.proposal.viewedAt,
         signedUpAt: invite.proposal.signedUpAt,
         paidAt: invite.proposal.paidAt,
+        industry: invite.proposal.industry,
+        postsPerMonth: invite.proposal.postsPerMonth,
+        reelsPerMonth: invite.proposal.reelsPerMonth,
+        microReelsPerMonth: invite.proposal.microReelsPerMonth,
+        proPhotoShootFrequency: invite.proposal.proPhotoShootFrequency,
+        proPhotoShootLength: invite.proposal.proPhotoShootLength,
+        captionHashtags: invite.proposal.captionHashtags,
+        scheduling: invite.proposal.scheduling,
+        internalNotes: invite.proposal.internalNotes,
       }
       : null,
     user: invite.createdUser,
@@ -621,6 +761,14 @@ router.post("/enterprise-plan/invites/:id/resend", async (req, res) => {
     billingCycle: invite.proposal?.billingCycle === BillingCycle.YEARLY ? "yearly" : "monthly",
     fullName: refreshedInvite.fullName ?? undefined,
     companyName: refreshedInvite.companyName ?? undefined,
+    socialPlatforms: refreshedInvite.socialPlatforms,
+    postsPerMonth: invite.proposal?.postsPerMonth ?? null,
+    reelsPerMonth: invite.proposal?.reelsPerMonth ?? null,
+    microReelsPerMonth: invite.proposal?.microReelsPerMonth ?? null,
+    proPhotoShootFrequency: invite.proposal?.proPhotoShootFrequency ?? null,
+    proPhotoShootLength: invite.proposal?.proPhotoShootLength ?? null,
+    captionHashtags: invite.proposal?.captionHashtags ?? null,
+    scheduling: invite.proposal?.scheduling ?? null,
   });
 
   if (!emailResult.sent) {

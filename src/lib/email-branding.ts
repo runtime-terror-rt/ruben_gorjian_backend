@@ -13,7 +13,6 @@ function resolveTalexiaLogoPath() {
       return candidate;
     }
   }
-
   return null;
 }
 
