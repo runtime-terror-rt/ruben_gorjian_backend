@@ -742,23 +742,44 @@ export class SocialMediaService {
   //   };
   // }
 
+  private buildRedirectUrl(platform?: string) {
+    const baseUrl = process.env.FRONTEND_URL;
+
+    if (!baseUrl) {
+      throw new Error("FRONTEND_URL is not defined");
+    }
+
+    const url = new URL("/social/callback", baseUrl);
+
+    // optional UX only (NOT for logic)
+    if (platform) {
+      url.searchParams.set("platform", this.normalizePlatform(platform));
+    }
+
+    return url.toString();
+  }
+
   async createConnectLinkForUser(
     user: User,
-    payload: { redirectUrl: string; platform: string; showCalendar?: boolean },
+    payload: { platform: string; showCalendar?: boolean },
   ) {
     const platform = this.normalizePlatform(payload.platform);
-
     const username = this.uploadPostUsername(user);
 
-    // Ensure UploadPost profile exists
+    // ensure profile exists
     await this.createOrReuseUploadPostProfile(username);
 
-    // 🔐 Generate state (IMPORTANT)
-    const state = JSON.stringify({
-      userId: user.id,
-      platform,
-      nonce: crypto.randomUUID(),
-    });
+    // 🔐 secure state (source of truth binding)
+    const state = encodeURIComponent(
+      JSON.stringify({
+        userId: user.id,
+        platform,
+        nonce: crypto.randomUUID(),
+      }),
+    );
+
+    // 🌐 backend-controlled redirect
+    const redirectUrl = this.buildRedirectUrl(platform);
 
     const linkResult = await this.api("/uploadposts/users/generate-jwt", {
       method: "POST",
@@ -766,7 +787,7 @@ export class SocialMediaService {
       body: JSON.stringify({
         username,
         platforms: [platform],
-        redirect_url: payload.redirectUrl, // frontend URL
+        redirect_url: redirectUrl,
         show_calendar: payload.showCalendar ?? true,
         state,
       }),
@@ -777,45 +798,63 @@ export class SocialMediaService {
       platform,
       connect: linkResult,
       username,
+      redirectUrl,
     };
   }
 
   async finalizePlatformConnection(
     user: User,
     payload: {
-      platform: string;
-      externalRef: string;
-      profileUrl?: string;
-      state?: string;
+      token: string;
+      state: string;
     },
   ) {
-    const { platform, externalRef, profileUrl, state } = payload;
+    const { token, state } = payload;
 
-    if (!platform || !externalRef) {
+    if (!token || !state) {
       throw new BadRequestException({
-        message: "Missing required connection data",
+        message: "Missing token or state",
       });
     }
 
-    // 🔐 Validate state (VERY IMPORTANT)
-    if (!state) {
+    // 🔐 decode state safely
+    let parsedState: any;
+
+    try {
+      parsedState = JSON.parse(decodeURIComponent(state));
+    } catch {
       throw new BadRequestException({
-        message: "Missing state",
+        message: "Invalid state format",
       });
     }
 
-    const parsedState = JSON.parse(state);
-
+    // 🔐 ownership validation
     if (parsedState.userId !== user.id) {
       throw new BadRequestException({
-        message: "Invalid state user mismatch",
+        message: "User mismatch in state",
       });
     }
 
-    const normalizedPlatform = this.normalizePlatform(platform);
+    const normalizedPlatform = this.normalizePlatform(parsedState.platform);
     const prismaPlatform = this.toPrismaPlatform(normalizedPlatform);
 
-    // ✅ SAFE DB WRITE (only after successful connection)
+    // 🔥 UploadPost is source of truth
+    const result = await this.api("/uploadposts/users/validate-jwt", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const platformData = (result as any)?.profile?.social_accounts?.[normalizedPlatform];
+
+    if (!platformData) {
+      throw new BadRequestException({
+        message: `No connected account found for ${normalizedPlatform}`,
+      });
+    }
+
+    // 💾 idempotent DB write
     await this.prisma.socialPlatformLink.upsert({
       where: {
         userId_platform: {
@@ -825,18 +864,21 @@ export class SocialMediaService {
       },
       update: {
         linkedAt: new Date(),
-        externalRef,
-        externalProfileUrl: profileUrl,
+        externalRef: platformData?.id ?? null,
+        externalProfileUrl: platformData?.profile_url ?? null,
       },
       create: {
         userId: user.id,
         platform: prismaPlatform,
-        externalRef,
-        externalProfileUrl: profileUrl,
+        externalRef: platformData?.id ?? null,
+        externalProfileUrl: platformData?.profile_url ?? null,
       },
     });
 
-    return { success: true };
+    return {
+      success: true,
+      platform: prismaPlatform,
+    };
   }
 
   // async disconnectLinkForUser(user: User, payload: { platform: string }) {
@@ -1499,7 +1541,7 @@ export class SocialMediaService {
 
     const result = await this.createConnectLinkForUser(user, {
       platform,
-      redirectUrl,
+ 
       showCalendar: true,
     });
 
