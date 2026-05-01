@@ -11,6 +11,7 @@ import {
   SubscriptionStatus,
   PlanCategory,
 } from "@prisma/client";
+import { GLOBAL_PLATFORM_LIMIT } from "../src/config/limits";
 
 const prisma = new PrismaClient();
 
@@ -24,7 +25,8 @@ const planSeed = [
     name: "Full Management",
     category: PlanCategory.FULL_MANAGEMENT,
     isJewelry: false,
-    platformLimit: 1,
+    platformLimit: GLOBAL_PLATFORM_LIMIT,
+    platformQty: 1,
     baseVisualQuota: 0,
     basePostQuota: 12,
     postLimitType: PostLimitType.HARD,
@@ -37,7 +39,8 @@ const planSeed = [
     name: "Full Management Plus",
     category: PlanCategory.FULL_MANAGEMENT,
     isJewelry: false,
-    platformLimit: 2,
+    platformLimit: GLOBAL_PLATFORM_LIMIT,
+    platformQty: 2,
     baseVisualQuota: 0,
     basePostQuota: 16,
     postLimitType: PostLimitType.HARD,
@@ -50,7 +53,8 @@ const planSeed = [
     name: "Full Management Premium",
     category: PlanCategory.FULL_MANAGEMENT,
     isJewelry: false,
-    platformLimit: 3,
+    platformLimit: GLOBAL_PLATFORM_LIMIT,
+    platformQty: 3,
     baseVisualQuota: 0,
     basePostQuota: 20,
     postLimitType: PostLimitType.HARD,

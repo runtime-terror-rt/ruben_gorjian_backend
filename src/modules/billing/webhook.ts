@@ -23,6 +23,7 @@ import { creditVisualTopup } from "../submissions/quota-service";
 import { toPostLimitType, toSchedulerRole } from "./plan-metadata";
 import { extractStripePeriodBounds } from "./stripe-period";
 import { sendInvoiceEmail } from "../auth/email";
+import { GLOBAL_PLATFORM_LIMIT } from "../../config/limits";
 
 type StripeEvent = Stripe.Event;
 
@@ -70,13 +71,23 @@ export async function upsertPlanFromPrice(price: Stripe.Price | null | undefined
   const product = fullPrice.product as Stripe.Product | null;
   if (!product) return null;
 
-  const planCode = product.metadata?.code || product.id;
-  const planPayload = {
+  const explicitPlanCode = (product.metadata?.code || "").trim();
+  if (!explicitPlanCode) {
+    logger.warn("Skipping Stripe product without explicit plan code", {
+      productId: product.id,
+      productName: product.name,
+      priceId: fullPrice.id,
+    });
+    return null;
+  }
+
+  const planCode = explicitPlanCode;
+  const createPayload: any = {
     code: planCode,
     name: product.name,
     category: toPlanCategory(product.metadata.category),
     isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
-    platformLimit: product.metadata.platformLimit ? parseInt(product.metadata.platformLimit) : null,
+    platformLimit: GLOBAL_PLATFORM_LIMIT,
     baseVisualQuota: product.metadata.baseVisualQuota ? parseInt(product.metadata.baseVisualQuota) : null,
     basePostQuota: product.metadata.basePostQuota ? parseInt(product.metadata.basePostQuota) : null,
     postLimitType: toPostLimitType(product.metadata.postLimitType),
@@ -90,10 +101,42 @@ export async function upsertPlanFromPrice(price: Stripe.Price | null | undefined
     stripePriceStandardId: fullPrice.id,
   };
 
+  // Only set platformQty on create or when explicit metadata is provided.
+  if (product.metadata.platformQty) {
+    createPayload.platformQty = parseInt(product.metadata.platformQty);
+  } else if (product.metadata.platformLimit) {
+    createPayload.platformQty = parseInt(product.metadata.platformLimit);
+  }
+
+  const updatePayload: any = {
+    name: product.name,
+    category: toPlanCategory(product.metadata.category),
+    isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
+    platformLimit: GLOBAL_PLATFORM_LIMIT,
+    baseVisualQuota: product.metadata.baseVisualQuota ? parseInt(product.metadata.baseVisualQuota) : null,
+    basePostQuota: product.metadata.basePostQuota ? parseInt(product.metadata.basePostQuota) : null,
+    postLimitType: toPostLimitType(product.metadata.postLimitType),
+    schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
+    priceStandardCents: product.metadata.priceStandardCents
+      ? parseInt(product.metadata.priceStandardCents)
+      : fullPrice.unit_amount ?? 0,
+    priceFounderCents: product.metadata.priceFounderCents
+      ? parseInt(product.metadata.priceFounderCents)
+      : fullPrice.unit_amount ?? 0,
+    stripePriceStandardId: fullPrice.id,
+  };
+
+  // Only update platformQty if explicit metadata provided (avoid overwriting existing values with defaults)
+  if (product.metadata.platformQty) {
+    updatePayload.platformQty = parseInt(product.metadata.platformQty);
+  } else if (product.metadata.platformLimit) {
+    updatePayload.platformQty = parseInt(product.metadata.platformLimit);
+  }
+
   await prisma.plan.upsert({
     where: { code: planCode },
-    update: planPayload,
-    create: planPayload,
+    update: updatePayload,
+    create: createPayload,
   });
 
   const isFounderPrice =
@@ -287,7 +330,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
       const stripeSub = await stripeClient.subscriptions.retrieve(stripeSubscriptionId, {
         expand: ["items.data.price.product"],
       });
-      const item = stripeSub.items.data[0];
+      const item = stripeSub.items.data.find(
+        (subscriptionItem) =>
+          subscriptionItem.price.id !== env.STRIPE_PLATFORM_ADDON_PRICE_ID &&
+          subscriptionItem.price.id !== env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID
+      ) ?? stripeSub.items.data[0];
       if (!isEnterpriseCheckout) {
         const planInfo = await upsertPlanFromPrice(item?.price as Stripe.Price | undefined);
         resolvedPlanCode = planInfo?.planCode || planCode;
@@ -307,6 +354,17 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
       logger.warn("Unable to sync plan from Stripe subscription on checkout completion", err);
     }
   }
+
+  // Ensure addonPlatformQty does not exceed global platform limit given plan included qty.
+  if (!Number.isFinite(addonPlatformQty)) addonPlatformQty = 0;
+
+  logger.info("Webhook checkout parsed addon quantities", {
+    userId,
+    resolvedPlanCode,
+    addonPlatformQty,
+    priceType: resolvedPriceType,
+    enterpriseCheckout: isEnterpriseCheckout,
+  });
 
   let finalSubscriptionId: string | null = null;
 
@@ -380,6 +438,14 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
 
     if (subscription) {
       // Update existing subscription
+      // Enforce platform limits (safe guard in webhook): clamp addonPlatformQty if necessary
+      const planInfo = await tx.plan.findUnique({ where: { code: resolvedPlanCode }, select: { platformQty: true, platformLimit: true } });
+      const planIncluded = planInfo?.platformQty ?? planInfo?.platformLimit ?? 0;
+      if (planIncluded + (addonPlatformQty || 0) > GLOBAL_PLATFORM_LIMIT) {
+        const allowedAddon = Math.max(0, GLOBAL_PLATFORM_LIMIT - planIncluded);
+        logger.warn("Webhook addonPlatformQty exceeds global limit; clamping", { userId, plan: resolvedPlanCode, planIncluded, addonPlatformQty, allowedAddon });
+        addonPlatformQty = allowedAddon;
+      }
       subscription = await tx.subscription.update({
         where: { id: subscription.id },
         data: {
@@ -402,6 +468,15 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
       finalSubscriptionId = subscription.id;
     } else {
       // Create new subscription
+      // Enforce the same clamp before creating
+      const planInfoCreate = await tx.plan.findUnique({ where: { code: resolvedPlanCode }, select: { platformQty: true, platformLimit: true } });
+      const planIncludedCreate = planInfoCreate?.platformQty ?? planInfoCreate?.platformLimit ?? 0;
+      if (planIncludedCreate + (addonPlatformQty || 0) > GLOBAL_PLATFORM_LIMIT) {
+        const allowedAddon = Math.max(0, GLOBAL_PLATFORM_LIMIT - planIncludedCreate);
+        logger.warn("Webhook addonPlatformQty exceeds global limit on create; clamping", { userId, plan: resolvedPlanCode, planIncludedCreate, addonPlatformQty, allowedAddon });
+        addonPlatformQty = allowedAddon;
+      }
+
       subscription = await tx.subscription.create({
         data: {
           userId,
@@ -610,7 +685,11 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     return;
   }
 
-  const item = subscription.items.data[0];
+  const item = subscription.items.data.find(
+    (subscriptionItem) =>
+      subscriptionItem.price.id !== env.STRIPE_PLATFORM_ADDON_PRICE_ID &&
+      subscriptionItem.price.id !== env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID
+  ) ?? subscription.items.data[0];
   const planInfo = await upsertPlanFromPrice(item?.price as Stripe.Price | undefined);
   const status = mapStripeStatus(subscription.status);
   const { startUnix: currentPeriodStart, endUnix: currentPeriodEnd } =
