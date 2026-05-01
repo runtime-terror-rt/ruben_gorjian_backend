@@ -51,9 +51,24 @@ export const schedulerListQuerySchema = z.object({
   calendlySyncStatus: z.string().optional(),
   failure: z.coerce.boolean().optional(),
   userId: z.string().optional(),
+  userEmail: z.string().email().optional(),
   platform: z.string().optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+});
+
+export const schedulerClientListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+  search: z.string().trim().min(1).optional(),
+  status: z.enum(["ACTIVE", "BLOCKED", "DELETED"]).optional(),
+});
+
+export const schedulerFailureTicketsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+  userId: z.string().optional(),
+  userEmail: z.string().email().optional(),
 });
 
 export const schedulerPublishStatusSchema = z.object({
@@ -70,6 +85,7 @@ export const schedulerCreateSessionSchema = z.object({
   sessionTitle: z.string().max(220).nullable().optional(),
   sessionNotes: z.string().max(2000).nullable().optional(),
   sessionDurationMinutes: z.coerce.number().int().min(15).max(600),
+  uploadedAssetIds: z.array(z.string().min(1)).optional(),
   adminReason: z.string().max(500).nullable().optional(),
 });
 
@@ -79,6 +95,8 @@ export const schedulerUpdateSessionSchema = z.object({
   sessionTitle: z.string().max(220).nullable().optional(),
   sessionNotes: z.string().max(2000).nullable().optional(),
   sessionDurationMinutes: z.coerce.number().int().min(15).max(600).optional(),
+  uploadedAssetIds: z.array(z.string().min(1)).optional(),
+  replaceMedia: z.coerce.boolean().optional(),
   adminReason: z.string().max(500).nullable().optional(),
 });
 
