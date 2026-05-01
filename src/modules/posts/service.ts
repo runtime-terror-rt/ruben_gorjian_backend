@@ -6,6 +6,9 @@ import { decidePublishingProvider } from "../social/provider-routing";
 import { UploadPostService } from "../providers/upload-post/service";
 import { prisma } from "../../lib/prisma";
 import { logActivity } from "../dashboard/activity-logger";
+import { env } from "../../config/env";
+import { enqueueSchedulerEmail } from "../jobs/scheduler-email-queue";
+import { sendSchedulerEmail } from "../scheduler/email";
 
 const publisher = new SocialPublisher();
 const uploadPostService = new UploadPostService();
@@ -48,6 +51,79 @@ export interface CalendarPost {
 }
 
 export class PostService {
+  private getSchedulerFailureRecipients() {
+    const adminEmail = (
+      (env as typeof env & { SCHEDULER_ADMIN_EMAIL?: string }).SCHEDULER_ADMIN_EMAIL ||
+      "Office@talexia.us"
+    ).trim();
+    const devEmail = (
+      (env as typeof env & { SCHEDULER_DEV_EMAIL?: string }).SCHEDULER_DEV_EMAIL || ""
+    ).trim();
+
+    return Array.from(
+      new Set(
+        [adminEmail, devEmail]
+          .map((email) => email.trim().toLowerCase())
+          .filter((email) => email.length > 0)
+      )
+    );
+  }
+
+  private async openSchedulerFailureTicketForPublishFailure(params: {
+    postId: string;
+    userId: string;
+    userEmail: string | null;
+    failedPlatforms: SocialPlatform[];
+    failureReason: string;
+  }) {
+    const payload = {
+      postId: params.postId,
+      userId: params.userId,
+      userEmail: params.userEmail,
+      platform: params.failedPlatforms,
+      failureReason: params.failureReason,
+      status: "OPEN",
+      timestamp: new Date().toISOString(),
+      createdBy: "SYSTEM_PUBLISH_WORKER",
+    };
+
+    await prisma.postEvent.create({
+      data: {
+        postId: params.postId,
+        type: "SCHEDULER_FAILURE_TICKET_OPENED",
+        message: JSON.stringify(payload),
+      },
+    });
+
+    const subject = `[Scheduler] Failed Post Ticket Opened (${params.postId})`;
+    const body =
+      `A failed scheduled post ticket has been opened.\n\n` +
+      `Post ID: ${params.postId}\n` +
+      `Client ID: ${params.userId}\n` +
+      `Client Email: ${params.userEmail || "N/A"}\n` +
+      `Platforms: ${params.failedPlatforms.join(", ") || "N/A"}\n` +
+      `Failure reason: ${params.failureReason}\n` +
+      `Ticket status: OPEN\n` +
+      `Opened at: ${payload.timestamp}`;
+
+    await Promise.all(
+      this.getSchedulerFailureRecipients().map(async (to) => {
+        const emailPayload = {
+          to,
+          subject,
+          body,
+          context: "scheduler-failure-ticket-opened",
+          postId: params.postId,
+          action: "failed",
+        };
+        const enqueued = await enqueueSchedulerEmail(emailPayload);
+        if (!enqueued) {
+          await sendSchedulerEmail(emailPayload);
+        }
+      })
+    );
+  }
+
   private formatHashtags(hashtags?: string[] | null) {
     if (!hashtags) return null;
     const sanitized = hashtags
@@ -694,6 +770,11 @@ export class PostService {
     const post = await prisma.post.findUnique({
       where: { id: postId },
       include: {
+        user: {
+          select: {
+            email: true,
+          },
+        },
         asset: true,
         PostAsset: {
           include: {
@@ -903,6 +984,15 @@ export class PostService {
     const allSuccessful = results.every((r) => r.success);
     const anySuccessful = results.some((r) => r.success);
     const anyPending = results.some((r) => "pending" in r && r.pending);
+    const failedResults = results.filter((r) => !r.success);
+    const failedPlatforms = failedResults
+      .map((result) => post.targets.find((target) => target.id === result.targetId)?.platform)
+      .filter((platform): platform is SocialPlatform => Boolean(platform));
+    const failureReason =
+      failedResults
+        .map((result) => result.error?.trim())
+        .filter((message): message is string => Boolean(message))
+        .join(" | ") || "Publish failed";
 
     await prisma.post.update({
       where: { id: postId },
@@ -941,6 +1031,16 @@ export class PostService {
           },
         });
       }
+    }
+
+    if (!anySuccessful && post.scheduleType === "POSTING") {
+      await this.openSchedulerFailureTicketForPublishFailure({
+        postId: post.id,
+        userId: post.userId,
+        userEmail: post.user?.email ?? null,
+        failedPlatforms: Array.from(new Set(failedPlatforms)),
+        failureReason,
+      });
     }
 
     // Send notification for admin-initiated posts

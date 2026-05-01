@@ -63,9 +63,17 @@ export type SchedulerListFilters = {
   calendlySyncStatus?: SchedulerCalendlySyncStatus[];
   failure?: boolean;
   userId?: string;
+  userEmail?: string;
   platform?: SocialPlatform[];
   page: number;
   pageSize: number;
+};
+
+export type SchedulerClientListFilters = {
+  page: number;
+  pageSize: number;
+  search?: string;
+  status?: "ACTIVE" | "BLOCKED" | "DELETED";
 };
 
 export type SchedulerPublishStatusInput = {
@@ -82,6 +90,7 @@ export type SchedulerCreateSessionInput = {
   sessionTitle?: string | null;
   sessionNotes?: string | null;
   sessionDurationMinutes: number;
+  uploadedAssetIds?: string[];
   adminReason?: string | null;
 };
 
@@ -91,6 +100,8 @@ export type SchedulerUpdateSessionInput = {
   sessionTitle?: string | null;
   sessionNotes?: string | null;
   sessionDurationMinutes?: number;
+  uploadedAssetIds?: string[];
+  replaceMedia?: boolean;
   adminReason?: string | null;
 };
 
@@ -99,4 +110,11 @@ export type SchedulerUpdateSessionStatusInput = {
   status: SchedulerSessionStatusUpdate;
   sessionFailureReason?: string | null;
   adminReason?: string | null;
+};
+
+export type SchedulerFailureTicketFilters = {
+  page: number;
+  pageSize: number;
+  userId?: string;
+  userEmail?: string;
 };
