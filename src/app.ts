@@ -36,6 +36,7 @@ import { adminOverviewRouter } from "./modules/admin/overview/routes";
 import { faqRouter } from "./modules/faq/routes";
 import { caseStudiesRouter } from "./modules/case-studies/routes";
 import { enterprisePlanPublicRouter } from "./modules/enterprise-plan/public-routes";
+import { brandBriefRouter } from "./modules/brand-brief/routes";
 
 export const app = express();
 
@@ -128,12 +129,14 @@ app.use("/api/notifications", notificationsRouter);
 app.use("/api/contact", contactRouter);
 app.use("/api/faq", faqRouter);
 app.use("/api/case-studies", caseStudiesRouter);
+app.use("/api/brand-brief", brandBriefRouter);
 app.use("/onboarding", onboardingRouter);
 app.use("/brand", brandRouter);
 app.use("/dashboard", dashboardRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/faq", faqRouter);
 app.use("/case-studies", caseStudiesRouter);
+app.use("/brand-brief", brandBriefRouter);
 app.use("/user/settings", settingsRouter);
 app.use("/smtp-test", smtpTestRouter);
 app.use("/api/submissions", submissionsRouter);

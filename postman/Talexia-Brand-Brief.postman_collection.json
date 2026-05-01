@@ -1,0 +1,83 @@
+{
+  "info": {
+    "name": "Talexia-Brand-Brief",
+    "_postman_id": "d5be4284-31a3-4f3f-a96f-ec43a4f8f5aa",
+    "description": "Brand Brief submission and retrieval APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Submit Brand Brief",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{userToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"planCode\": \"{{enterprisePlanCode}}\",\n  \"restaurantName\": \"Acme Bistro\",\n  \"location\": \"Downtown\",\n  \"businessType\": \"Restaurant\",\n  \"cuisineType\": \"Fusion\",\n  \"dietaryCertifications\": [\"Halal\"],\n  \"websiteUrl\": \"https://acmebistro.com\",\n  \"instagramHandle\": \"@acmebistro\",\n  \"facebookPageUrl\": \"https://facebook.com/acmebistro\",\n  \"tiktokHandle\": \"@acmebistro\",\n  \"onlineOrderingUrl\": \"https://order.acmebistro.com\",\n  \"foodDescription\": \"Fresh handcrafted menu with seasonal ingredients.\",\n  \"uniqueSellingPoint\": \"Chef-led custom tasting experience.\",\n  \"customerReviews\": \"Great food and ambience.\",\n  \"forbiddenPhrases\": \"Cheap, low-quality\",\n  \"preferredPhrases\": \"Premium, handcrafted\",\n  \"captionSample1\": \"Fresh flavors served daily.\",\n  \"captionSample2\": \"A plate full of stories.\",\n  \"captionSample3\": \"Book your table now.\",\n  \"toneAndVoice\": [\"Warm\", \"Premium\"],\n  \"captionTargeting\": \"Local food lovers\",\n  \"language\": \"English\",\n  \"signatureDishes\": [\"Smoked Lamb\", \"Seafood Pasta\"],\n  \"signatureDishDetails\": \"Plating style and key ingredients.\",\n  \"excludedItems\": \"No alcohol items\",\n  \"upcomingPromotions\": \"Weekend tasting menu\",\n  \"hashtagStyle\": \"Branded and location tags\",\n  \"confirmMinDishes\": \"Minimum 6 dishes ready\",\n  \"actionShotsPossible\": \"Yes\",\n  \"preferredShootTime\": \"Afternoon\",\n  \"physicalConstraints\": \"Small kitchen space\",\n  \"specialNotes\": \"Avoid peak hours\",\n  \"clientName\": \"John Doe\",\n  \"restaurantNameAuth\": \"Acme Bistro\",\n  \"submissionDate\": \"2026-04-30\",\n  \"talexiaPlan\": \"Enterprise Full Management\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/brand-brief",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "brand-brief"]
+        }
+      }
+    },
+    {
+      "name": "Get My Brand Brief Submissions",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{userToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/brand-brief/me",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "brand-brief", "me"]
+        }
+      }
+    },
+    {
+      "name": "Admin - List Brand Brief Submissions",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/brand-brief/admin/submissions?page=1&limit=20&planCode={{enterprisePlanCode}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "brand-brief", "admin", "submissions"],
+          "query": [
+            { "key": "page", "value": "1" },
+            { "key": "limit", "value": "20" },
+            { "key": "planCode", "value": "{{enterprisePlanCode}}" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Admin - Get Brand Brief Submission By ID",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/brand-brief/admin/submissions/{{brandBriefId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "brand-brief", "admin", "submissions", "{{brandBriefId}}"]
+        }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:6000" },
+    { "key": "userToken", "value": "" },
+    { "key": "adminToken", "value": "" },
+    { "key": "enterprisePlanCode", "value": "ENT_XXXX" },
+    { "key": "brandBriefId", "value": "" }
+  ]
+}

@@ -69,6 +69,7 @@ model User {
   enterpriseInvitesAsUser           EnterprisePlanInvite[]   @relation("EnterpriseInviteCreatedUser")
   enterprisePlanProposalsCreated     EnterprisePlanProposal[]  @relation("EnterprisePlanProposalCreatedBy")
   enterprisePlanProposalsAsUser      EnterprisePlanProposal[]  @relation("EnterprisePlanProposalCreatedUser")
+  brandBriefs                       BrandBrief[]
 }
 
 model SocialPlatformLink {
@@ -1252,9 +1253,74 @@ model EnterprisePlanProposal {
   createdUser            User?                   @relation("EnterprisePlanProposalCreatedUser", fields: [createdUserId], references: [id], onDelete: SetNull)
   plan                   Plan                    @relation(fields: [planCode], references: [code], onDelete: Cascade)
   invite                 EnterprisePlanInvite?
+  brandBriefs            BrandBrief[]
 
   @@index([email])
   @@index([status])
   @@index([expiresAt])
   @@index([createdByAdminId])
+}
+
+model BrandBrief {
+  id                    String   @id @default(uuid())
+  userId                String
+  proposalId            String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // 01 BRAND IDENTITY
+  restaurantName        String 
+  location              String   
+  businessType          String   
+  cuisineType           String   
+  dietaryCertifications String[] 
+
+  // 02 ONLINE PRESENCE
+  websiteUrl            String?  
+  instagramHandle       String  
+  facebookPageUrl       String? 
+  tiktokHandle          String?
+  onlineOrderingUrl     String?
+
+  // 03 BRAND VOICE
+  foodDescription       String   
+  uniqueSellingPoint    String 
+  customerReviews       String  
+  forbiddenPhrases      String?  
+  preferredPhrases      String?
+  captionSample1        String
+  captionSample2        String
+  captionSample3        String
+  toneAndVoice          String[]
+  captionTargeting      String  
+  language              String
+
+  // 04 MENU & CONTENT PRIORITIES
+  signatureDishes       String[] 
+  signatureDishDetails  String
+  excludedItems         String?
+  upcomingPromotions    String? 
+  hashtagStyle          String 
+
+  // 05 SHOOT PREPARATION
+  confirmMinDishes      String 
+  actionShotsPossible   String?
+  preferredShootTime    String?
+  physicalConstraints   String?
+
+  // 07 SPECIAL NOTES
+  specialNotes          String?
+
+  // 08 BRAND PUBLISHING AUTHORIZATION
+  clientName            String   
+  restaurantNameAuth    String  
+  submissionDate        DateTime
+  talexiaPlan           String
+
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  proposal              EnterprisePlanProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([proposalId])
+  @@unique([userId, proposalId])
 }

@@ -824,9 +824,16 @@ export class SocialMediaService {
     await this.createOrReuseUploadPostProfile(username);
 
     // �🔥 Fetch fresh data from UploadPost (NOT JWT)
-    const result = await this.api("/uploadposts/users/me", {
-      method: "GET",
-    });
+    // const result = await this.api("/uploadposts/users/me", {
+    //   method: "GET",
+    // });
+
+    const result = await this.api(
+      `/uploadposts/users/${encodeURIComponent(username)}`,
+      {
+        method: "GET",
+      },
+    );
 
     const platformData = (result as any)?.profile?.social_accounts?.[
       normalizedPlatform

@@ -176,6 +176,8 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
   ENTERPRISE_PLAN: [
     { method: "ALL", pathPattern: "/api/admin/enterprise-plan*" },
     { method: "ALL", pathPattern: "/admin/enterprise-plan*" },
+    { method: "GET", pathPattern: "/api/brand-brief/admin/submissions"},
+		{ method: "GET", pathPattern: "/api/brand-brief/admin/submissions/:id"},
   ],
   SUPPORT: [{ method: "ALL", pathPattern: "/api/contact/admin/submissions*" }],
   SUBMISSIONS: [
