@@ -1,0 +1,1 @@
+export const GLOBAL_PLATFORM_LIMIT = 4;

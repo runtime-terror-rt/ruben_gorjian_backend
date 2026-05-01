@@ -209,10 +209,8 @@ router.get("/overview", async (req, res) => {
 
   const postQuota = subscription?.plan?.basePostQuota ?? null;
   const visualQuota = subscription?.plan?.baseVisualQuota ?? null;
-  const platformLimit =
-    subscription?.plan?.platformLimit !== null && subscription?.plan?.platformLimit !== undefined
-      ? subscription.plan.platformLimit + (subscription.addonPlatformQty ?? 0)
-      : null;
+  const planIncluded = subscription?.plan ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null) : null;
+  const platformLimit = planIncluded !== null && planIncluded !== undefined ? planIncluded + (subscription?.addonPlatformQty ?? 0) : null;
 
   const postsUsed = usage?.postsUsed ?? 0;
   const visualsUsed = usage?.visualsUsed ?? 0;
@@ -296,7 +294,7 @@ router.get("/overview/subscription-progress", async (req, res) => {
   return res.json({
     success: true,
     data: {
-      subscription: {
+        subscription: {
         id: subscription.id,
         planCode: subscription.planCode,
         name: subscription.plan?.name ?? null,
@@ -304,7 +302,7 @@ router.get("/overview/subscription-progress", async (req, res) => {
         videoAddonEnabled: subscription.videoAddonEnabled ?? false,
         videoSessionHours: subscription.videoSessionHours ?? 0,
         basePostQuota: subscription.plan?.basePostQuota ?? null,
-        platformLimit: subscription.plan?.platformLimit ?? null,
+          platformLimit: subscription.plan ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null) : null,
         status: subscription.status,
         billingCycle: subscription.billingCycle,
         currentPeriodStart: periodStart,

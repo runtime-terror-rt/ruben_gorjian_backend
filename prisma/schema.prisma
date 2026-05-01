@@ -123,6 +123,8 @@ model Plan {
   isCustomEnterprise    Boolean        @default(false)
   isJewelry             Boolean        @default(false)
   platformLimit         Int?
+  // Number of platforms included with the plan by default (e.g., 1,2,3)
+  platformQty           Int             @default(0)
   baseVisualQuota       Int?
   basePostQuota         Int?
   postLimitType         PostLimitType  @default(NONE)
