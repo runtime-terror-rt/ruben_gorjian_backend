@@ -147,6 +147,9 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
     { method: "GET", pathPattern: "/admin/calendars" },
     { method: "ALL", pathPattern: "/scheduler/sessions*" },
     { method: "ALL", pathPattern: "/scheduler/posts*" },
+    { method: "ALL", pathPattern: "/api/scheduler/failure-tickets" },
+    { method: "ALL", pathPattern: "/api/admin/scheduler/failure-tickets" },
+    { method: "ALL", pathPattern: "/api/scheduler/clients" },
   ],
   POST_MANAGE: [
     { method: "ALL", pathPattern: "/api/admin/users/:userId/posts*" },
