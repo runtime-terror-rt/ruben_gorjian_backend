@@ -56,6 +56,7 @@ const envSchema = z.object({
   UPLOAD_POST_CONNECT_DESCRIPTION: z.string().optional(),
   UPLOAD_POST_REDIRECT_BUTTON_TEXT: z.string().optional(),
   COOKIE_SECURE: z.string().optional(),
+  NOTIFICATION_TO_SEND_EMAIL: z.string().email().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

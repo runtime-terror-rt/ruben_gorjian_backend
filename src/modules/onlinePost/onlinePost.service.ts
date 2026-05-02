@@ -688,59 +688,61 @@ export class SocialMediaService {
     }
   }
 
-  // async createConnectLinkForUser(
-  //   user: User,
-  //   payload: { redirectUrl: string; platform: string; showCalendar?: boolean },
-  // ) {
-  //   const platform = this.normalizePlatform(payload.platform);
-  //   const prismaPlatform = this.toPrismaPlatform(platform);
+  async createConnectLinkForUserOld(
+    user: User,
+    payload: { redirectUrl: string; platform: string; showCalendar?: boolean },
+  ) {
+    const platform = this.normalizePlatform(payload.platform);
+    const prismaPlatform = this.toPrismaPlatform(platform);
 
-  //   const existing = await this.prisma.socialPlatformLink.findUnique({
-  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
-  //   });
+    const existing = await this.prisma.socialPlatformLink.findUnique({
+      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+    });
 
-  //   if (!existing) {
-  //     await this.enforceLinkLimit(user.id);
-  //   }
+    if (!existing) {
+      await this.enforceLinkLimit(user.id);
+    }
 
-  //   const username = this.uploadPostUsername(user);
-  //   await this.createOrReuseUploadPostProfile(username);
+    const username = this.uploadPostUsername(user);
+    await this.createOrReuseUploadPostProfile(username);
 
-  //   const linkResult = await this.api("/uploadposts/users/generate-jwt", {
-  //     method: "POST",
-  //     headers: { "Content-Type": "application/json" },
-  //     body: JSON.stringify({
-  //       username,
-  //       platforms: [platform],
-  //       redirect_url: payload.redirectUrl,
-  //       show_calendar: payload.showCalendar ?? true,
-  //     }),
-  //   });
+    const linkResult = await this.api("/uploadposts/users/generate-jwt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username,
+        platforms: [platform],
+        redirect_url: payload.redirectUrl,
+        show_calendar: payload.showCalendar ?? true,
+      }),
+    });
 
-  //   const connectMeta = this.extractConnectMeta(linkResult);
+    const connectMeta = this.extractConnectMeta(linkResult);
 
-  //   await this.prisma.socialPlatformLink.upsert({
-  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
-  //     update: {
-  //       linkedAt: new Date(),
-  //       externalRef: connectMeta.externalRef,
-  //       externalProfileUrl: connectMeta.externalProfileUrl,
-  //     },
-  //     create: {
-  //       userId: user.id,
-  //       platform: prismaPlatform,
-  //       externalRef: connectMeta.externalRef,
-  //       externalProfileUrl: connectMeta.externalProfileUrl,
-  //     },
-  //   });
+    await this.prisma.socialPlatformLink.upsert({
+      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+      update: {
+        linkedAt: new Date(),
+        externalRef: connectMeta.externalRef,
+        externalProfileUrl: connectMeta.externalProfileUrl,
+      },
+      create: {
+        userId: user.id,
+        platform: prismaPlatform,
+        externalRef: connectMeta.externalRef,
+        externalProfileUrl: connectMeta.externalProfileUrl,
+        linkedAt: new Date(),
+        platformUsername: username,
+      },
+    });
 
-  //   return {
-  //     success: true,
-  //     username,
-  //     platform,
-  //     connect: linkResult,
-  //   };
-  // }
+    return {
+      success: true,
+      username,
+      platform,
+      connect: linkResult,
+    };
+  }
 
   private buildRedirectUrl(platform?: string) {
     const baseUrl = process.env.FRONTEND_URL;
@@ -823,10 +825,6 @@ export class SocialMediaService {
     const username = this.uploadPostUsername(user);
     await this.createOrReuseUploadPostProfile(username);
 
-    // �🔥 Fetch fresh data from UploadPost (NOT JWT)
-    // const result = await this.api("/uploadposts/users/me", {
-    //   method: "GET",
-    // });
 
     const result = await this.api(
       `/uploadposts/users/${encodeURIComponent(username)}`,
@@ -863,6 +861,8 @@ export class SocialMediaService {
         platform: prismaPlatform,
         externalRef: platformData?.id ?? null,
         externalProfileUrl: platformData?.profile_url ?? null,
+        linkedAt: new Date(),
+        platformUsername: username,
       },
     });
 
@@ -1567,5 +1567,94 @@ export class SocialMediaService {
       : `request_id=${encodeURIComponent(query.requestId as string)}`;
 
     return this.api(`/uploadposts/status?${qs}`);
+  }
+
+  async getAllPlatformLinksAdmin(
+    admin: User,
+    filter?: { email?: string; platforms?: SocialPlatform[] },
+    search?: string,
+    page = 1,
+    limit = 20,
+  ) {
+    if (admin.role !== UserRole.ADMIN) {
+      throw new ForbiddenException("Admin only");
+    }
+
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.SocialPlatformLinkWhereInput = {
+      ...(filter?.platforms?.length
+        ? { platform: { in: filter.platforms } }
+        : {}),
+
+      ...(filter?.email
+        ? {
+            user: {
+              email: {
+                contains: filter.email,
+                mode: "insensitive",
+              },
+            },
+          }
+        : {}),
+
+      ...(search
+        ? {
+            OR: [
+              {
+                user: {
+                  email: {
+                    contains: search,
+                    mode: "insensitive",
+                  },
+                },
+              },
+              {
+                externalRef: {
+                  contains: search,
+                  mode: "insensitive",
+                },
+              },
+              {
+                externalProfileUrl: {
+                  contains: search,
+                  mode: "insensitive",
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+
+    const [platformLinks, total] = await this.prisma.$transaction([
+      this.prisma.socialPlatformLink.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: "desc",
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+            },
+          },
+        },
+      }),
+      this.prisma.socialPlatformLink.count({ where }),
+    ]);
+
+    return {
+      data: platformLinks,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 }
