@@ -53,7 +53,6 @@ export class OnlinePostController {
       return handleError(error, res);
     }
   };
-  
 
   finalizePlatformConnection = async (req: AuthedRequest, res: Response) => {
     try {
@@ -322,6 +321,67 @@ export class OnlinePostController {
     }
   };
 
+  getAllPlatformLinksAdmin = async (req: AuthedRequest, res: Response) => {
+    try {
+      const { email, search, platforms, page, limit } = req.query;
+
+      const filter: { email?: string; platforms?: SocialPlatform[] } = {};
+
+      if (typeof email === "string") {
+        filter.email = email;
+      }
+
+      // safer enum parsing
+      const validPlatforms = Object.values(SocialPlatform);
+
+      if (platforms) {
+        const platformArray =
+          typeof platforms === "string"
+            ? platforms.split(",")
+            : Array.isArray(platforms)
+              ? platforms.map(String)
+              : [];
+
+        const normalized = platformArray
+          .map((p) => p.trim().toUpperCase() as SocialPlatform)
+          .filter((p) => validPlatforms.includes(p));
+
+        if (normalized.length) {
+          filter.platforms = normalized;
+        }
+      }
+
+      const pageNumber = Math.max(
+        1,
+        parseInt(typeof page === "string" ? page : "1", 10) || 1,
+      );
+
+      const limitNumber = Math.min(
+        100,
+        Math.max(
+          1,
+          parseInt(typeof limit === "string" ? limit : "20", 10) || 20,
+        ),
+      );
+
+      const result = await this.onlinePostService.getAllPlatformLinksAdmin(
+        req.user,
+        filter,
+        typeof search === "string" ? search : undefined,
+        pageNumber,
+        limitNumber,
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Platform links fetched successfully",
+        ...result,
+      });
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
   updatePlan = async (req: AuthedRequest, res: Response) => {
     try {
       return res.json(
@@ -378,6 +438,14 @@ export class OnlinePostController {
           requestId: firstQuery(req.query.requestId),
         }),
       );
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
+  connect = async (req: AuthedRequest, res: Response) => {
+    try {
+      return res.json(await this.onlinePostService.createConnectLinkForUserOld(req.user, req.body));
     } catch (error) {
       return handleError(error, res);
     }
