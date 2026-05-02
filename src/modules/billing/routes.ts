@@ -964,6 +964,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
         addonPlatformQty: addonPlatformQty.toString(),
         videoAddonEnabled: videoAddonEnabled.toString(),
         videoSessionHours: videoSessionHours.toString(),
+        platformQty: (planFromDb?.platformQty ?? 0).toString(),
         ...(applicableCoupon
           ? {
             couponId: applicableCoupon.id,
@@ -984,6 +985,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
       addonPlatformQty: addonPlatformQty.toString(),
       videoAddonEnabled: videoAddonEnabled.toString(),
       videoSessionHours: videoSessionHours.toString(),
+      platformQty: (planFromDb?.platformQty ?? 0).toString(),
       ...(applicableCoupon
         ? {
           couponId: applicableCoupon.id,
@@ -1275,6 +1277,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
         addonPlatformQty: addonPlatformQty.toString(),
         videoAddonEnabled: videoAddonEnabled.toString(),
         videoSessionHours: videoSessionHours.toString(),
+        platformQty: (planFromDb?.platformQty ?? 0).toString(),
         enterpriseProposalId: proposal.id,
         enterpriseProposalPriceCents: quotedAmountCents.toString(),
         ...(applicableCoupon
@@ -1296,6 +1299,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
       addonPlatformQty: addonPlatformQty.toString(),
       videoAddonEnabled: videoAddonEnabled.toString(),
       videoSessionHours: videoSessionHours.toString(),
+      platformQty: (planFromDb?.platformQty ?? 0).toString(),
       enterpriseProposalId: proposal.id,
       enterpriseProposalPriceCents: quotedAmountCents.toString(),
       ...(applicableCoupon
@@ -1532,7 +1536,7 @@ router.post("/addons/platforms/checkout", requireAuth, async (req, res) => {
 
   // Enforce global platform limit: plan.platformQty + addonPlatformQty must not exceed platformLimit (4).
   const planIncluded = activeSubscription.plan ? (activeSubscription.plan.platformQty ?? activeSubscription.plan.platformLimit ?? 0) : 0;
-  const totalPlatformsAfter = planIncluded + nextAddonQty;
+  const totalPlatformsAfter = activeSubscription.plan?.isCustomEnterprise ? nextAddonQty : planIncluded + nextAddonQty;
   if (totalPlatformsAfter > GLOBAL_PLATFORM_LIMIT) {
     logger.warn("Addon checkout would exceed global platform limit", {
       userId: req.user!.id,
@@ -1566,6 +1570,7 @@ router.post("/addons/platforms/checkout", requireAuth, async (req, res) => {
       userId: req.user!.id,
       planCode: activeSubscription.planCode,
       billingCycle: activeSubscription.billingCycle === BillingCycle.YEARLY ? "yearly" : "monthly",
+      platformQty: String(activeSubscription.plan?.platformQty ?? activeSubscription.plan?.platformLimit ?? 0),
       addonPlatformQty: String(nextAddonQty),
       videoAddonEnabled: String(activeSubscription.videoAddonEnabled ?? false),
       videoSessionHours: String(activeSubscription.videoSessionHours ?? 0),
@@ -1578,26 +1583,42 @@ router.post("/addons/platforms/checkout", requireAuth, async (req, res) => {
       addonPlatformQty: nextAddonQty,
       updatedAt: new Date(),
     },
+    include: { plan: true },
   });
+
+  if (updatedSubscription.plan?.isCustomEnterprise) {
+    await prisma.plan.update({
+      where: { code: updatedSubscription.planCode },
+      data: { platformQty: nextAddonQty },
+    });
+  }
+
+  // Compute total platform quantity after addon purchase
+  const planIncludedPlatforms = updatedSubscription.plan.platformQty ?? updatedSubscription.plan.platformLimit ?? 0;
+  const totalPlatformsAfterAddon = updatedSubscription.plan?.isCustomEnterprise
+    ? planIncludedPlatforms
+    : planIncludedPlatforms + nextAddonQty;
 
   return res.json({
     success: true,
     subscription: {
       id: updatedSubscription.id,
       planCode: updatedSubscription.planCode,
-      addonPlatformQty: updatedSubscription.addonPlatformQty,
       billingCycle: updatedSubscription.billingCycle,
       status: updatedSubscription.status,
     },
-    stripe: {
-      id: updatedStripeSubscription.id,
-      status: updatedStripeSubscription.status,
+    plan: {
+      code: updatedSubscription.plan.code,
+      name: updatedSubscription.plan.name,
+      platformQty: planIncludedPlatforms,
     },
     addon: {
       type: "PLATFORM",
       requestedQty,
       currentQty: currentAddonQty,
       nextQty: nextAddonQty,
+      addonPlatformQty: nextAddonQty,
+      totalPlatformsAfterPayment: totalPlatformsAfterAddon,
       unitAmountCents: billingCycle === BillingCycle.YEARLY
         ? PLATFORM_ADDON_MONTHLY_CENTS * 12
         : PLATFORM_ADDON_MONTHLY_CENTS,
@@ -2179,7 +2200,9 @@ router.get("/current-plan", requireAuth, async (req, res) => {
     }
 
     const planIncluded = plan.platformQty ?? plan.platformLimit ?? 0;
-    const computedPlatformQty = planIncluded + (activeSubscription.addonPlatformQty ?? 0);
+    const computedPlatformQty = plan.isCustomEnterprise
+      ? planIncluded
+      : planIncluded + (activeSubscription.addonPlatformQty ?? 0);
 
     return res.json({
       success: true,
@@ -2190,6 +2213,7 @@ router.get("/current-plan", requireAuth, async (req, res) => {
         category: plan.category,
         isJewelry: plan.isJewelry,
         platformLimit: GLOBAL_PLATFORM_LIMIT,
+        basePlatformQty: planIncluded,
         platformQty: computedPlatformQty,
         baseVisualQuota: plan.baseVisualQuota,
         basePostQuota: plan.basePostQuota,

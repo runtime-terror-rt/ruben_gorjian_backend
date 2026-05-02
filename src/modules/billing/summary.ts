@@ -174,10 +174,11 @@ router.get("/summary", async (req, res) => {
       renewsAt: currentPeriodEnd
         ? new Date(currentPeriodEnd).toLocaleDateString()
         : null,
-      platformLimit:
-        subscription.plan
-          ? ( (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? 0) + (subscription.addonPlatformQty ?? 0) )
-          : null,
+      platformLimit: subscription.plan
+        ? (subscription.plan.isCustomEnterprise
+          ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? 0)
+          : ((subscription.plan.platformQty ?? subscription.plan.platformLimit ?? 0) + (subscription.addonPlatformQty ?? 0)))
+        : null,
       addonPlatformQty: subscription.addonPlatformQty ?? 0,
       videoAddonEnabled: subscription.videoAddonEnabled ?? false,
       videoSessionHours: subscription.videoSessionHours ?? 0,
