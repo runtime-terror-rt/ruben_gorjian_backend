@@ -122,7 +122,7 @@ model Plan {
   category              PlanCategory
   isCustomEnterprise    Boolean        @default(false)
   isJewelry             Boolean        @default(false)
-  platformLimit         Int?
+  platformLimit         Int?           @default(4)
   // Number of platforms included with the plan by default (e.g., 1,2,3)
   platformQty           Int             @default(0)
   baseVisualQuota       Int?

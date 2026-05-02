@@ -1048,7 +1048,7 @@ router.get("/users/:id", async (req, res) => {
   ]);
 
   const planInfo = user.subscriptions[0]?.plan;
-  const platformLimit = planInfo ? ((planInfo.platformQty ?? planInfo.platformLimit ?? 0)) : null;
+  const platformLimit = planInfo ? (planInfo.platformQty ?? planInfo.platformLimit ?? 0) : null;
 
   const posts = await prisma.post.findMany({
     where: { userId: id },
@@ -2048,6 +2048,7 @@ router.get("/subscriptions", async (_req, res) => {
           name: true,
           category: true,
           isJewelry: true,
+          isCustomEnterprise: true,
           platformLimit: true,
           platformQty: true,
           baseVisualQuota: true,
@@ -2179,6 +2180,7 @@ function serializeSubscription(subscription: {
     name: string;
     category: string;
     isJewelry: boolean;
+    isCustomEnterprise: boolean;
     platformQty: number | null;
     platformLimit: number | null;
     baseVisualQuota: number | null;
@@ -2194,7 +2196,11 @@ function serializeSubscription(subscription: {
     planName: subscription.plan.name,
     planCategory: subscription.plan.category,
     planIsJewelry: subscription.plan.isJewelry,
-    platformLimit: subscription.plan ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null) : null,
+    platformLimit: subscription.plan
+      ? (subscription.plan.isCustomEnterprise
+        ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null)
+        : (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null))
+      : null,
     baseVisualQuota: subscription.plan.baseVisualQuota,
     basePostQuota: subscription.plan.basePostQuota,
     status: subscription.status,

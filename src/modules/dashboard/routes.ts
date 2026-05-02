@@ -210,7 +210,9 @@ router.get("/overview", async (req, res) => {
   const postQuota = subscription?.plan?.basePostQuota ?? null;
   const visualQuota = subscription?.plan?.baseVisualQuota ?? null;
   const planIncluded = subscription?.plan ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null) : null;
-  const platformLimit = planIncluded !== null && planIncluded !== undefined ? planIncluded + (subscription?.addonPlatformQty ?? 0) : null;
+  const platformLimit = planIncluded !== null && planIncluded !== undefined
+    ? (subscription?.plan?.isCustomEnterprise ? planIncluded : planIncluded + (subscription?.addonPlatformQty ?? 0))
+    : null;
 
   const postsUsed = usage?.postsUsed ?? 0;
   const visualsUsed = usage?.visualsUsed ?? 0;
