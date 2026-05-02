@@ -29,6 +29,7 @@ model User {
   calendarOnboardingCompleted       Boolean                  @default(false)
   visualOnboardingCompleted         Boolean                  @default(false)
   fullManagementOnboardingCompleted Boolean                  @default(false)
+  brandBriefOnboardingCompleted     Boolean                  @default(false)
   pendingPlanCode                   String? // Plan code selected before signup/checkout
   pendingPlanCodeSetAt              DateTime? // When pendingPlanCode was last set
   assets                            Asset[]
