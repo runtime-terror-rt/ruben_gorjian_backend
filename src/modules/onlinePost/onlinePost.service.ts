@@ -795,6 +795,29 @@ export class SocialMediaService {
       }),
     });
 
+    // TEMPOrary. because redirect is not happening
+
+    const connectMeta = this.extractConnectMeta(linkResult);
+
+    const prismaPlatform = this.toPrismaPlatform(platform);
+
+    await this.prisma.socialPlatformLink.upsert({
+      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+      update: {
+        linkedAt: new Date(),
+        externalRef: connectMeta.externalRef,
+        externalProfileUrl: connectMeta.externalProfileUrl,
+      },
+      create: {
+        userId: user.id,
+        platform: prismaPlatform,
+        externalRef: connectMeta.externalRef,
+        externalProfileUrl: connectMeta.externalProfileUrl,
+        linkedAt: new Date(),
+        platformUsername: username,
+      },
+    });
+
     return {
       success: true,
       platform,
@@ -824,7 +847,6 @@ export class SocialMediaService {
     // � ensure profile exists before fetching
     const username = this.uploadPostUsername(user);
     await this.createOrReuseUploadPostProfile(username);
-
 
     const result = await this.api(
       `/uploadposts/users/${encodeURIComponent(username)}`,
