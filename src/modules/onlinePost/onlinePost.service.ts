@@ -4,6 +4,7 @@ import {
   ScheduledPost,
   ScheduledPostStatus,
   SocialPlatform,
+  SubscriptionStatus,
   User,
   Role as UserRole,
 } from "@prisma/client";
@@ -13,6 +14,7 @@ import { prisma } from "../../lib/prisma";
 import { ApiError } from "../../lib/errors";
 import { PassThrough } from "stream";
 import { Upload } from "@aws-sdk/lib-storage";
+import { th } from "zod/v4/locales";
 
 // Minimal Nest-like exceptions so the original pasted logic can remain unchanged in Express.
 // Express routes should use `handleError()` to convert these into proper HTTP responses.
@@ -761,12 +763,55 @@ export class SocialMediaService {
     return url.toString();
   }
 
+  private async getCurrentSubscriptionPlan(userId: string) {
+    const subscription = await prisma.subscription.findFirst({
+      where: {
+        userId,
+        status: SubscriptionStatus.ACTIVE,
+      },
+      include: {
+        plan: true,
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+    });
+
+    if (!subscription) {
+      throw new ApiError(400, "Subscription not found");
+    }
+
+    return {
+      subscription,
+      plan: subscription.plan,
+    };
+  }
+
+  private async validatePlatformLimit(userId: string) {
+    const { plan } = await this.getCurrentSubscriptionPlan(userId);
+
+    const absoluteLimit = plan.platformLimit ?? 4;
+    const planLimit = plan.platformQty ?? absoluteLimit;
+
+    const maxLinkedPlatforms = Math.min(planLimit, absoluteLimit);
+
+    const linkedPlatforms = await this.prisma.socialPlatformLink.count({
+      where: { userId },
+    });
+
+    if (linkedPlatforms >= maxLinkedPlatforms) {
+      throw new ApiError(400, "Platform limit reached");
+    }
+  }
+
   async createConnectLinkForUser(
     user: User,
     payload: { platform: string; showCalendar?: boolean },
   ) {
     const platform = this.normalizePlatform(payload.platform);
     const username = this.uploadPostUsername(user);
+
+    await this.validatePlatformLimit(user.id);
 
     // ensure profile exists
     await this.createOrReuseUploadPostProfile(username);
