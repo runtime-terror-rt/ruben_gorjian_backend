@@ -4,6 +4,7 @@
 import { SocialPlatform } from "@prisma/client";
 import { ApiError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
+import { sendUploadPostWebhookNotification } from "./email";
 
 type UploadPostWebhookEvent = {
   id: string; // unique event id (for idempotency)
@@ -77,34 +78,53 @@ export class UploadPostWebhookService {
     this.validateEvent(event);
     await this.ensureIdempotency(event.id);
 
+    let result;
     switch (event.type) {
       case "connect.success":
-        return this.handleConnectSuccess(event);
+        result = await this.handleConnectSuccess(event);
+        break;
 
       case "connect.failed":
-        return this.handleConnectFailed(event);
+        result = await this.handleConnectFailed(event);
+        break;
 
       case "post.created":
-        return this.handlePostCreated(event);
+        result = await this.handlePostCreated(event);
+        break;
 
       case "post.processing":
-        return this.handlePostProcessing(event);
+        result = await this.handlePostProcessing(event);
+        break;
 
       case "post.completed":
-        return this.handlePostCompleted(event);
+        result = await this.handlePostCompleted(event);
+        break;
 
       case "post.failed":
-        return this.handlePostFailed(event);
+        result = await this.handlePostFailed(event);
+        break;
 
       case "schedule.executed":
-        return this.handleScheduleExecuted(event);
+        result = await this.handleScheduleExecuted(event);
+        break;
 
       case "schedule.failed":
-        return this.handleScheduleFailed(event);
+        result = await this.handleScheduleFailed(event);
+        break;
 
       default:
         throw new BadRequestException("Unknown webhook event type");
     }
+
+    // Send email notification (non-blocking for webhook response)
+    try {
+      await sendUploadPostWebhookNotification(event);
+    } catch (error) {
+      // Log but don't fail the webhook
+      console.error("Failed to send webhook email notification", error);
+    }
+
+    return result;
   }
 
   // -----------------------------
