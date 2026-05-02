@@ -175,8 +175,8 @@ router.get("/summary", async (req, res) => {
         ? new Date(currentPeriodEnd).toLocaleDateString()
         : null,
       platformLimit:
-        subscription.plan?.platformLimit !== null && subscription.plan?.platformLimit !== undefined
-          ? subscription.plan.platformLimit + (subscription.addonPlatformQty ?? 0)
+        subscription.plan
+          ? ( (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? 0) + (subscription.addonPlatformQty ?? 0) )
           : null,
       addonPlatformQty: subscription.addonPlatformQty ?? 0,
       videoAddonEnabled: subscription.videoAddonEnabled ?? false,

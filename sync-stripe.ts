@@ -2,6 +2,7 @@ import "dotenv/config";
 import Stripe from "stripe";
 import * as fs from "fs";
 import * as path from "path";
+import { GLOBAL_PLATFORM_LIMIT } from "./src/config/limits";
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 if (!stripeSecretKey) {
@@ -54,7 +55,8 @@ async function syncToStripe() {
           name: plan.name,
           category: plan.category,
           isJewelry: plan.isJewelry,
-          platformLimit: plan.platformLimit,
+          platformLimit: GLOBAL_PLATFORM_LIMIT,
+          platformQty: plan.platformLimit,
           baseVisualQuota: plan.baseVisualQuota,
           basePostQuota: plan.basePostQuota,
           priceFounderCents: Math.round(parseFloat(plan.priceFounderCents) * 100).toString(),

@@ -10,11 +10,17 @@ import {
 import { OAuth2Client } from "google-auth-library";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
+import { GLOBAL_PLATFORM_LIMIT } from "../../config/limits";
 import { hashPassword, comparePassword } from "../../utils/password";
 import { signAccessToken } from "../../utils/tokens";
 import { requireAuth } from "../../middleware/requireAuth";
 import { env } from "../../config/env";
-import { sendPasswordResetEmail, sendVerificationEmail } from "./email";
+import {
+  sendNewUserRegistrationAdminEmail,
+  sendNewUserRegistrationEmail,
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+} from "./email";
 import { logger } from "../../lib/logger";
 import { logActivity } from "../dashboard/activity-logger";
 import type { PlanCategory } from "../../types/plan-category";
@@ -291,57 +297,69 @@ async function ensurePlanAvailable(planCode: string) {
     (p) => p.recurring?.interval === "year",
   );
 
+  const createPayload: any = {
+    code: planCode,
+    name: product.name,
+    category: toPlanCategory(product.metadata.category),
+    isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
+    platformLimit: GLOBAL_PLATFORM_LIMIT,
+    baseVisualQuota: product.metadata.baseVisualQuota
+      ? parseInt(product.metadata.baseVisualQuota)
+      : null,
+    basePostQuota: product.metadata.basePostQuota
+      ? parseInt(product.metadata.basePostQuota)
+      : null,
+    postLimitType: toPostLimitType(product.metadata.postLimitType),
+      schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
+      priceStandardCents: product.metadata.priceStandardCents
+        ? parseInt(product.metadata.priceStandardCents)
+        : (defaultPrice?.unit_amount ?? 0),
+    priceFounderCents: product.metadata.priceFounderCents
+      ? parseInt(product.metadata.priceFounderCents)
+      : (defaultPrice?.unit_amount ?? 0),
+    stripePriceStandardId: defaultPrice?.id,
+    hasYearlyPrice,
+  };
+
+  if (product.metadata.platformQty) {
+    createPayload.platformQty = parseInt(product.metadata.platformQty);
+  } else if (product.metadata.platformLimit) {
+    createPayload.platformQty = parseInt(product.metadata.platformLimit);
+  }
+
+  const updatePayload: any = {
+    name: product.name,
+    category: toPlanCategory(product.metadata.category),
+    isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
+    platformLimit: GLOBAL_PLATFORM_LIMIT,
+    baseVisualQuota: product.metadata.baseVisualQuota
+      ? parseInt(product.metadata.baseVisualQuota)
+      : null,
+    basePostQuota: product.metadata.basePostQuota
+      ? parseInt(product.metadata.basePostQuota)
+      : null,
+    postLimitType: toPostLimitType(product.metadata.postLimitType),
+    schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
+    priceStandardCents: product.metadata.priceStandardCents
+      ? parseInt(product.metadata.priceStandardCents)
+      : (defaultPrice?.unit_amount ?? 0),
+    priceFounderCents: product.metadata.priceFounderCents
+      ? parseInt(product.metadata.priceFounderCents)
+      : (defaultPrice?.unit_amount ?? 0),
+    stripePriceStandardId: defaultPrice?.id,
+    hasYearlyPrice,
+  };
+
+  if (product.metadata.platformQty) {
+    updatePayload.platformQty = parseInt(product.metadata.platformQty);
+  } else if (product.metadata.platformLimit) {
+    updatePayload.platformQty = parseInt(product.metadata.platformLimit);
+  }
+
   const synced = await prisma.plan.upsert({
     where: { code: planCode },
-    update: {
-      name: product.name,
-      category: toPlanCategory(product.metadata.category),
-      isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
-      platformLimit: product.metadata.platformLimit
-        ? parseInt(product.metadata.platformLimit)
-        : null,
-      baseVisualQuota: product.metadata.baseVisualQuota
-        ? parseInt(product.metadata.baseVisualQuota)
-        : null,
-      basePostQuota: product.metadata.basePostQuota
-        ? parseInt(product.metadata.basePostQuota)
-        : null,
-      postLimitType: toPostLimitType(product.metadata.postLimitType),
-      schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
-      priceStandardCents: product.metadata.priceStandardCents
-        ? parseInt(product.metadata.priceStandardCents)
-        : (defaultPrice?.unit_amount ?? 0),
-      priceFounderCents: product.metadata.priceFounderCents
-        ? parseInt(product.metadata.priceFounderCents)
-        : (defaultPrice?.unit_amount ?? 0),
-      stripePriceStandardId: defaultPrice?.id,
-      hasYearlyPrice,
-    },
-    create: {
-      code: planCode,
-      name: product.name,
-      category: toPlanCategory(product.metadata.category),
-      isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
-      platformLimit: product.metadata.platformLimit
-        ? parseInt(product.metadata.platformLimit)
-        : null,
-      baseVisualQuota: product.metadata.baseVisualQuota
-        ? parseInt(product.metadata.baseVisualQuota)
-        : null,
-      basePostQuota: product.metadata.basePostQuota
-        ? parseInt(product.metadata.basePostQuota)
-        : null,
-      postLimitType: toPostLimitType(product.metadata.postLimitType),
-      schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
-      priceStandardCents: product.metadata.priceStandardCents
-        ? parseInt(product.metadata.priceStandardCents)
-        : (defaultPrice?.unit_amount ?? 0),
-      priceFounderCents: product.metadata.priceFounderCents
-        ? parseInt(product.metadata.priceFounderCents)
-        : (defaultPrice?.unit_amount ?? 0),
-      stripePriceStandardId: defaultPrice?.id,
-      hasYearlyPrice,
-    },
+    update: updatePayload,
+    create: createPayload,
   });
 
   return synced;
@@ -511,6 +529,13 @@ router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
         existing.name ?? invite.fullName ?? undefined,
       );
 
+      await sendNewUserRegistrationAdminEmail({
+        email,
+        userName: existing.name ?? invite.fullName ?? undefined,
+        pendingPlanCode: invite.planCode,
+        sourceLabel: "enterprise invite",
+      });
+
       return res.status(200).json({
         message:
           "Account already exists and is not verified. Verification email sent again.",
@@ -598,6 +623,13 @@ router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
 
   await ensureUserProviderRoutingConfig(user.id);
 
+  await sendVerificationEmail(
+    email,
+    verificationToken,
+    invite.planCode,
+    user.name ?? invite.fullName ?? undefined,
+  );
+
   await prisma.enterprisePlanInvite.update({
     where: { id: invite.id },
     data: {
@@ -616,12 +648,12 @@ router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
     },
   });
 
-  await sendVerificationEmail(
+  await sendNewUserRegistrationAdminEmail({
     email,
-    verificationToken,
-    invite.planCode,
-    user.name ?? invite.fullName ?? undefined,
-  );
+    userName: user.name ?? invite.fullName ?? undefined,
+    pendingPlanCode: invite.planCode,
+    sourceLabel: "enterprise invite",
+  });
 
   return res.status(201).json({
     message:
@@ -703,6 +735,13 @@ router.post("/signup", authLimiter, async (req, res) => {
     normalizedPendingPlanCode,
     user.name ?? undefined,
   );
+
+  await sendNewUserRegistrationAdminEmail({
+    email,
+    userName: user.name ?? undefined,
+    pendingPlanCode: normalizedPendingPlanCode,
+    sourceLabel: "email signup",
+  });
 
   // Do not issue session until email verified.
   return res.status(201).json({
@@ -1188,6 +1227,20 @@ router.post("/google", async (req, res) => {
         },
       });
       await ensureUserProviderRoutingConfig(user.id);
+
+      await sendNewUserRegistrationEmail({
+        email,
+        userName: payload.name ?? undefined,
+        pendingPlanCode: pendingPlanCode || undefined,
+        sourceLabel: "Google login",
+      });
+
+      await sendNewUserRegistrationAdminEmail({
+        email,
+        userName: payload.name ?? undefined,
+        pendingPlanCode: pendingPlanCode || undefined,
+        sourceLabel: "Google login",
+      });
     }
 
     if (user.status === "BLOCKED") {
@@ -1232,6 +1285,14 @@ router.post("/verify-email", async (req, res) => {
   await prisma.emailVerificationToken.update({
     where: { id: record.id },
     data: { usedAt: new Date() },
+  });
+
+  const verifiedUser = user;
+  await sendNewUserRegistrationEmail({
+    email: verifiedUser.email,
+    userName: verifiedUser.name ?? undefined,
+    pendingPlanCode: verifiedUser.pendingPlanCode ?? undefined,
+    sourceLabel: "email verification",
   });
 
   issueSession(res, user);
@@ -1525,6 +1586,20 @@ router.get("/google/callback", async (req, res) => {
         },
       });
       await ensureUserProviderRoutingConfig(user.id);
+
+      await sendNewUserRegistrationEmail({
+        email: payload.email,
+        userName: payload.name ?? undefined,
+        pendingPlanCode: pendingPlanCode || undefined,
+        sourceLabel: "Google login",
+      });
+
+      await sendNewUserRegistrationAdminEmail({
+        email: payload.email,
+        userName: payload.name ?? undefined,
+        pendingPlanCode: pendingPlanCode || undefined,
+        sourceLabel: "Google login",
+      });
     } else if (!user.googleId) {
       user = await prisma.user.update({
         where: { id: user.id },
