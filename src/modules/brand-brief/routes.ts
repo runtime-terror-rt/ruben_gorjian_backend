@@ -194,6 +194,14 @@ router.post("/", async (req, res) => {
     },
   });
 
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      onboardingCompleted: true,
+      brandBriefOnboardingCompleted: true,
+    },
+  });
+
   try {
     const pdfBuffer = await buildBrandBriefPdf({
       id: brief.id,
