@@ -778,7 +778,10 @@ export class SocialMediaService {
     });
 
     if (!subscription) {
-      throw new ApiError(400, "Subscription not found");
+      return {
+        subscription: null,
+        plan: null,
+      };
     }
 
     return {
@@ -787,21 +790,32 @@ export class SocialMediaService {
     };
   }
 
-  private async validatePlatformLimit(userId: string) {
-    const { plan } = await this.getCurrentSubscriptionPlan(userId);
+  private async validatePlatformLimit(userId: string): Promise<{
+    allowed: boolean;
+    maxLinkedPlatforms: number;
+    currentCount: number;
+  }> {
+    const { plan, subscription } =
+      await this.getCurrentSubscriptionPlan(userId);
 
-    const absoluteLimit = plan.platformLimit ?? 4;
-    const planLimit = plan.platformQty ?? absoluteLimit;
+    const absoluteLimit = plan?.platformLimit ?? 4;
+    const addOnLimit = subscription?.addonPlatformQty ?? 0;
+
+    const planLimit = (plan?.platformQty ?? 0) + addOnLimit;
 
     const maxLinkedPlatforms = Math.min(planLimit, absoluteLimit);
 
-    const linkedPlatforms = await this.prisma.socialPlatformLink.count({
+    const currentCount = await this.prisma.socialPlatformLink.count({
       where: { userId },
     });
 
-    if (linkedPlatforms >= maxLinkedPlatforms) {
-      throw new ApiError(400, "Platform limit reached");
-    }
+    const allowed = currentCount < maxLinkedPlatforms;
+
+    return {
+      allowed,
+      maxLinkedPlatforms,
+      currentCount,
+    };
   }
 
   async createConnectLinkForUser(
@@ -811,7 +825,15 @@ export class SocialMediaService {
     const platform = this.normalizePlatform(payload.platform);
     const username = this.uploadPostUsername(user);
 
-    await this.validatePlatformLimit(user.id);
+    const limitCheck = await this.validatePlatformLimit(user.id);
+
+    if (!limitCheck.allowed) {
+      return {
+        success: false,
+        message: `Plan limit reached. Max linked platforms: ${limitCheck.maxLinkedPlatforms}`,
+        isModalOpen: true,
+      };
+    }
 
     // ensure profile exists
     await this.createOrReuseUploadPostProfile(username);
