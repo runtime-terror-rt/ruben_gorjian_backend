@@ -5,7 +5,6 @@ import {
   Prisma,
   ScheduleType,
   SocialPlatform,
-  SocialAccount,
   SessionStatus,
 } from "@prisma/client";
 import { env } from "../../config/env";
@@ -280,66 +279,106 @@ export class SchedulerService {
     return { user };
   }
 
-  private async validateSocialAccounts(
-    userId: string,
-    socialAccountIds: string[],
-    platformLimit: number | null
-  ): Promise<SchedulerTargetAccount[]> {
-    const uniqueIds = Array.from(new Set(socialAccountIds));
-    if (uniqueIds.length === 0) return [];
+  private normalizeRequestedPlatforms(platforms?: string[]) {
+    if (!platforms || platforms.length === 0) return undefined;
 
-    const socialAccounts = await prisma.socialAccount.findMany({
+    const platformMap: Record<string, SocialPlatform> = {
+      fb: "FACEBOOK",
+      facebook: "FACEBOOK",
+      insta: "INSTAGRAM",
+      instagram: "INSTAGRAM",
+      tiktok: "TIKTOK",
+      "tik-tok": "TIKTOK",
+      "tik_tok": "TIKTOK",
+      tt: "TIKTOK",
+      linkedin: "LINKEDIN",
+      li: "LINKEDIN",
+    };
+
+    const normalized = platforms.map((value) => value.trim().toLowerCase()).filter(Boolean);
+    const unknown = normalized.filter((value) => !platformMap[value]);
+    if (unknown.length > 0) {
+      throw new Error(
+        `Unsupported platform value(s): ${unknown.join(", ")}. Allowed: fb, insta, tiktok, linkedin`
+      );
+    }
+
+    return Array.from(new Set(normalized.map((value) => platformMap[value])));
+  }
+
+  private mapPlatformLinksToTargets(
+    links: Array<{
+      id: string;
+      platform: SocialPlatform;
+      externalRef: string | null;
+      externalProfileUrl: string | null;
+    }>
+  ): SchedulerTargetAccount[] {
+    return links.map((link) => ({
+      id: null,
+      platform: link.platform,
+      displayName: link.externalProfileUrl ?? null,
+      externalAccountId: link.externalRef ?? null,
+      accessToken: null,
+      expiresAt: null,
+    }));
+  }
+
+  private async getValidatedConnectedTargets(
+    userId: string,
+    platformLimit: number | null,
+    options?: {
+      linkIds?: string[];
+      platforms?: string[];
+    }
+  ): Promise<SchedulerTargetAccount[]> {
+    const requestedLinkIds = Array.from(new Set(options?.linkIds ?? []));
+    const requestedPlatforms = this.normalizeRequestedPlatforms(options?.platforms);
+
+    const links = await prisma.socialPlatformLink.findMany({
       where: {
-        id: { in: uniqueIds },
         userId,
+        ...(requestedLinkIds.length > 0 ? { id: { in: requestedLinkIds } } : {}),
       },
       select: {
         id: true,
         platform: true,
-        displayName: true,
-        externalAccountId: true,
-        accessToken: true,
-        expiresAt: true,
+        externalRef: true,
+        externalProfileUrl: true,
       },
-      orderBy: { createdAt: "asc" },
+      orderBy: { linkedAt: "asc" },
     });
 
-    if (platformLimit !== null && uniqueIds.length > platformLimit) {
+    if (requestedLinkIds.length > 0 && links.length !== requestedLinkIds.length) {
+      throw new Error("Selected target platforms must already be connected by this client");
+    }
+
+    if (links.length === 0) {
+      throw new Error(
+        "No connected social platforms found for this client. Connect at least one platform from /api/social-media/platform/my-links before scheduling."
+      );
+    }
+
+    let filteredLinks = links;
+    if (requestedPlatforms && requestedPlatforms.length > 0) {
+      const linkPlatforms = new Set(links.map((link) => link.platform));
+      const missing = requestedPlatforms.filter((platform) => !linkPlatforms.has(platform));
+      if (missing.length > 0) {
+        throw new Error(
+          `Requested platform(s) are not connected for this client: ${missing.join(", ")}`
+        );
+      }
+      filteredLinks = links.filter((link) => requestedPlatforms.includes(link.platform));
+    }
+
+    const uniquePlatformCount = new Set(filteredLinks.map((link) => link.platform)).size;
+    if (platformLimit !== null && uniquePlatformCount > platformLimit) {
       throw new Error(
         `Selected platform count exceeds the allowed limit for this subscription (${platformLimit})`
       );
     }
 
-    if (socialAccounts.length !== uniqueIds.length) {
-      throw new Error("Selected target platforms must already be connected by this client");
-    }
-
-    return socialAccounts;
-  }
-
-  private async getConnectedSocialAccountsForUser(
-    userId: string,
-    platformLimit: number | null
-  ): Promise<SchedulerTargetAccount[]> {
-    const socialAccounts = await prisma.socialAccount.findMany({
-      where: { userId },
-      select: {
-        id: true,
-        platform: true,
-        displayName: true,
-        externalAccountId: true,
-        accessToken: true,
-        expiresAt: true,
-      },
-      orderBy: { createdAt: "asc" },
-    });
-
-    if (platformLimit !== null && socialAccounts.length > platformLimit) {
-      throw new Error(
-        `Connected platform count exceeds the allowed limit for this subscription (${platformLimit})`
-      );
-    }
-    return socialAccounts;
+    return this.mapPlatformLinksToTargets(filteredLinks);
   }
 
   private async validateAssets(userId: string, assetIds: string[]) {
@@ -519,22 +558,22 @@ export class SchedulerService {
     const result =
       deltaHours > 0
         ? await tx.subscription.updateMany({
-            where: {
-              id: subscriptionId,
-              videoAddonEnabled: true,
-              videoSessionHours: { gte: requiredHours },
-            },
-            data: {
-              videoSessionHours: { decrement: requiredHours },
-            },
-          })
+          where: {
+            id: subscriptionId,
+            videoAddonEnabled: true,
+            videoSessionHours: { gte: requiredHours },
+          },
+          data: {
+            videoSessionHours: { decrement: requiredHours },
+          },
+        })
         : await tx.subscription.updateMany({
-            where: { id: subscriptionId },
-            data: {
-              videoSessionHours: { increment: requiredHours },
-              videoAddonEnabled: true,
-            },
-          });
+          where: { id: subscriptionId },
+          data: {
+            videoSessionHours: { increment: requiredHours },
+            videoAddonEnabled: true,
+          },
+        });
 
     if (result.count === 0) {
       throw new Error(
@@ -1198,7 +1237,7 @@ export class SchedulerService {
   }
 
   async createScheduledPost(actor: Actor, input: SchedulerCreateInput) {
-  const userId = await this.resolveTargetUser(actor, input.userId);
+    const userId = await this.resolveTargetUser(actor, input.userId);
 
     if (input.scheduledAt <= new Date()) {
       throw new Error("Scheduled time must be in the future");
@@ -1213,10 +1252,9 @@ export class SchedulerService {
       ? (subscription.plan.isCustomEnterprise ? planIncluded : planIncluded + (subscription.addonPlatformQty ?? 0))
       : null;
 
-    const socialAccounts =
-      input.socialAccountIds && input.socialAccountIds.length > 0
-        ? await this.validateSocialAccounts(userId, input.socialAccountIds, platformLimit)
-        : await this.getConnectedSocialAccountsForUser(userId, platformLimit);
+    const socialAccounts = await this.getValidatedConnectedTargets(userId, platformLimit, {
+      platforms: input.platforms,
+    });
     const assets = await this.validateAssets(userId, input.uploadedAssetIds ?? []);
     this.validateMediaRules(socialAccounts, assets);
 
@@ -1325,13 +1363,15 @@ export class SchedulerService {
       ? (subscription.plan.isCustomEnterprise ? planIncluded : planIncluded + (subscription.addonPlatformQty ?? 0))
       : null;
 
-    const nextSocialAccountIds = input.socialAccountIds;
     const nextAssetIds = existingPost.PostAsset.map((entry) => entry.Asset.id);
 
-    const socialAccounts =
-      nextSocialAccountIds && nextSocialAccountIds.length > 0
-        ? await this.validateSocialAccounts(existingPost.userId, nextSocialAccountIds, platformLimit)
-        : await this.getConnectedSocialAccountsForUser(existingPost.userId, platformLimit);
+    const socialAccounts = await this.getValidatedConnectedTargets(
+      existingPost.userId,
+      platformLimit,
+      {
+        platforms: input.platforms,
+      }
+    );
     const assets = await this.validateAssets(existingPost.userId, nextAssetIds);
     this.validateMediaRules(socialAccounts, assets);
 
@@ -1472,10 +1512,10 @@ export class SchedulerService {
   }
 
   async createScheduledSession(
-  actor: Actor,
-  input: SchedulerCreateSessionInput
-) {
-  const userId = await this.resolveTargetUser(actor, input.userId);
+    actor: Actor,
+    input: SchedulerCreateSessionInput
+  ) {
+    const userId = await this.resolveTargetUser(actor, input.userId);
     if (input.scheduledAt <= new Date()) {
       throw new Error("Scheduled time must be in the future");
     }

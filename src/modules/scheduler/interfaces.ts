@@ -17,7 +17,7 @@ export type SchedulerCreateInput = {
   cta?: string | null;
   shortDescription?: string | null;
   scheduledAt: Date;
-  socialAccountIds?: string[];
+  platforms?: string[];
   uploadedAssetIds?: string[];
   adminReason?: string | null;
 };
@@ -29,7 +29,7 @@ export type SchedulerUpdateInput = {
   cta?: string | null;
   shortDescription?: string | null;
   scheduledAt?: Date;
-  socialAccountIds?: string[];
+  platforms?: string[];
   adminReason?: string | null;
 };
 

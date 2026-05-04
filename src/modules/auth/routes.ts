@@ -50,10 +50,10 @@ const googleRedirectUri = `${(env.APP_URL ?? "http://localhost:4000").replace(/\
 
 const googleClient = env.GOOGLE_CLIENT_ID
   ? new OAuth2Client(
-      env.GOOGLE_CLIENT_ID,
-      env.GOOGLE_CLIENT_SECRET,
-      googleRedirectUri,
-    )
+    env.GOOGLE_CLIENT_ID,
+    env.GOOGLE_CLIENT_SECRET,
+    googleRedirectUri,
+  )
   : null;
 const PASSWORD_RESET_EXPIRY_MS = 1000 * 60 * 60; // 1 hour
 const EMAIL_VERIFICATION_EXPIRY_MS = 1000 * 60 * 60 * 24; // 24 hours
@@ -110,6 +110,7 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
     { method: "GET", pathPattern: "/admin/overview/stats" },
     { method: "GET", pathPattern: "/admin/overview/revenue" },
     { method: "GET", pathPattern: "/admin/overview/activity" },
+
   ],
   USER_MANAGE: [
     { method: "ALL", pathPattern: "/api/admin/users*" },
@@ -185,8 +186,8 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
   ENTERPRISE_PLAN: [
     { method: "ALL", pathPattern: "/api/admin/enterprise-plan*" },
     { method: "ALL", pathPattern: "/admin/enterprise-plan*" },
-    { method: "GET", pathPattern: "/api/brand-brief/admin/submissions"},
-		{ method: "GET", pathPattern: "/api/brand-brief/admin/submissions/:id"},
+    { method: "GET", pathPattern: "/api/brand-brief/admin/submissions" },
+    { method: "GET", pathPattern: "/api/brand-brief/admin/submissions/:id" },
   ],
   SUPPORT: [{ method: "ALL", pathPattern: "/api/contact/admin/submissions*" }],
   SUBMISSIONS: [
@@ -470,14 +471,14 @@ router.get("/enterprise-invite/validate", async (req, res) => {
       userEmailVerified: existingUser?.emailVerified ?? null,
       proposal: invite.proposal
         ? {
-            id: invite.proposal.id,
-            planCode: invite.proposal.planCode,
-            planName: invite.proposal.planName,
-            amount: Number(invite.proposal.amount),
-            billingCycle: invite.proposal.billingCycle,
-            currency: invite.proposal.currency,
-            status: invite.proposal.status,
-          }
+          id: invite.proposal.id,
+          planCode: invite.proposal.planCode,
+          planName: invite.proposal.planName,
+          amount: Number(invite.proposal.amount),
+          billingCycle: invite.proposal.billingCycle,
+          currency: invite.proposal.currency,
+          status: invite.proposal.status,
+        }
         : null,
     },
   });
@@ -956,19 +957,19 @@ router.get("/me", requireAuth, async (req, res) => {
   // Build subscription object: use actual subscription if exists, otherwise use pendingPlanCode
   const subscriptionObj = finalSubscription
     ? {
-        planCode: finalSubscription.planCode,
-        planCategory:
-          (finalSubscription.plan?.category as PlanCategory) || null,
-        status: finalSubscription.status,
-        priceType: finalSubscription.priceType,
-      }
+      planCode: finalSubscription.planCode,
+      planCategory:
+        (finalSubscription.plan?.category as PlanCategory) || null,
+      status: finalSubscription.status,
+      priceType: finalSubscription.priceType,
+    }
     : planCategory
       ? {
-          planCode: user.pendingPlanCode || null,
-          planCategory: planCategory as PlanCategory,
-          status: "INCOMPLETE" as const,
-          priceType: "STANDARD" as const,
-        }
+        planCode: user.pendingPlanCode || null,
+        planCategory: planCategory as PlanCategory,
+        status: "INCOMPLETE" as const,
+        priceType: "STANDARD" as const,
+      }
       : null;
 
   const permissions =
@@ -1074,7 +1075,7 @@ router.post("/reset-password", async (req, res) => {
     type: "PASSWORD_RESET",
     title: "Password Reset",
     description: "Password changed via password reset link",
-  }).catch(() => {});
+  }).catch(() => { });
 
   return res.json({ success: true });
 });
@@ -1161,7 +1162,7 @@ router.post("/change-password", requireAuth, async (req, res) => {
     type: "PASSWORD_CHANGED",
     title: "Password Changed",
     description: "User changed their password",
-  }).catch(() => {});
+  }).catch(() => { });
 
   return res.json({ success: true, message: "Password changed successfully" });
 });

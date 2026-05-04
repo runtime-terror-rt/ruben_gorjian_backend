@@ -25,7 +25,7 @@ export const schedulerCreatePostSchema = z.object({
   cta: z.string().max(280).nullable().optional(),
   shortDescription: z.string().max(500).nullable().optional(),
   scheduledAt: dateTimeString("scheduledAt"),
-  socialAccountIds: z.array(z.string().min(1)).min(1).optional(),
+  platforms: z.array(z.string().min(1)).min(1).optional(),
   adminReason: z.string().max(500).nullable().optional(),
 });
 
@@ -36,7 +36,7 @@ export const schedulerUpdatePostSchema = z.object({
   cta: z.string().max(280).nullable().optional(),
   shortDescription: z.string().max(500).nullable().optional(),
   scheduledAt: dateTimeString("scheduledAt").optional(),
-  socialAccountIds: z.array(z.string().min(1)).min(1).optional(),
+  platforms: z.array(z.string().min(1)).min(1).optional(),
   adminReason: z.string().max(500).nullable().optional(),
 });
 
@@ -85,7 +85,6 @@ export const schedulerCreateSessionSchema = z.object({
   sessionTitle: z.string().max(220).nullable().optional(),
   sessionNotes: z.string().max(2000).nullable().optional(),
   sessionDurationMinutes: z.coerce.number().int().min(15).max(600),
-  uploadedAssetIds: z.array(z.string().min(1)).optional(),
   adminReason: z.string().max(500).nullable().optional(),
 });
 
@@ -95,7 +94,6 @@ export const schedulerUpdateSessionSchema = z.object({
   sessionTitle: z.string().max(220).nullable().optional(),
   sessionNotes: z.string().max(2000).nullable().optional(),
   sessionDurationMinutes: z.coerce.number().int().min(15).max(600).optional(),
-  uploadedAssetIds: z.array(z.string().min(1)).optional(),
   replaceMedia: z.coerce.boolean().optional(),
   adminReason: z.string().max(500).nullable().optional(),
 });
