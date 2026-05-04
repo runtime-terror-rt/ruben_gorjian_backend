@@ -32,7 +32,7 @@ const platformMap: Record<string, SocialPlatform> = {
   instagram: SocialPlatform.INSTAGRAM,
   facebook: SocialPlatform.FACEBOOK,
   linkedin: SocialPlatform.LINKEDIN,
-
+  tiktok: SocialPlatform.TIKTOK,
 };
 
 const postStatusMap: Record<string, PostStatus> = {
@@ -301,7 +301,7 @@ router.post("/sessions", upload.array("files", 20), async (req, res) => {
 
     const session = await schedulerService.createScheduledSession(req.user!, {
       ...parsed.data,
-      uploadedAssetIds: [...(parsed.data.uploadedAssetIds ?? []), ...uploadedAssetIds],
+      uploadedAssetIds,
     });
     return res.status(201).json({ session });
   } catch (error) {
@@ -354,7 +354,7 @@ router.patch("/sessions/:id", upload.array("files", 20), async (req, res) => {
 
     const session = await schedulerService.updateScheduledSession(req.user!, sessionId, {
       ...parsed.data,
-      uploadedAssetIds: [...(parsed.data.uploadedAssetIds ?? []), ...uploadedAssetIds],
+      uploadedAssetIds,
     });
     return res.json({ session });
   } catch (error) {
