@@ -189,6 +189,120 @@
         "description": "Books a video session and should fail with payment-required until the add-on hours are purchased."
       },
       "response": []
+    },
+    {
+      "name": "Settings - Get Profile",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/user/settings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "user",
+            "settings"
+          ]
+        },
+        "description": "Fetch the current user profile and business settings"
+      },
+      "response": []
+    },
+    {
+      "name": "Uploads - Presign Avatar",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fileName\": \"{{avatarFileName}}\",\n  \"contentType\": \"{{avatarContentType}}\",\n  \"fileSize\": {{avatarFileSize}},\n  \"purpose\": \"avatar\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/uploads/presign",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "uploads",
+            "presign"
+          ]
+        },
+        "description": "Create an avatar upload target and save the returned storage key for the settings update",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "try {",
+                "  const json = pm.response.json();",
+                "  if (json && json.storageKey) {",
+                "    pm.environment.set('avatarStorageKey', json.storageKey);",
+                "    console.log('Saved avatarStorageKey:', json.storageKey);",
+                "  }",
+                "} catch (error) {",
+                "  console.log('Unable to parse avatar presign response', error);",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "Settings - Update Profile",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"profile\": {\n    \"fullName\": \"{{profileFullName}}\",\n    \"bio\": \"{{profileBio}}\",\n    \"avatar\": {\n      \"storageKey\": \"{{avatarStorageKey}}\",\n      \"contentType\": \"{{avatarContentType}}\"\n    }\n  },\n  \"business\": {\n    \"name\": \"{{businessName}}\",\n    \"website\": \"{{businessWebsite}}\",\n    \"industry\": \"{{businessIndustry}}\",\n    \"timezone\": \"{{businessTimezone}}\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/user/settings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "user",
+            "settings"
+          ]
+        },
+        "description": "Update profile and business settings. Run the avatar presign request first if you want to update the photo."
+      },
+      "response": []
+    },
+    {
+      "name": "Settings - Remove Avatar",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/user/settings/photo",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "user",
+            "settings",
+            "photo"
+          ]
+        },
+        "description": "Remove only the profile photo without changing other settings"
+      },
+      "response": []
     }
   ],
   "variable": [
@@ -210,6 +324,56 @@
     {
       "key": "sessionDurationMinutes",
       "value": "60",
+      "type": "string"
+    },
+    {
+      "key": "profileFullName",
+      "value": "Test User",
+      "type": "string"
+    },
+    {
+      "key": "profileBio",
+      "value": "Updated from Postman",
+      "type": "string"
+    },
+    {
+      "key": "businessName",
+      "value": "Talexia",
+      "type": "string"
+    },
+    {
+      "key": "businessWebsite",
+      "value": "https://example.com",
+      "type": "string"
+    },
+    {
+      "key": "businessIndustry",
+      "value": "Retail",
+      "type": "string"
+    },
+    {
+      "key": "businessTimezone",
+      "value": "Asia/Dhaka",
+      "type": "string"
+    },
+    {
+      "key": "avatarFileName",
+      "value": "avatar",
+      "type": "string"
+    },
+    {
+      "key": "avatarContentType",
+      "value": "image/png",
+      "type": "string"
+    },
+    {
+      "key": "avatarFileSize",
+      "value": "102400",
+      "type": "string"
+    },
+    {
+      "key": "avatarStorageKey",
+      "value": "",
       "type": "string"
     }
   ]
