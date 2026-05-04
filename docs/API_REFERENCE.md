@@ -703,6 +703,21 @@ Request body:
 
 Auth required.
 
+### GET `/uploads/files`
+
+Auth required.
+
+Returns all upload-related files for the current user in one list (assets, brand files, submission files, enhanced delivery files, and avatar when available).
+
+Query params:
+- `type` (optional): `all` (default), `image`, `video`, `audio`
+- `page` (optional, default `1`)
+- `limit` (optional, default `50`, max `200`)
+
+Response includes:
+- `total`, `page`, `limit`, `totalPages`
+- `items[]` with `source`, `mediaType`, `storageKey`, `url`, `contentType`, `createdAt`
+
 ---
 
 ## AI
@@ -1573,29 +1588,35 @@ Auth required.
 
 Returns current profile and business settings.
 
-### PUT `/user/settings`
 ### PATCH `/user/settings`
 
-Same payload shape for update:
-```json
-{
-  "profile": {
-    "fullName": "User Name",
-    "bio": "Optional bio",
-    "avatar": {
-      "storageKey": "user/123/avatar.png",
-      "contentType": "image/png",
-      "remove": false
-    }
-  },
-  "business": {
-    "name": "Business Name",
-    "website": "https://example.com",
-    "industry": "Retail",
-    "timezone": "Asia/Dhaka"
-  }
-}
+Update profile, business settings, and optionally upload a new avatar photo.
+
+**Content-Type:** `multipart/form-data`
+
+**Form fields:**
+- `profile` (JSON string, optional): `{ "fullName": "string", "bio": "string" }`
+- `business` (JSON string, optional): `{ "name": "string", "website": "string|null", "industry": "string|null", "timezone": "string|null" }`
+- `avatar` (file, optional): Image file (jpg, jpeg, png, or webp). Max 5MB.
+
+**Example:**
 ```
+POST /user/settings
+Content-Type: multipart/form-data
+
+profile={"fullName":"John Doe","bio":"Bio text"}
+business={"name":"Company","timezone":"America/New_York"}
+avatar=<binary image file>
+```
+
+**Avatar:**
+- If file is provided, it will be uploaded directly to S3 and the storage key will be saved
+- If no file is provided and you want to remove the current avatar, send `removeAvatar=true` in the profile field
+- Supported formats: jpg, jpeg, png, webp (max 5MB)
+
+### PUT `/user/settings`
+
+Same as PATCH.
 
 ### DELETE `/user/settings/photo`
 

@@ -37,6 +37,7 @@ import { faqRouter } from "./modules/faq/routes";
 import { caseStudiesRouter } from "./modules/case-studies/routes";
 import { enterprisePlanPublicRouter } from "./modules/enterprise-plan/public-routes";
 import { brandBriefRouter } from "./modules/brand-brief/routes";
+import { webhookRouter } from "./modules/webhook/webhook.routes";
 
 export const app = express();
 
@@ -149,4 +150,5 @@ app.use("/api/providers/upload-post", uploadPostProviderRouter);
 app.use("/api/admin/upload-post", uploadPostProviderRouter);
 app.use("/api/social-media", onlinePostRouter);
 app.use("/api/tiktok", tiktokRoutes);
+app.use("webhooks", webhookRouter);
 app.use(errorHandler);

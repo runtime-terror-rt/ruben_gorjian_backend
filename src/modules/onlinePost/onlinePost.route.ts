@@ -65,6 +65,7 @@ router.get("/status", controller.status);
 
 // Authenticated (CUSTOMER/ADMIN)
 router.post("/platform/connect-link", requireAuth, controller.connectLinkForLoggedUser);
+router.post("/platform/connect-link2", requireAuth, controller.connect);
 router.post("/platform/finalize", requireAuth, controller.finalizePlatformConnection);
 router.post("/platform/disconnect", requireAuth, controller.disconnectLinkForLoggedUser);
 router.post("/publish-now", requireAuth, controller.publishNow);

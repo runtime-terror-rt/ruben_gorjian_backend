@@ -4,6 +4,7 @@ import {
   ScheduledPost,
   ScheduledPostStatus,
   SocialPlatform,
+  SubscriptionStatus,
   User,
   Role as UserRole,
 } from "@prisma/client";
@@ -13,6 +14,7 @@ import { prisma } from "../../lib/prisma";
 import { ApiError } from "../../lib/errors";
 import { PassThrough } from "stream";
 import { Upload } from "@aws-sdk/lib-storage";
+import { th } from "zod/v4/locales";
 
 // Minimal Nest-like exceptions so the original pasted logic can remain unchanged in Express.
 // Express routes should use `handleError()` to convert these into proper HTTP responses.
@@ -688,59 +690,61 @@ export class SocialMediaService {
     }
   }
 
-  // async createConnectLinkForUser(
-  //   user: User,
-  //   payload: { redirectUrl: string; platform: string; showCalendar?: boolean },
-  // ) {
-  //   const platform = this.normalizePlatform(payload.platform);
-  //   const prismaPlatform = this.toPrismaPlatform(platform);
+  async createConnectLinkForUserOld(
+    user: User,
+    payload: { redirectUrl: string; platform: string; showCalendar?: boolean },
+  ) {
+    const platform = this.normalizePlatform(payload.platform);
+    const prismaPlatform = this.toPrismaPlatform(platform);
 
-  //   const existing = await this.prisma.socialPlatformLink.findUnique({
-  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
-  //   });
+    const existing = await this.prisma.socialPlatformLink.findUnique({
+      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+    });
 
-  //   if (!existing) {
-  //     await this.enforceLinkLimit(user.id);
-  //   }
+    if (!existing) {
+      await this.enforceLinkLimit(user.id);
+    }
 
-  //   const username = this.uploadPostUsername(user);
-  //   await this.createOrReuseUploadPostProfile(username);
+    const username = this.uploadPostUsername(user);
+    await this.createOrReuseUploadPostProfile(username);
 
-  //   const linkResult = await this.api("/uploadposts/users/generate-jwt", {
-  //     method: "POST",
-  //     headers: { "Content-Type": "application/json" },
-  //     body: JSON.stringify({
-  //       username,
-  //       platforms: [platform],
-  //       redirect_url: payload.redirectUrl,
-  //       show_calendar: payload.showCalendar ?? true,
-  //     }),
-  //   });
+    const linkResult = await this.api("/uploadposts/users/generate-jwt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username,
+        platforms: [platform],
+        redirect_url: payload.redirectUrl,
+        show_calendar: payload.showCalendar ?? true,
+      }),
+    });
 
-  //   const connectMeta = this.extractConnectMeta(linkResult);
+    const connectMeta = this.extractConnectMeta(linkResult);
 
-  //   await this.prisma.socialPlatformLink.upsert({
-  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
-  //     update: {
-  //       linkedAt: new Date(),
-  //       externalRef: connectMeta.externalRef,
-  //       externalProfileUrl: connectMeta.externalProfileUrl,
-  //     },
-  //     create: {
-  //       userId: user.id,
-  //       platform: prismaPlatform,
-  //       externalRef: connectMeta.externalRef,
-  //       externalProfileUrl: connectMeta.externalProfileUrl,
-  //     },
-  //   });
+    await this.prisma.socialPlatformLink.upsert({
+      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+      update: {
+        linkedAt: new Date(),
+        externalRef: connectMeta.externalRef,
+        externalProfileUrl: connectMeta.externalProfileUrl,
+      },
+      create: {
+        userId: user.id,
+        platform: prismaPlatform,
+        externalRef: connectMeta.externalRef,
+        externalProfileUrl: connectMeta.externalProfileUrl,
+        linkedAt: new Date(),
+        platformUsername: username,
+      },
+    });
 
-  //   return {
-  //     success: true,
-  //     username,
-  //     platform,
-  //     connect: linkResult,
-  //   };
-  // }
+    return {
+      success: true,
+      username,
+      platform,
+      connect: linkResult,
+    };
+  }
 
   private buildRedirectUrl(platform?: string) {
     const baseUrl = process.env.FRONTEND_URL;
@@ -759,12 +763,77 @@ export class SocialMediaService {
     return url.toString();
   }
 
+  private async getCurrentSubscriptionPlan(userId: string) {
+    const subscription = await prisma.subscription.findFirst({
+      where: {
+        userId,
+        status: SubscriptionStatus.ACTIVE,
+      },
+      include: {
+        plan: true,
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+    });
+
+    if (!subscription) {
+      return {
+        subscription: null,
+        plan: null,
+      };
+    }
+
+    return {
+      subscription,
+      plan: subscription.plan,
+    };
+  }
+
+  private async validatePlatformLimit(userId: string): Promise<{
+    allowed: boolean;
+    maxLinkedPlatforms: number;
+    currentCount: number;
+  }> {
+    const { plan, subscription } =
+      await this.getCurrentSubscriptionPlan(userId);
+
+    const absoluteLimit = plan?.platformLimit ?? 4;
+    const addOnLimit = subscription?.addonPlatformQty ?? 0;
+
+    const planLimit = (plan?.platformQty ?? 0) + addOnLimit;
+
+    const maxLinkedPlatforms = Math.min(planLimit, absoluteLimit);
+
+    const currentCount = await this.prisma.socialPlatformLink.count({
+      where: { userId },
+    });
+
+    const allowed = currentCount < maxLinkedPlatforms;
+
+    return {
+      allowed,
+      maxLinkedPlatforms,
+      currentCount,
+    };
+  }
+
   async createConnectLinkForUser(
     user: User,
     payload: { platform: string; showCalendar?: boolean },
   ) {
     const platform = this.normalizePlatform(payload.platform);
     const username = this.uploadPostUsername(user);
+
+    const limitCheck = await this.validatePlatformLimit(user.id);
+
+    if (!limitCheck.allowed) {
+      return {
+        success: false,
+        message: `Plan limit reached. Max linked platforms: ${limitCheck.maxLinkedPlatforms}`,
+        isModalOpen: true,
+      };
+    }
 
     // ensure profile exists
     await this.createOrReuseUploadPostProfile(username);
@@ -791,6 +860,29 @@ export class SocialMediaService {
         show_calendar: payload.showCalendar ?? true,
         state,
       }),
+    });
+
+    // TEMPOrary. because redirect is not happening
+
+    const connectMeta = this.extractConnectMeta(linkResult);
+
+    const prismaPlatform = this.toPrismaPlatform(platform);
+
+    await this.prisma.socialPlatformLink.upsert({
+      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
+      update: {
+        linkedAt: new Date(),
+        externalRef: connectMeta.externalRef,
+        externalProfileUrl: connectMeta.externalProfileUrl,
+      },
+      create: {
+        userId: user.id,
+        platform: prismaPlatform,
+        externalRef: connectMeta.externalRef,
+        externalProfileUrl: connectMeta.externalProfileUrl,
+        linkedAt: new Date(),
+        platformUsername: username,
+      },
     });
 
     return {
@@ -822,11 +914,6 @@ export class SocialMediaService {
     // � ensure profile exists before fetching
     const username = this.uploadPostUsername(user);
     await this.createOrReuseUploadPostProfile(username);
-
-    // �🔥 Fetch fresh data from UploadPost (NOT JWT)
-    // const result = await this.api("/uploadposts/users/me", {
-    //   method: "GET",
-    // });
 
     const result = await this.api(
       `/uploadposts/users/${encodeURIComponent(username)}`,
@@ -863,6 +950,8 @@ export class SocialMediaService {
         platform: prismaPlatform,
         externalRef: platformData?.id ?? null,
         externalProfileUrl: platformData?.profile_url ?? null,
+        linkedAt: new Date(),
+        platformUsername: username,
       },
     });
 
@@ -1567,5 +1656,94 @@ export class SocialMediaService {
       : `request_id=${encodeURIComponent(query.requestId as string)}`;
 
     return this.api(`/uploadposts/status?${qs}`);
+  }
+
+  async getAllPlatformLinksAdmin(
+    admin: User,
+    filter?: { email?: string; platforms?: SocialPlatform[] },
+    search?: string,
+    page = 1,
+    limit = 20,
+  ) {
+    if (admin.role !== UserRole.ADMIN) {
+      throw new ForbiddenException("Admin only");
+    }
+
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.SocialPlatformLinkWhereInput = {
+      ...(filter?.platforms?.length
+        ? { platform: { in: filter.platforms } }
+        : {}),
+
+      ...(filter?.email
+        ? {
+            user: {
+              email: {
+                contains: filter.email,
+                mode: "insensitive",
+              },
+            },
+          }
+        : {}),
+
+      ...(search
+        ? {
+            OR: [
+              {
+                user: {
+                  email: {
+                    contains: search,
+                    mode: "insensitive",
+                  },
+                },
+              },
+              {
+                externalRef: {
+                  contains: search,
+                  mode: "insensitive",
+                },
+              },
+              {
+                externalProfileUrl: {
+                  contains: search,
+                  mode: "insensitive",
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+
+    const [platformLinks, total] = await this.prisma.$transaction([
+      this.prisma.socialPlatformLink.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: "desc",
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+            },
+          },
+        },
+      }),
+      this.prisma.socialPlatformLink.count({ where }),
+    ]);
+
+    return {
+      data: platformLinks,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 }

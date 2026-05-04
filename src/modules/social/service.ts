@@ -78,7 +78,9 @@ export class SocialAccountService {
     const subscription = user.subscriptions[0];
     const plan = subscription.plan;
     const planIncluded = plan.platformQty ?? plan.platformLimit ?? null;
-    const platformLimit = planIncluded !== null && planIncluded !== undefined ? planIncluded + (subscription.addonPlatformQty ?? 0) : null;
+    const platformLimit = planIncluded !== null && planIncluded !== undefined
+      ? (plan.isCustomEnterprise ? planIncluded : planIncluded + (subscription.addonPlatformQty ?? 0))
+      : null;
 
     if (!platformLimit) {
       return true; // No limit
