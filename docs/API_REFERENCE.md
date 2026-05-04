@@ -1573,6 +1573,12 @@ Auth required.
 
 Returns current profile and business settings.
 
+### Avatar update flow
+
+Profile photos are updated by sending a `storageKey` returned from `POST /uploads/presign`.
+
+If the storage key does not include a file extension, include a valid `contentType` such as `image/png` or `image/jpeg` in the settings update payload.
+
 ### PUT `/user/settings`
 ### PATCH `/user/settings`
 

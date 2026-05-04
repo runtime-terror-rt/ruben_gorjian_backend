@@ -21,6 +21,14 @@ function isAllowedImageExtension(storageKey: string): boolean {
   return /\.(jpe?g|png|webp)$/i.test(storageKey);
 }
 
+function isAllowedAvatarContentType(contentType: string | null | undefined): boolean {
+  if (!contentType) {
+    return false;
+  }
+
+  return ALLOWED_AVATAR_MIME_TYPES.has(contentType.toLowerCase());
+}
+
 function serializeSettingsResponse(user: {
   email: string;
   profile: {
@@ -147,9 +155,16 @@ async function updateSettingsHandler(req: express.Request, res: express.Response
       if (!sanitized.startsWith(`user/${userId}/`)) {
         return res.status(400).json({ error: "Avatar key must belong to current user" });
       }
-      if (!isAllowedImageExtension(sanitized)) {
-        return res.status(400).json({ error: "Avatar file extension must be jpg, jpeg, png, or webp" });
+
+      const hasAllowedExtension = isAllowedImageExtension(sanitized);
+      const hasAllowedContentType = isAllowedAvatarContentType(avatarPayload.contentType);
+
+      if (!hasAllowedExtension && !hasAllowedContentType) {
+        return res.status(400).json({
+          error: "Avatar must be a jpg, jpeg, png, or webp file",
+        });
       }
+
       avatarStorageKey = sanitized;
     } catch (error) {
       return res.status(400).json({
