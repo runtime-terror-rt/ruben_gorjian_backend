@@ -210,65 +210,29 @@
       "response": []
     },
     {
-      "name": "Uploads - Presign Avatar",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"fileName\": \"{{avatarFileName}}\",\n  \"contentType\": \"{{avatarContentType}}\",\n  \"fileSize\": {{avatarFileSize}},\n  \"purpose\": \"avatar\"\n}"
-        },
-        "url": {
-          "raw": "{{baseUrl}}/uploads/presign",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "uploads",
-            "presign"
-          ]
-        },
-        "description": "Create an avatar upload target and save the returned storage key for the settings update",
-        "event": [
-          {
-            "listen": "test",
-            "script": {
-              "type": "text/javascript",
-              "exec": [
-                "try {",
-                "  const json = pm.response.json();",
-                "  if (json && json.storageKey) {",
-                "    pm.environment.set('avatarStorageKey', json.storageKey);",
-                "    console.log('Saved avatarStorageKey:', json.storageKey);",
-                "  }",
-                "} catch (error) {",
-                "  console.log('Unable to parse avatar presign response', error);",
-                "}"
-              ]
-            }
-          }
-        ]
-      },
-      "response": []
-    },
-    {
-      "name": "Settings - Update Profile",
+      "name": "Settings - Update Profile with Avatar",
       "request": {
         "method": "PATCH",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
+        "header": [],
         "body": {
-          "mode": "raw",
-          "raw": "{\n  \"profile\": {\n    \"fullName\": \"{{profileFullName}}\",\n    \"bio\": \"{{profileBio}}\",\n    \"avatar\": {\n      \"storageKey\": \"{{avatarStorageKey}}\",\n      \"contentType\": \"{{avatarContentType}}\"\n    }\n  },\n  \"business\": {\n    \"name\": \"{{businessName}}\",\n    \"website\": \"{{businessWebsite}}\",\n    \"industry\": \"{{businessIndustry}}\",\n    \"timezone\": \"{{businessTimezone}}\"\n  }\n}"
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "profile",
+              "value": "{\"fullName\": \"{{profileFullName}}\", \"bio\": \"{{profileBio}}\"}",
+              "type": "text"
+            },
+            {
+              "key": "business",
+              "value": "{\"name\": \"{{businessName}}\", \"website\": \"{{businessWebsite}}\", \"industry\": \"{{businessIndustry}}\", \"timezone\": \"{{businessTimezone}}\"}",
+              "type": "text"
+            },
+            {
+              "key": "avatar",
+              "type": "file",
+              "src": ""
+            }
+          ]
         },
         "url": {
           "raw": "{{baseUrl}}/user/settings",
@@ -280,12 +244,75 @@
             "settings"
           ]
         },
-        "description": "Update profile and business settings. Run the avatar presign request first if you want to update the photo."
+        "description": "Update profile and business settings with direct S3 avatar upload. Select an avatar image file in the avatar field."
+      },
+      "response": []
+    },
+    {
+      "name": "Settings - Update Profile Only",
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "profile",
+              "value": "{\"fullName\": \"{{profileFullName}}\", \"bio\": \"{{profileBio}}\"}",
+              "type": "text"
+            },
+            {
+              "key": "business",
+              "value": "{\"name\": \"{{businessName}}\", \"website\": \"{{businessWebsite}}\", \"industry\": \"{{businessIndustry}}\", \"timezone\": \"{{businessTimezone}}\"}",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/user/settings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "user",
+            "settings"
+          ]
+        },
+        "description": "Update profile and business settings without changing the avatar"
       },
       "response": []
     },
     {
       "name": "Settings - Remove Avatar",
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "profile",
+              "value": "{\"removeAvatar\": \"true\"}",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/user/settings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "user",
+            "settings"
+          ]
+        },
+        "description": "Remove only the profile avatar"
+      },
+      "response": []
+    },
+    {
+      "name": "Settings - Delete Avatar (old endpoint)",
       "request": {
         "method": "DELETE",
         "header": [],
@@ -300,7 +327,7 @@
             "photo"
           ]
         },
-        "description": "Remove only the profile photo without changing other settings"
+        "description": "Legacy endpoint - remove only the profile photo without changing other settings"
       },
       "response": []
     }
@@ -354,26 +381,6 @@
     {
       "key": "businessTimezone",
       "value": "Asia/Dhaka",
-      "type": "string"
-    },
-    {
-      "key": "avatarFileName",
-      "value": "avatar",
-      "type": "string"
-    },
-    {
-      "key": "avatarContentType",
-      "value": "image/png",
-      "type": "string"
-    },
-    {
-      "key": "avatarFileSize",
-      "value": "102400",
-      "type": "string"
-    },
-    {
-      "key": "avatarStorageKey",
-      "value": "",
       "type": "string"
     }
   ]
