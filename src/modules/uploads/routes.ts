@@ -6,6 +6,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { logger } from "../../lib/logger";
+import { buildStorageUrl } from "../../lib/validators";
 
 const router = express.Router();
 const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024;
@@ -142,6 +143,258 @@ router.get("/assets", requireAuth, async (req, res) => {
   } catch (error) {
     logger.error("Failed to fetch assets", error);
     return res.status(500).json({ error: "Failed to fetch assets" });
+  }
+});
+
+const fileFilterSchema = z.object({
+  type: z.enum(["all", "image", "video", "audio"]).optional().default("all"),
+  page: z.coerce.number().int().positive().optional().default(1),
+  limit: z.coerce.number().int().positive().max(200).optional().default(50),
+});
+
+type MediaType = "image" | "video" | "audio" | "other";
+type UploadSource = "asset" | "brand" | "submission" | "enhanced" | "avatar";
+
+function inferMediaType(input: {
+  mimeType?: string | null;
+  assetType?: string | null;
+  fileName?: string | null;
+  storageKey?: string | null;
+}): MediaType {
+  const normalizedMime = input.mimeType?.toLowerCase() ?? "";
+
+  if (normalizedMime.startsWith("image/")) return "image";
+  if (normalizedMime.startsWith("video/")) return "video";
+  if (normalizedMime.startsWith("audio/")) return "audio";
+
+  if (input.assetType === "IMAGE") return "image";
+  if (input.assetType === "VIDEO") return "video";
+
+  const candidate = `${input.fileName ?? ""} ${input.storageKey ?? ""}`.toLowerCase();
+
+  if (/\.(jpg|jpeg|png|webp|gif|bmp|svg|heic|heif)\b/.test(candidate)) return "image";
+  if (/\.(mp4|mov|mkv|avi|webm|m4v)\b/.test(candidate)) return "video";
+  if (/\.(mp3|wav|aac|m4a|ogg|oga|flac|opus|wma)\b/.test(candidate)) return "audio";
+
+  return "other";
+}
+
+function toPublicUrl(storageKey: string | null | undefined): string | null {
+  if (!storageKey || !env.STORAGE_BASE_URL) {
+    return null;
+  }
+  return buildStorageUrl(env.STORAGE_BASE_URL, storageKey);
+}
+
+router.get("/files", requireAuth, async (req, res) => {
+  const parsed = fileFilterSchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() });
+  }
+
+  const { type, page, limit } = parsed.data;
+  const userId = req.user!.id;
+
+  try {
+    const [assets, brandFiles, submissionFiles, enhancedFiles, profile] = await Promise.all([
+      prisma.asset.findMany({
+        where: { userId },
+        select: {
+          id: true,
+          storageKey: true,
+          contentType: true,
+          type: true,
+          kind: true,
+          source: true,
+          createdAt: true,
+        },
+      }),
+      prisma.brandFile.findMany({
+        where: { userId },
+        select: {
+          id: true,
+          fileName: true,
+          fileType: true,
+          storageKey: true,
+          createdAt: true,
+        },
+      }),
+      prisma.submissionFile.findMany({
+        where: {
+          submission: {
+            userId,
+          },
+        },
+        select: {
+          id: true,
+          submissionId: true,
+          fileName: true,
+          fileType: true,
+          storageKey: true,
+          createdAt: true,
+        },
+      }),
+      prisma.enhancedDeliveryFile.findMany({
+        where: {
+          enhancedDelivery: {
+            submission: {
+              userId,
+            },
+          },
+        },
+        select: {
+          id: true,
+          enhancedDeliveryId: true,
+          fileName: true,
+          mimeType: true,
+          storageKey: true,
+          createdAt: true,
+        },
+      }),
+      prisma.userProfile.findUnique({
+        where: { userId },
+        select: {
+          avatarStorageKey: true,
+          avatarContentType: true,
+          updatedAt: true,
+        },
+      }),
+    ]);
+
+    const collected: Array<{
+      id: string;
+      source: UploadSource;
+      mediaType: MediaType;
+      fileName: string | null;
+      contentType: string | null;
+      storageKey: string;
+      url: string | null;
+      createdAt: string;
+      meta?: Record<string, unknown>;
+    }> = [];
+
+    for (const asset of assets) {
+      collected.push({
+        id: asset.id,
+        source: "asset",
+        mediaType: inferMediaType({
+          mimeType: asset.contentType,
+          assetType: asset.type,
+          storageKey: asset.storageKey,
+        }),
+        fileName: sanitizeFilename(asset.storageKey.split("/").pop() || "upload"),
+        contentType: asset.contentType,
+        storageKey: asset.storageKey,
+        url: toPublicUrl(asset.storageKey),
+        createdAt: asset.createdAt.toISOString(),
+        meta: {
+          assetType: asset.type,
+          kind: asset.kind,
+          source: asset.source,
+        },
+      });
+    }
+
+    for (const file of brandFiles) {
+      collected.push({
+        id: file.id,
+        source: "brand",
+        mediaType: inferMediaType({
+          mimeType: file.fileType,
+          fileName: file.fileName,
+          storageKey: file.storageKey,
+        }),
+        fileName: file.fileName,
+        contentType: file.fileType,
+        storageKey: file.storageKey,
+        url: toPublicUrl(file.storageKey),
+        createdAt: file.createdAt.toISOString(),
+      });
+    }
+
+    for (const file of submissionFiles) {
+      collected.push({
+        id: file.id,
+        source: "submission",
+        mediaType: inferMediaType({
+          mimeType: file.fileType,
+          fileName: file.fileName,
+          storageKey: file.storageKey,
+        }),
+        fileName: file.fileName,
+        contentType: file.fileType,
+        storageKey: file.storageKey,
+        url: toPublicUrl(file.storageKey),
+        createdAt: file.createdAt.toISOString(),
+        meta: {
+          submissionId: file.submissionId,
+        },
+      });
+    }
+
+    for (const file of enhancedFiles) {
+      collected.push({
+        id: file.id,
+        source: "enhanced",
+        mediaType: inferMediaType({
+          mimeType: file.mimeType,
+          fileName: file.fileName,
+          storageKey: file.storageKey,
+        }),
+        fileName: file.fileName,
+        contentType: file.mimeType,
+        storageKey: file.storageKey,
+        url: toPublicUrl(file.storageKey),
+        createdAt: file.createdAt.toISOString(),
+        meta: {
+          enhancedDeliveryId: file.enhancedDeliveryId,
+        },
+      });
+    }
+
+    if (profile?.avatarStorageKey) {
+      collected.push({
+        id: `avatar:${userId}`,
+        source: "avatar",
+        mediaType: inferMediaType({
+          mimeType: profile.avatarContentType,
+          storageKey: profile.avatarStorageKey,
+        }),
+        fileName: sanitizeFilename(profile.avatarStorageKey.split("/").pop() || "avatar"),
+        contentType: profile.avatarContentType,
+        storageKey: profile.avatarStorageKey,
+        url: toPublicUrl(profile.avatarStorageKey),
+        createdAt: profile.updatedAt.toISOString(),
+      });
+    }
+
+    const filtered = collected.filter((item) => {
+      if (type === "all") return true;
+      return item.mediaType === type;
+    });
+
+    filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const total = filtered.length;
+    const start = (page - 1) * limit;
+    const items = filtered.slice(start, start + limit);
+
+    return res.json({
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      filters: {
+        type,
+      },
+      items,
+    });
+  } catch (error) {
+    logger.error("Failed to fetch unified user files", {
+      error: error instanceof Error ? error.message : String(error),
+      userId,
+    });
+    return res.status(500).json({ error: "Failed to fetch files" });
   }
 });
 

@@ -703,6 +703,21 @@ Request body:
 
 Auth required.
 
+### GET `/uploads/files`
+
+Auth required.
+
+Returns all upload-related files for the current user in one list (assets, brand files, submission files, enhanced delivery files, and avatar when available).
+
+Query params:
+- `type` (optional): `all` (default), `image`, `video`, `audio`
+- `page` (optional, default `1`)
+- `limit` (optional, default `50`, max `200`)
+
+Response includes:
+- `total`, `page`, `limit`, `totalPages`
+- `items[]` with `source`, `mediaType`, `storageKey`, `url`, `contentType`, `createdAt`
+
 ---
 
 ## AI
