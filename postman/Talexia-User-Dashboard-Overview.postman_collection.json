@@ -189,6 +189,147 @@
         "description": "Books a video session and should fail with payment-required until the add-on hours are purchased."
       },
       "response": []
+    },
+    {
+      "name": "Settings - Get Profile",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/user/settings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "user",
+            "settings"
+          ]
+        },
+        "description": "Fetch the current user profile and business settings"
+      },
+      "response": []
+    },
+    {
+      "name": "Settings - Update Profile with Avatar",
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "profile",
+              "value": "{\"fullName\": \"{{profileFullName}}\", \"bio\": \"{{profileBio}}\"}",
+              "type": "text"
+            },
+            {
+              "key": "business",
+              "value": "{\"name\": \"{{businessName}}\", \"website\": \"{{businessWebsite}}\", \"industry\": \"{{businessIndustry}}\", \"timezone\": \"{{businessTimezone}}\"}",
+              "type": "text"
+            },
+            {
+              "key": "avatar",
+              "type": "file",
+              "src": ""
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/user/settings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "user",
+            "settings"
+          ]
+        },
+        "description": "Update profile and business settings with direct S3 avatar upload. Select an avatar image file in the avatar field."
+      },
+      "response": []
+    },
+    {
+      "name": "Settings - Update Profile Only",
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "profile",
+              "value": "{\"fullName\": \"{{profileFullName}}\", \"bio\": \"{{profileBio}}\"}",
+              "type": "text"
+            },
+            {
+              "key": "business",
+              "value": "{\"name\": \"{{businessName}}\", \"website\": \"{{businessWebsite}}\", \"industry\": \"{{businessIndustry}}\", \"timezone\": \"{{businessTimezone}}\"}",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/user/settings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "user",
+            "settings"
+          ]
+        },
+        "description": "Update profile and business settings without changing the avatar"
+      },
+      "response": []
+    },
+    {
+      "name": "Settings - Remove Avatar",
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "profile",
+              "value": "{\"removeAvatar\": \"true\"}",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/user/settings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "user",
+            "settings"
+          ]
+        },
+        "description": "Remove only the profile avatar"
+      },
+      "response": []
+    },
+    {
+      "name": "Settings - Delete Avatar (old endpoint)",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/user/settings/photo",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "user",
+            "settings",
+            "photo"
+          ]
+        },
+        "description": "Legacy endpoint - remove only the profile photo without changing other settings"
+      },
+      "response": []
     }
   ],
   "variable": [
@@ -210,6 +351,36 @@
     {
       "key": "sessionDurationMinutes",
       "value": "60",
+      "type": "string"
+    },
+    {
+      "key": "profileFullName",
+      "value": "Test User",
+      "type": "string"
+    },
+    {
+      "key": "profileBio",
+      "value": "Updated from Postman",
+      "type": "string"
+    },
+    {
+      "key": "businessName",
+      "value": "Talexia",
+      "type": "string"
+    },
+    {
+      "key": "businessWebsite",
+      "value": "https://example.com",
+      "type": "string"
+    },
+    {
+      "key": "businessIndustry",
+      "value": "Retail",
+      "type": "string"
+    },
+    {
+      "key": "businessTimezone",
+      "value": "Asia/Dhaka",
       "type": "string"
     }
   ]

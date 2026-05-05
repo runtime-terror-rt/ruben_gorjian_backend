@@ -29,6 +29,7 @@ model User {
   calendarOnboardingCompleted       Boolean                  @default(false)
   visualOnboardingCompleted         Boolean                  @default(false)
   fullManagementOnboardingCompleted Boolean                  @default(false)
+  brandBriefOnboardingCompleted     Boolean                  @default(false)
   pendingPlanCode                   String? // Plan code selected before signup/checkout
   pendingPlanCodeSetAt              DateTime? // When pendingPlanCode was last set
   assets                            Asset[]
@@ -53,8 +54,8 @@ model User {
   adminInitiatedPosts               Post[]                   @relation("AdminInitiatedPosts")
   adminPostPermissions              AdminPostPermission?
   grantedAdminPostPermissions       AdminPostPermission[]    @relation("AdminPostPermissionGrantedBy")
-  adminRoutePermissions             AdminRoutePermission[]    @relation("AdminRoutePermissions")
-  grantedAdminRoutePermissions      AdminRoutePermission[]    @relation("AdminRoutePermissionsGrantedBy")
+  adminRoutePermissions             AdminRoutePermission[]   @relation("AdminRoutePermissions")
+  grantedAdminRoutePermissions      AdminRoutePermission[]   @relation("AdminRoutePermissionsGrantedBy")
   adminUploadedAssets               Asset[]                  @relation("AdminUploadedAssets")
   notifications                     Notification[]
   enhancedDeliveries                EnhancedDelivery[]       @relation("EnhancedDeliveriesByAdmin")
@@ -67,8 +68,8 @@ model User {
   scheduledPosts                    ScheduledPost[]
   sentEnterpriseInvites             EnterprisePlanInvite[]   @relation("EnterpriseInviteSentBy")
   enterpriseInvitesAsUser           EnterprisePlanInvite[]   @relation("EnterpriseInviteCreatedUser")
-  enterprisePlanProposalsCreated     EnterprisePlanProposal[]  @relation("EnterprisePlanProposalCreatedBy")
-  enterprisePlanProposalsAsUser      EnterprisePlanProposal[]  @relation("EnterprisePlanProposalCreatedUser")
+  enterprisePlanProposalsCreated    EnterprisePlanProposal[] @relation("EnterprisePlanProposalCreatedBy")
+  enterprisePlanProposalsAsUser     EnterprisePlanProposal[] @relation("EnterprisePlanProposalCreatedUser")
   brandBriefs                       BrandBrief[]
 }
 
@@ -77,6 +78,7 @@ model SocialPlatformLink {
   userId             String
   platform           SocialPlatform
   externalRef        String?
+  platformUsername   String
   externalProfileUrl String?
   linkedAt           DateTime       @default(now())
   createdAt          DateTime       @default(now())
@@ -122,40 +124,40 @@ model Plan {
   category              PlanCategory
   isCustomEnterprise    Boolean        @default(false)
   isJewelry             Boolean        @default(false)
-  platformLimit         Int?
+  platformLimit         Int?           @default(4)
   // Number of platforms included with the plan by default (e.g., 1,2,3)
-  platformQty           Int             @default(0)
-  baseVisualQuota       Int?
-  basePostQuota         Int?
-  postLimitType         PostLimitType  @default(NONE)
-  schedulerRole         SchedulerRole  @default(CLIENT)
-  priceStandardCents    Int
-  priceFounderCents     Int
-  stripePriceStandardId String?
-  stripePriceFounderId  String?
-  hasYearlyPrice        Boolean        @default(false)
-  photoSessionEnabled   Boolean        @default(false)
-  videoSessionEnabled   Boolean        @default(false)
-  photoSessionsPerPeriod Int           @default(0)
-  videoSessionsPerPeriod Int           @default(0)
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
-  subscriptions         Subscription[]
-  planTermsVersions     PlanTermsVersion[]
-  billingQuotes         BillingQuote[]
+  platformQty             Int                      @default(0)
+  baseVisualQuota         Int?
+  basePostQuota           Int?
+  postLimitType           PostLimitType            @default(NONE)
+  schedulerRole           SchedulerRole            @default(CLIENT)
+  priceStandardCents      Int
+  priceFounderCents       Int
+  stripePriceStandardId   String?
+  stripePriceFounderId    String?
+  hasYearlyPrice          Boolean                  @default(false)
+  photoSessionEnabled     Boolean                  @default(false)
+  videoSessionEnabled     Boolean                  @default(false)
+  photoSessionsPerPeriod  Int                      @default(0)
+  videoSessionsPerPeriod  Int                      @default(0)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  subscriptions           Subscription[]
+  planTermsVersions       PlanTermsVersion[]
+  billingQuotes           BillingQuote[]
   enterprisePlanProposals EnterprisePlanProposal[]
 }
 
 model PlanTermsVersion {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   planCode  String
   version   String
   title     String
   content   String
-  isActive  Boolean  @default(true)
+  isActive  Boolean   @default(true)
   deletedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   plan Plan @relation(fields: [planCode], references: [code], onDelete: Cascade)
 
@@ -181,13 +183,13 @@ model Addon {
 }
 
 model AddonPrice {
-  id              String      @id @default(cuid())
+  id              String       @id @default(cuid())
   addonId         String
   billingCycle    BillingCycle
   unitAmountCents Int
-  isActive        Boolean     @default(true)
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
   addon Addon @relation(fields: [addonId], references: [id], onDelete: Cascade)
 
@@ -261,7 +263,6 @@ model PlanChangeLog {
 }
 
 model ProcessedWebhookEvent {
-
   id        String   @id @default(cuid())
   eventId   String   @unique
   type      String
@@ -279,7 +280,6 @@ enum PostLimitType {
 }
 
 enum SchedulerRole {
-
   CLIENT
   ADMIN
 }
@@ -290,27 +290,26 @@ enum BillingCycle {
 }
 
 model Founder {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
 
   userId    String   @unique
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
-
 }
 
 model BrandProfile {
-  userId                       String      @id
-  industry                     String?
-  productTypes                 String?
-  businessType                 String?
-  tone                         String?
+  userId       String  @id
+  industry     String?
+  productTypes String?
+  businessType String?
+  tone         String?
 
-  audience                     String?
+  audience String?
 
-  competitors                  String?
-  ctaPreferences               String?
-  hashtagPreferences           String?
-  website                      String?
+  competitors        String?
+  ctaPreferences     String?
+  hashtagPreferences String?
+  website            String?
 
   socials                      Json?
   // Plan-specific onboarding data stored as JSON
@@ -324,13 +323,13 @@ model BrandProfile {
 }
 
 model BrandFile {
-  id                 String        @id @default(cuid())
-  userId             String
-  fileName           String
-  fileType           String?
-  storageKey         String
+  id         String  @id @default(cuid())
+  userId     String
+  fileName   String
+  fileType   String?
+  storageKey String
 
-  createdAt          DateTime      @default(now())
+  createdAt DateTime @default(now())
 
   brandProfileUserId String?
   BrandProfile       BrandProfile? @relation(fields: [brandProfileUserId], references: [userId])
@@ -365,13 +364,13 @@ model Asset {
 }
 
 model ContentItem {
-  id               String        @id @default(cuid())
-  userId           String
+  id     String @id @default(cuid())
+  userId String
 
-  assetId          String
-  captionVariants  Json?
-  hashtags         Json?
-  ctas             Json?
+  assetId         String
+  captionVariants Json?
+  hashtags        Json?
+  ctas            Json?
 
   shortDescription String?
   status           ContentStatus @default(DRAFT)
@@ -416,39 +415,39 @@ model SocialOAuthState {
 }
 
 model Post {
-  id                     String         @id @default(cuid())
+  id                     String              @id @default(cuid())
   userId                 String
   assetId                String?
   contentItemId          String?
-  status                 PostStatus     @default(DRAFT)
-  scheduleType           ScheduleType   @default(POSTING)
+  status                 PostStatus          @default(DRAFT)
+  scheduleType           ScheduleType        @default(POSTING)
   sessionStatus          SessionStatus?
   calendlySyncStatus     CalendlySyncStatus?
   sessionTitle           String?
   sessionNotes           String?
   sessionDurationMinutes Int?
-  sessionFailureReason String?
-  scheduledFor     DateTime?
-  caption          String?
-  hashtags         Json?
-  cta              String?
-  shortDescription String?
-  initiatedBy      PostInitiator @default(USER)
-  adminId          String?
-  adminReason      String?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-  asset            Asset?        @relation(fields: [assetId], references: [id])
-  contentItem      ContentItem?  @relation(fields: [contentItemId], references: [id])
-  user             User          @relation(fields: [userId], references: [id])
-  admin            User?         @relation("AdminInitiatedPosts", fields: [adminId], references: [id])
-  PostAsset        PostAsset[]
-  events           PostEvent[]
-  targets          PostTarget[]
-  calendlyEventUri      String?
-  calendlyInviteeUri    String?
-  calendlySyncError     String?
-  calendlyLastSyncedAt  DateTime?
+  sessionFailureReason   String?
+  scheduledFor           DateTime?
+  caption                String?
+  hashtags               Json?
+  cta                    String?
+  shortDescription       String?
+  initiatedBy            PostInitiator       @default(USER)
+  adminId                String?
+  adminReason            String?
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  asset                  Asset?              @relation(fields: [assetId], references: [id])
+  contentItem            ContentItem?        @relation(fields: [contentItemId], references: [id])
+  user                   User                @relation(fields: [userId], references: [id])
+  admin                  User?               @relation("AdminInitiatedPosts", fields: [adminId], references: [id])
+  PostAsset              PostAsset[]
+  events                 PostEvent[]
+  targets                PostTarget[]
+  calendlyEventUri       String?
+  calendlyInviteeUri     String?
+  calendlySyncError      String?
+  calendlyLastSyncedAt   DateTime?
 
   @@index([userId])
   @@index([scheduledFor])
@@ -590,7 +589,7 @@ model EmailVerificationToken {
 }
 
 model ContactSubmission {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   fullName      String
   businessName  String
   email         String
@@ -599,13 +598,13 @@ model ContactSubmission {
   postsPerMonth String?
   message       String?
   source        String?
-  status        String   @default("PENDING")
+  status        String    @default("PENDING")
   repliedBy     String?
   replyMessage  String?
   repliedAt     DateTime?
-  isResolved    Boolean  @default(false)
+  isResolved    Boolean   @default(false)
   resolvedAt    DateTime?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
   createdIp     String?
 
   @@index([email])
@@ -614,16 +613,16 @@ model ContactSubmission {
 }
 
 model Faq {
-  id               String   @id @default(cuid())
+  id               String      @id @default(cuid())
   question         String
   answer           String
-  displayOrder     Int      @default(0)
+  displayOrder     Int         @default(0)
   pageType         FaqPageType @default(FAQ_PAGE)
-  isActive         Boolean  @default(true)
+  isActive         Boolean     @default(true)
   createdByAdminId String?
   updatedByAdminId String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
   @@index([isActive])
   @@index([pageType])
@@ -638,32 +637,32 @@ enum FaqPageType {
 }
 
 model CaseStudy {
-  id                String   @id @default(uuid())
-  
+  id String @id @default(uuid())
+
   // Header Section
-  logoUrl           String  
-  title             String   
-  location          String   
-  displayOrder      Int      @default(0)
-  
+  logoUrl      String
+  title        String
+  location     String
+  displayOrder Int    @default(0)
+
   // Production Details
-  cycleTitle        String   
-  services          String[] 
-  tagline           String   @db.Text 
-  
+  cycleTitle String
+  services   String[]
+  tagline    String   @db.Text
+
   // Production Structure Section
-  structureTitle    String  
-  structureItems    String[] 
-  
+  structureTitle String
+  structureItems String[]
+
   // Media Section
-  images            String[] 
-  videoTitle        String?  
-  videoUrl          String?  
-  
+  images     String[]
+  videoTitle String?
+  videoUrl   String?
+
   // Metadata
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model RecentActivity {
@@ -754,6 +753,11 @@ model PostAsset {
   @@unique([postId, assetId])
   @@index([assetId])
   @@index([postId])
+}
+
+model WebhookEvent {
+  id        String   @id
+  createdAt DateTime @default(now())
 }
 
 enum PlanCategory {
@@ -1186,11 +1190,11 @@ model CouponUsage {
 }
 
 model EnterprisePlanInvite {
-  id                     String                @id @default(cuid())
+  id                     String                 @id @default(cuid())
   email                  String
   fullName               String?
   companyName            String?
-  socialPlatforms        String[]              @default([])
+  socialPlatforms        String[]               @default([])
   reelsPerMonth          Int?
   microReelsPerMonth     Int?
   proPhotoShootFrequency String?
@@ -1198,8 +1202,8 @@ model EnterprisePlanInvite {
   captionHashtags        Boolean?
   scheduling             Boolean?
   planCode               String
-  proposalId             String                @unique
-  inviteToken            String                @unique
+  proposalId             String                 @unique
+  inviteToken            String                 @unique
   status                 EnterpriseInviteStatus @default(PENDING)
   expiresAt              DateTime
   viewedAt               DateTime?
@@ -1208,10 +1212,10 @@ model EnterprisePlanInvite {
   sentByAdminId          String
   sentByAdminEmail       String
   createdUserId          String?
-  createdAt              DateTime              @default(now())
-  updatedAt              DateTime              @updatedAt
-  sentByAdmin            User                  @relation("EnterpriseInviteSentBy", fields: [sentByAdminId], references: [id], onDelete: Cascade)
-  createdUser            User?                 @relation("EnterpriseInviteCreatedUser", fields: [createdUserId], references: [id], onDelete: SetNull)
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  sentByAdmin            User                   @relation("EnterpriseInviteSentBy", fields: [sentByAdminId], references: [id], onDelete: Cascade)
+  createdUser            User?                  @relation("EnterpriseInviteCreatedUser", fields: [createdUserId], references: [id], onDelete: SetNull)
   proposal               EnterprisePlanProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
 
   @@index([email])
@@ -1222,14 +1226,14 @@ model EnterprisePlanInvite {
 }
 
 model EnterprisePlanProposal {
-  id                     String                  @id @default(cuid())
-  planCode               String                  @unique
+  id                     String                   @id @default(cuid())
+  planCode               String                   @unique
   planName               String
   companyName            String
   fullName               String
   email                  String
   industry               String?
-  socialPlatforms        String[]                @default([])
+  socialPlatforms        String[]                 @default([])
   postsPerMonth          Int?
   reelsPerMonth          Int?
   microReelsPerMonth     Int?
@@ -1237,9 +1241,9 @@ model EnterprisePlanProposal {
   proPhotoShootLength    String?
   captionHashtags        Boolean?
   scheduling             Boolean?
-  amount                 Decimal                 @db.Decimal(10, 2)
-  billingCycle           BillingCycle            @default(MONTHLY)
-  currency               String                  @default("usd")
+  amount                 Decimal                  @db.Decimal(10, 2)
+  billingCycle           BillingCycle             @default(MONTHLY)
+  currency               String                   @default("usd")
   status                 EnterpriseProposalStatus @default(PENDING)
   expiresAt              DateTime
   viewedAt               DateTime?
@@ -1249,11 +1253,11 @@ model EnterprisePlanProposal {
   createdUserId          String?
   createdByAdminId       String
   createdByAdminEmail    String
-  createdAt              DateTime                @default(now())
-  updatedAt              DateTime                @updatedAt
-  createdByAdmin         User                    @relation("EnterprisePlanProposalCreatedBy", fields: [createdByAdminId], references: [id], onDelete: Cascade)
-  createdUser            User?                   @relation("EnterprisePlanProposalCreatedUser", fields: [createdUserId], references: [id], onDelete: SetNull)
-  plan                   Plan                    @relation(fields: [planCode], references: [code], onDelete: Cascade)
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  createdByAdmin         User                     @relation("EnterprisePlanProposalCreatedBy", fields: [createdByAdminId], references: [id], onDelete: Cascade)
+  createdUser            User?                    @relation("EnterprisePlanProposalCreatedUser", fields: [createdUserId], references: [id], onDelete: SetNull)
+  plan                   Plan                     @relation(fields: [planCode], references: [code], onDelete: Cascade)
   invite                 EnterprisePlanInvite?
   brandBriefs            BrandBrief[]
 
@@ -1264,65 +1268,65 @@ model EnterprisePlanProposal {
 }
 
 model BrandBrief {
-  id                    String   @id @default(uuid())
-  userId                String
-  proposalId            String
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id         String   @id @default(uuid())
+  userId     String
+  proposalId String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   // 01 BRAND IDENTITY
-  restaurantName        String 
-  location              String   
-  businessType          String   
-  cuisineType           String   
-  dietaryCertifications String[] 
+  restaurantName        String
+  location              String
+  businessType          String
+  cuisineType           String
+  dietaryCertifications String[]
 
   // 02 ONLINE PRESENCE
-  websiteUrl            String?  
-  instagramHandle       String  
-  facebookPageUrl       String? 
-  tiktokHandle          String?
-  onlineOrderingUrl     String?
+  websiteUrl        String?
+  instagramHandle   String
+  facebookPageUrl   String?
+  tiktokHandle      String?
+  onlineOrderingUrl String?
 
   // 03 BRAND VOICE
-  foodDescription       String   
-  uniqueSellingPoint    String 
-  customerReviews       String  
-  forbiddenPhrases      String?  
-  preferredPhrases      String?
-  captionSample1        String
-  captionSample2        String
-  captionSample3        String
-  toneAndVoice          String[]
-  captionTargeting      String  
-  language              String
+  foodDescription    String
+  uniqueSellingPoint String
+  customerReviews    String
+  forbiddenPhrases   String?
+  preferredPhrases   String?
+  captionSample1     String
+  captionSample2     String
+  captionSample3     String
+  toneAndVoice       String[]
+  captionTargeting   String
+  language           String
 
   // 04 MENU & CONTENT PRIORITIES
-  signatureDishes       String[] 
-  signatureDishDetails  String
-  excludedItems         String?
-  upcomingPromotions    String? 
-  hashtagStyle          String 
+  signatureDishes      String[]
+  signatureDishDetails String
+  excludedItems        String?
+  upcomingPromotions   String?
+  hashtagStyle         String
 
   // 05 SHOOT PREPARATION
-  confirmMinDishes      String 
-  actionShotsPossible   String?
-  preferredShootTime    String?
-  physicalConstraints   String?
+  confirmMinDishes    String
+  actionShotsPossible String?
+  preferredShootTime  String?
+  physicalConstraints String?
 
   // 07 SPECIAL NOTES
-  specialNotes          String?
+  specialNotes String?
 
   // 08 BRAND PUBLISHING AUTHORIZATION
-  clientName            String   
-  restaurantNameAuth    String  
-  submissionDate        DateTime
-  talexiaPlan           String
+  clientName         String
+  restaurantNameAuth String
+  submissionDate     DateTime
+  talexiaPlan        String
 
-  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  proposal              EnterprisePlanProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  user     User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  proposal EnterprisePlanProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, proposalId])
   @@index([userId])
   @@index([proposalId])
-  @@unique([userId, proposalId])
 }

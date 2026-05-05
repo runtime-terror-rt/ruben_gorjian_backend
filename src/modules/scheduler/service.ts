@@ -204,8 +204,9 @@ export class SchedulerService {
         plan: {
           select: {
             code: true,
-            platformQty: true,
-            platformLimit: true,
+            isCustomEnterprise: true,
+              platformQty: true,
+              platformLimit: true,
             basePostQuota: true,
             postLimitType: true,
             photoSessionEnabled: true,
@@ -1247,7 +1248,9 @@ export class SchedulerService {
     await this.enforceQuota(userId, subscription);
 
     const planIncluded = subscription.plan ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null) : null;
-    const platformLimit = planIncluded !== null && planIncluded !== undefined ? planIncluded + (subscription.addonPlatformQty ?? 0) : null;
+    const platformLimit = planIncluded !== null && planIncluded !== undefined
+      ? (subscription.plan.isCustomEnterprise ? planIncluded : planIncluded + (subscription.addonPlatformQty ?? 0))
+      : null;
 
     const socialAccounts = await this.getValidatedConnectedTargets(userId, platformLimit, {
       platforms: input.platforms,
@@ -1356,7 +1359,9 @@ export class SchedulerService {
     await this.enforceQuota(existingPost.userId, subscription, existingPost.id);
 
     const planIncluded = subscription.plan ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null) : null;
-    const platformLimit = planIncluded !== null && planIncluded !== undefined ? planIncluded + (subscription.addonPlatformQty ?? 0) : null;
+    const platformLimit = planIncluded !== null && planIncluded !== undefined
+      ? (subscription.plan.isCustomEnterprise ? planIncluded : planIncluded + (subscription.addonPlatformQty ?? 0))
+      : null;
 
     const nextAssetIds = existingPost.PostAsset.map((entry) => entry.Asset.id);
 

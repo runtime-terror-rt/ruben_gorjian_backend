@@ -1386,6 +1386,7 @@ function safeUser(user: {
   calendarOnboardingCompleted?: boolean;
   visualOnboardingCompleted?: boolean;
   fullManagementOnboardingCompleted?: boolean;
+  brandBriefOnboardingCompleted?: boolean;
   pendingPlanCode?: string | null;
   profile?: {
     fullName?: string | null;
@@ -1415,6 +1416,7 @@ function safeUser(user: {
     onboardingStep: user.onboardingStep ?? 1,
     calendarOnboardingCompleted: user.calendarOnboardingCompleted ?? false,
     visualOnboardingCompleted: user.visualOnboardingCompleted ?? false,
+    brandBriefOnboardingCompleted: user.brandBriefOnboardingCompleted ?? false,
     fullManagementOnboardingCompleted:
       user.fullManagementOnboardingCompleted ?? false,
     pendingPlanCode: user.pendingPlanCode ?? null,

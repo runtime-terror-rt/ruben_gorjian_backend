@@ -156,6 +156,44 @@ describe("settings routes", () => {
     expect(res.body.profile.avatar.url).toContain("cdn.example.com/user/user_1/avatar.png");
   });
 
+  it("updates avatar even when storage key has no extension if content type is valid", async () => {
+    (prisma.userProfile.upsert as any).mockResolvedValue({ id: "profile_1" });
+    (prisma.user.findUnique as any).mockResolvedValue({
+      email: "owner@example.com",
+      profile: {
+        fullName: "Owner",
+        businessName: "Talexia",
+        website: null,
+        industry: null,
+        timezone: null,
+        bio: null,
+        avatarStorageKey: "user/user_1/avatar-upload",
+        avatarContentType: "image/png",
+        updatedAt: new Date("2026-02-23T00:00:00Z"),
+      },
+    });
+
+    const res = await invokeSettingsRoute({
+      method: "PATCH",
+      path: "/",
+      headers: { "x-test-user-id": "user_1" },
+      body: {
+        profile: {
+          fullName: "Owner",
+          avatar: {
+            storageKey: "user/user_1/avatar-upload",
+            contentType: "image/png",
+          },
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(prisma.userProfile.upsert).toHaveBeenCalled();
+    expect(res.body.profile.avatar.storageKey).toBe("user/user_1/avatar-upload");
+    expect(res.body.profile.avatar.contentType).toBe("image/png");
+  });
+
   it("removes profile photo", async () => {
     (prisma.userProfile.upsert as any).mockResolvedValue({ id: "profile_1" });
     (prisma.user.findUnique as any).mockResolvedValue({

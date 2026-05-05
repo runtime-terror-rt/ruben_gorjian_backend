@@ -57,6 +57,29 @@ function getInvoiceTaxCents(invoice: Stripe.Invoice) {
   return Math.max(total - subtotal, 0);
 }
 
+async function ensureEnterprisePlanExists(planCode: string, platformQty: number = 0) {
+  if (!planCode) return null;
+
+  await prisma.plan.upsert({
+    where: { code: planCode },
+    update: {
+      platformLimit: GLOBAL_PLATFORM_LIMIT,
+      platformQty: platformQty,
+    },
+    create: {
+      code: planCode,
+      name: planCode,
+      category: "FULL_MANAGEMENT",
+      platformLimit: GLOBAL_PLATFORM_LIMIT,
+      platformQty: platformQty,
+      priceStandardCents: 0,
+      priceFounderCents: 0,
+    },
+  });
+
+  return planCode;
+}
+
 export async function upsertPlanFromPrice(price: Stripe.Price | null | undefined) {
   if (!stripeClient || !price) return null;
 
@@ -340,6 +363,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
         resolvedPlanCode = planInfo?.planCode || planCode;
         resolvedPriceType = planInfo?.priceType || priceType;
       } else {
+        // For enterprise checkouts, ensure the plan exists in DB with proper platformLimit and platformQty
+        await ensureEnterprisePlanExists(planCode, metadata.platformQty ? parseInt(metadata.platformQty) : 0);
         resolvedPlanCode = planCode;
         resolvedPriceType = priceType;
       }
@@ -438,6 +463,34 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
 
     if (subscription) {
       // Update existing subscription
+      // Ensure plan exists with proper platformLimit and platformQty
+      const platformQtyFromMeta = metadata.platformQty ? parseInt(metadata.platformQty) : 0;
+      await tx.plan.upsert({
+        where: { code: resolvedPlanCode },
+        update: {
+          platformLimit: GLOBAL_PLATFORM_LIMIT,
+          ...(Number.isFinite(platformQtyFromMeta) ? { platformQty: platformQtyFromMeta } : {}),
+        },
+        create: {
+          code: resolvedPlanCode,
+          name: resolvedPlanCode,
+          category: "FULL_MANAGEMENT",
+          platformLimit: GLOBAL_PLATFORM_LIMIT,
+          platformQty: platformQtyFromMeta,
+          priceStandardCents: 0,
+          priceFounderCents: 0,
+        },
+      });
+
+      if (resolvedPlanCode && isEnterpriseCheckout) {
+        await tx.plan.updateMany({
+          where: { code: resolvedPlanCode, isCustomEnterprise: true },
+          data: {
+            platformQty: Number.isFinite(addonPlatformQty) ? addonPlatformQty : 0,
+          },
+        });
+      }
+
       // Enforce platform limits (safe guard in webhook): clamp addonPlatformQty if necessary
       const planInfo = await tx.plan.findUnique({ where: { code: resolvedPlanCode }, select: { platformQty: true, platformLimit: true } });
       const planIncluded = planInfo?.platformQty ?? planInfo?.platformLimit ?? 0;
@@ -468,6 +521,34 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
       finalSubscriptionId = subscription.id;
     } else {
       // Create new subscription
+      // Ensure plan exists with proper platformLimit and platformQty
+      const platformQtyFromMeta = metadata.platformQty ? parseInt(metadata.platformQty) : 0;
+      await tx.plan.upsert({
+        where: { code: resolvedPlanCode },
+        update: {
+          platformLimit: GLOBAL_PLATFORM_LIMIT,
+          ...(Number.isFinite(platformQtyFromMeta) ? { platformQty: platformQtyFromMeta } : {}),
+        },
+        create: {
+          code: resolvedPlanCode,
+          name: resolvedPlanCode,
+          category: "FULL_MANAGEMENT",
+          platformLimit: GLOBAL_PLATFORM_LIMIT,
+          platformQty: platformQtyFromMeta,
+          priceStandardCents: 0,
+          priceFounderCents: 0,
+        },
+      });
+
+      if (resolvedPlanCode && isEnterpriseCheckout) {
+        await tx.plan.updateMany({
+          where: { code: resolvedPlanCode, isCustomEnterprise: true },
+          data: {
+            platformQty: Number.isFinite(addonPlatformQty) ? addonPlatformQty : 0,
+          },
+        });
+      }
+
       // Enforce the same clamp before creating
       const planInfoCreate = await tx.plan.findUnique({ where: { code: resolvedPlanCode }, select: { platformQty: true, platformLimit: true } });
       const planIncludedCreate = planInfoCreate?.platformQty ?? planInfoCreate?.platformLimit ?? 0;
@@ -669,12 +750,14 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   // Fall back to customer ID if subscription ID not found
   let local = await prisma.subscription.findFirst({
     where: { stripeSubscriptionId: subscription.id },
+    include: { plan: true },
   });
 
   if (!local) {
     local = await prisma.subscription.findFirst({
       where: { stripeCustomerId: customerId },
       orderBy: { updatedAt: "desc" },
+      include: { plan: true },
     });
   }
 
@@ -691,6 +774,12 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
       subscriptionItem.price.id !== env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID
   ) ?? subscription.items.data[0];
   const planInfo = await upsertPlanFromPrice(item?.price as Stripe.Price | undefined);
+  
+  // For enterprise plans or when upsertPlanFromPrice returns null, ensure plan exists with proper platformLimit
+  if (!planInfo && local.planCode) {
+    await ensureEnterprisePlanExists(local.planCode, 0);
+  }
+  
   const status = mapStripeStatus(subscription.status);
   const { startUnix: currentPeriodStart, endUnix: currentPeriodEnd } =
     extractStripePeriodBounds(subscription);
@@ -745,6 +834,15 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
         updatedAt: new Date(),
       },
     });
+
+    if (local.plan?.isCustomEnterprise) {
+      await tx.plan.updateMany({
+        where: { code: newPlanCode, isCustomEnterprise: true },
+        data: {
+          platformQty: Number.isFinite(addonPlatformQty) ? addonPlatformQty : 0,
+        },
+      });
+    }
 
     // CRITICAL: If this subscription is now active, deactivate all other active subscriptions
     // This prevents duplicate active subscriptions when webhooks arrive out of order
