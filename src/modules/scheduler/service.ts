@@ -1521,7 +1521,6 @@ export class SchedulerService {
       const { subscription } = await this.assertSchedulingAccess(userId);
       this.assertSessionEntitlement(subscription, input.scheduleType);
       this.assertVideoAddonHours(subscription, input.sessionDurationMinutes);
-      await this.enforceSessionQuota(userId, input.scheduleType, subscription);
     }
     const assets = await this.validateAssets(userId, input.uploadedAssetIds ?? []);
 
@@ -1611,7 +1610,6 @@ export class SchedulerService {
       const { subscription } = await this.assertSchedulingAccess(existingPost.userId);
       this.assertSessionEntitlement(subscription, scheduleType);
       this.assertVideoAddonHours(subscription, nextDurationMinutes);
-      await this.enforceSessionQuota(existingPost.userId, scheduleType, subscription, existingPost.id);
     }
     const existingAssetIds = existingPost.PostAsset.map((entry) => entry.Asset.id);
     const newAssetIds = input.uploadedAssetIds ?? [];
