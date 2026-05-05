@@ -1,4 +1,4 @@
-import express from "express";
+docker build - t local / talexia - backend: latest.import express from "express";
 import { prisma } from "../../lib/prisma";
 
 const enterprisePlanPublicRouter = express.Router();
