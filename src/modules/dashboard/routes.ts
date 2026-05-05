@@ -16,7 +16,6 @@ const activityQuerySchema = z.object({
 });
 
 const upcomingQuerySchema = z.object({
-  days: z.coerce.number().int().min(1).max(60).optional().default(7),
   limit: z.coerce.number().int().min(1).max(50).optional().default(5),
 });
 
@@ -372,19 +371,13 @@ router.get("/overview/upcoming-posts", async (req, res) => {
     return res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() });
   }
 
-  const now = new Date();
-  const until = new Date(now.getTime() + parsed.data.days * 24 * 60 * 60 * 1000);
-
   const items = await prisma.post.findMany({
     where: {
       userId,
       status: PostStatus.SCHEDULED,
-      scheduledFor: {
-        gte: now,
-        lte: until,
-      },
+      scheduledFor: { not: null },
     },
-    orderBy: { scheduledFor: "asc" },
+    orderBy: { scheduledFor: "desc" },
     take: parsed.data.limit,
     select: {
       id: true,
@@ -402,7 +395,6 @@ router.get("/overview/upcoming-posts", async (req, res) => {
   return res.json({
     success: true,
     data: {
-      days: parsed.data.days,
       limit: parsed.data.limit,
       items: items.map((item) => ({
         postId: item.id,
