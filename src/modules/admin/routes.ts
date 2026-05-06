@@ -1367,49 +1367,243 @@ router.patch("/users/:id", async (req, res) => {
   res.json(serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }));
 });
 
+// router.delete("/users/:id", async (req, res) => {
+//   const { id } = req.params;
+//   if (req.user!.id === id) {
+//     return res.status(400).json({ error: "Cannot delete your own account" });
+//   }
+
+//   const user = await prisma.user.findUnique({ where: { id } });
+//   if (!user) {
+//     return res.status(404).json({ error: "User not found" });
+//   }
+
+//   if (user.status === "DELETED") {
+//     return res.status(400).json({ error: `User ${user.email} is already deleted` });
+//   }
+
+//   const updated = await prisma.user.update({
+//     where: { id },
+//     data: {
+//       status: "DELETED",
+//       deletedAt: new Date(),
+//     },
+//     select: ADMIN_USER_SELECT,
+//   });
+
+//   await createAuditLog({
+//     actorId: req.user!.id,
+//     actorEmail: req.user!.email,
+//     action: "DELETE_USER",
+//     targetUserId: id,
+//   });
+
+//   const scheduledPostsCount = await prisma.post.count({
+//     where: {
+//       userId: id,
+//       status: { in: ["SCHEDULED", "PUBLISHING"] },
+//     },
+//   });
+
+//   res.json({
+//     success: true,
+//     message: `User ${user.email} has been successfully deleted.`,
+//     user: serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }),
+//   });
+// });
+
 router.delete("/users/:id", async (req, res) => {
   const { id } = req.params;
+
   if (req.user!.id === id) {
     return res.status(400).json({ error: "Cannot delete your own account" });
   }
 
-  const user = await prisma.user.findUnique({ where: { id } });
-  if (!user) {
-    return res.status(404).json({ error: "User not found" });
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true, email: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const scheduledPostsCount = await prisma.post.count({
+      where: {
+        userId: id,
+        status: { in: ["SCHEDULED", "PUBLISHING"] },
+      },
+    });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.postTarget.deleteMany({
+        where: {
+          post: {
+            userId: id,
+          },
+        },
+      });
+
+      await tx.postEvent.deleteMany({
+        where: {
+          post: {
+            userId: id,
+          },
+        },
+      });
+
+      await tx.submissionEvent.deleteMany({
+        where: {
+          submission: {
+            userId: id,
+          },
+        },
+      });
+
+      await tx.submissionFile.deleteMany({
+        where: {
+          submission: {
+            userId: id,
+          },
+        },
+      });
+
+      await tx.enhancedDelivery.deleteMany({
+        where: { adminId: id },
+      });
+
+      await tx.post.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.submission.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.contentItem.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.brandFile.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.brandProfile.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.asset.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.socialAccount.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.socialOAuthState.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.subscription.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.passwordResetToken.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.emailVerificationToken.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.recentActivity.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.campaign.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.userProfile.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.founder.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.adminOperation.deleteMany({
+        where: { actorId: id },
+      });
+
+      await tx.adminPostPermission.deleteMany({
+        where: { grantedByAdminId: id },
+      });
+
+      await tx.adminRoutePermission.deleteMany({
+        where: { grantedByAdminId: id },
+      });
+
+      await tx.planChangeLog.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.providerRoutingConfig.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.uploadPostProfile.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.socialPlatformLink.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.scheduledPost.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.notification.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.visualQuotaLedger.deleteMany({
+        where: { userId: id },
+      });
+
+      await tx.auditLog.deleteMany({
+        where: { targetUserId: id },
+      });
+
+      await tx.user.delete({
+        where: { id },
+      });
+    });
+
+    await createAuditLog({
+      actorId: req.user!.id,
+      actorEmail: req.user!.email,
+      action: "DELETE_USER",
+      targetUserId: id,
+      metadata: {
+        deletedEmail: user.email,
+        scheduledPostsCount,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: `User ${user.email} has been permanently deleted.`,
+    });
+  } catch (error) {
+    console.error("Delete user error:", error);
+
+    return res.status(500).json({
+      error: "Failed to delete user",
+    });
   }
-
-  if (user.status === "DELETED") {
-    return res.status(400).json({ error: `User ${user.email} is already deleted` });
-  }
-
-  const updated = await prisma.user.update({
-    where: { id },
-    data: {
-      status: "DELETED",
-      deletedAt: new Date(),
-    },
-    select: ADMIN_USER_SELECT,
-  });
-
-  await createAuditLog({
-    actorId: req.user!.id,
-    actorEmail: req.user!.email,
-    action: "DELETE_USER",
-    targetUserId: id,
-  });
-
-  const scheduledPostsCount = await prisma.post.count({
-    where: {
-      userId: id,
-      status: { in: ["SCHEDULED", "PUBLISHING"] },
-    },
-  });
-
-  res.json({
-    success: true,
-    message: `User ${user.email} has been successfully deleted.`,
-    user: serializeUser({ ...updated, connectedPlatformsCount: updated.socialAccounts.length, scheduledPostsCount }),
-  });
 });
 
 router.post("/users/:id/delete-with-password", async (req, res) => {
