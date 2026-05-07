@@ -490,96 +490,6 @@ export class SocialMediaService {
     return uploadedUrls;
   }
 
-  // private async publishToProvider(payload: {
-  //   username: string;
-  //   platform: "facebook" | "instagram" | "tiktok";
-  //   title: string;
-  //   mediaUrl?: string;
-  //   mediaUrls?: string[];
-  //   asyncUpload?: boolean;
-  // }) {
-  //   const title = payload.title?.trim() || "Social media post";
-  //   const asyncUpload = payload.asyncUpload ?? true;
-  //   const mediaList = this.normalizeMediaUrls(
-  //     payload.mediaUrl,
-  //     payload.mediaUrls,
-  //   );
-
-  //   if (mediaList.length === 0) {
-  //     if (payload.platform === "instagram") {
-  //       throw new BadRequestException(
-  //         "Instagram posts require at least one image or one video.",
-  //       );
-  //     }
-
-  //     const form = new FormData();
-  //     form.append("user", payload.username);
-  //     form.append("platform[]", payload.platform);
-  //     form.append("title", title);
-  //     form.append("status", "active");
-  //     form.append("async_upload", String(asyncUpload));
-
-  //     const result = await this.api("/upload_text", {
-  //       method: "POST",
-  //       body: form,
-  //     });
-  //     return { result, title, mediaList };
-  //   }
-
-  //   if (mediaList.every((u) => this.isImageUrl(u))) {
-  //     const form = new FormData();
-  //     form.append("user", payload.username);
-  //     form.append("platform[]", payload.platform);
-  //     form.append("title", title);
-  //     form.append("status", "active");
-  //     form.append("async_upload", String(asyncUpload));
-  //     if (payload.platform === "instagram") {
-  //       form.append("instagram_title", title);
-  //       // form.append("description", title);
-  //     }
-
-  //     for (const url of mediaList) {
-  //       form.append("photo_urls[]", url);
-  //       form.append("photos[]", url);
-  //       form.append("urls[]", url);
-  //     }
-  //     form.append("photo_url", mediaList[0]);
-  //     form.append("image", mediaList[0]);
-  //     form.append("photo", mediaList[0]);
-
-  //     const result = await this.api("/upload_photos", {
-  //       method: "POST",
-  //       body: form,
-  //     });
-  //     return { result, title, mediaList };
-  //   }
-
-  //   if (mediaList.every((u) => this.isVideoUrl(u))) {
-  //     if (mediaList.length > 1) {
-  //       throw new BadRequestException("Only one video is allowed per post.");
-  //     }
-
-  //     const form = new FormData();
-  //     form.append("user", payload.username);
-  //     form.append("platform[]", payload.platform);
-  //     form.append("title", title);
-  //     form.append("status", "active");
-  //     form.append("video", mediaList[0]);
-  //     form.append("async_upload", String(asyncUpload));
-  //     if (payload.platform === "instagram") {
-  //       form.append("instagram_title", title);
-  //     }
-
-  //     const result = await this.api("/upload", {
-  //       method: "POST",
-  //       body: form,
-  //     });
-  //     return { result, title, mediaList };
-  //   }
-
-  //   throw new BadRequestException("Use a direct image/video URL");
-  // }
-
   private async publishToProvider(payload: {
     username: string;
     platform: "facebook" | "instagram" | "tiktok";
@@ -590,19 +500,15 @@ export class SocialMediaService {
   }) {
     const title = payload.title?.trim() || "Social media post";
     const asyncUpload = payload.asyncUpload ?? true;
-
     const mediaList = this.normalizeMediaUrls(
       payload.mediaUrl,
       payload.mediaUrls,
     );
 
-    // ─────────────────────────────────────────────
-    // 1. TEXT ONLY POST
-    // ─────────────────────────────────────────────
     if (mediaList.length === 0) {
       if (payload.platform === "instagram") {
         throw new BadRequestException(
-          "Instagram requires at least one image or video.",
+          "Instagram posts require at least one image or one video.",
         );
       }
 
@@ -617,83 +523,177 @@ export class SocialMediaService {
         method: "POST",
         body: form,
       });
-
       return { result, title, mediaList };
     }
 
-    // ─────────────────────────────────────────────
-    // 2. IMAGE POST (CAROUSEL SUPPORT)
-    // ─────────────────────────────────────────────
     if (mediaList.every((u) => this.isImageUrl(u))) {
-      if (payload.platform === "instagram" && mediaList.length > 10) {
-        throw new BadRequestException(
-          "Instagram supports maximum 10 images per carousel.",
-        );
-      }
-
       const form = new FormData();
-
       form.append("user", payload.username);
       form.append("platform[]", payload.platform);
       form.append("title", title);
       form.append("status", "active");
       form.append("async_upload", String(asyncUpload));
-
-      // Instagram-specific title (optional per API behavior)
       if (payload.platform === "instagram") {
         form.append("instagram_title", title);
+        // form.append("description", title);
       }
 
-      // ✅ ONLY supported field from docs
       for (const url of mediaList) {
+        form.append("photo_urls[]", url);
         form.append("photos[]", url);
+        form.append("urls[]", url);
       }
+      form.append("photo_url", mediaList[0]);
+      form.append("image", mediaList[0]);
+      form.append("photo", mediaList[0]);
 
       const result = await this.api("/upload_photos", {
         method: "POST",
         body: form,
       });
-
       return { result, title, mediaList };
     }
 
-    // ─────────────────────────────────────────────
-    // 3. VIDEO POST (SINGLE ONLY)
-    // ─────────────────────────────────────────────
     if (mediaList.every((u) => this.isVideoUrl(u))) {
       if (mediaList.length > 1) {
         throw new BadRequestException("Only one video is allowed per post.");
       }
 
       const form = new FormData();
-
       form.append("user", payload.username);
       form.append("platform[]", payload.platform);
       form.append("title", title);
       form.append("status", "active");
+      form.append("video", mediaList[0]);
       form.append("async_upload", String(asyncUpload));
-
       if (payload.platform === "instagram") {
         form.append("instagram_title", title);
       }
-
-      form.append("video", mediaList[0]);
 
       const result = await this.api("/upload", {
         method: "POST",
         body: form,
       });
-
       return { result, title, mediaList };
     }
 
-    // ─────────────────────────────────────────────
-    // 4. INVALID MIXED MEDIA
-    // ─────────────────────────────────────────────
-    throw new BadRequestException(
-      "Mixed or unsupported media types. Use only images or only videos.",
-    );
+    throw new BadRequestException("Use a direct image/video URL");
   }
+
+  // private async publishToProvider(payload: {
+  //   username: string;
+  //   platform: "facebook" | "instagram" | "tiktok";
+  //   title: string;
+  //   mediaUrl?: string;
+  //   mediaUrls?: string[];
+  //   asyncUpload?: boolean;
+  // }) {
+  //   const title = payload.title?.trim() || "Social media post";
+  //   const asyncUpload = payload.asyncUpload ?? true;
+
+  //   const mediaList = this.normalizeMediaUrls(
+  //     payload.mediaUrl,
+  //     payload.mediaUrls,
+  //   );
+
+  //   // ─────────────────────────────────────────────
+  //   // 1. TEXT ONLY POST
+  //   // ─────────────────────────────────────────────
+  //   if (mediaList.length === 0) {
+  //     if (payload.platform === "instagram") {
+  //       throw new BadRequestException(
+  //         "Instagram requires at least one image or video.",
+  //       );
+  //     }
+
+  //     const form = new FormData();
+  //     form.append("user", payload.username);
+  //     form.append("platform[]", payload.platform);
+  //     form.append("title", title);
+  //     form.append("status", "active");
+  //     form.append("async_upload", String(asyncUpload));
+
+  //     const result = await this.api("/upload_text", {
+  //       method: "POST",
+  //       body: form,
+  //     });
+
+  //     return { result, title, mediaList };
+  //   }
+
+  //   // ─────────────────────────────────────────────
+  //   // 2. IMAGE POST (CAROUSEL SUPPORT)
+  //   // ─────────────────────────────────────────────
+  //   if (mediaList.every((u) => this.isImageUrl(u))) {
+  //     if (payload.platform === "instagram" && mediaList.length > 10) {
+  //       throw new BadRequestException(
+  //         "Instagram supports maximum 10 images per carousel.",
+  //       );
+  //     }
+
+  //     const form = new FormData();
+
+  //     form.append("user", payload.username);
+  //     form.append("platform[]", payload.platform);
+  //     form.append("title", title);
+  //     form.append("status", "active");
+  //     form.append("async_upload", String(asyncUpload));
+
+  //     // Instagram-specific title (optional per API behavior)
+  //     if (payload.platform === "instagram") {
+  //       form.append("instagram_title", title);
+  //     }
+
+  //     // ✅ ONLY supported field from docs
+  //     for (const url of mediaList) {
+  //       form.append("photos[]", url);
+  //     }
+
+  //     const result = await this.api("/upload_photos", {
+  //       method: "POST",
+  //       body: form,
+  //     });
+
+  //     return { result, title, mediaList };
+  //   }
+
+  //   // ─────────────────────────────────────────────
+  //   // 3. VIDEO POST (SINGLE ONLY)
+  //   // ─────────────────────────────────────────────
+  //   if (mediaList.every((u) => this.isVideoUrl(u))) {
+  //     if (mediaList.length > 1) {
+  //       throw new BadRequestException("Only one video is allowed per post.");
+  //     }
+
+  //     const form = new FormData();
+
+  //     form.append("user", payload.username);
+  //     form.append("platform[]", payload.platform);
+  //     form.append("title", title);
+  //     form.append("status", "active");
+  //     form.append("async_upload", String(asyncUpload));
+
+  //     if (payload.platform === "instagram") {
+  //       form.append("instagram_title", title);
+  //     }
+
+  //     form.append("video", mediaList[0]);
+
+  //     const result = await this.api("/upload", {
+  //       method: "POST",
+  //       body: form,
+  //     });
+
+  //     return { result, title, mediaList };
+  //   }
+
+  //   // ─────────────────────────────────────────────
+  //   // 4. INVALID MIXED MEDIA
+  //   // ─────────────────────────────────────────────
+  //   throw new BadRequestException(
+  //     "Mixed or unsupported media types. Use only images or only videos.",
+  //   );
+  // }
 
   private async getOwnedPostOrThrow(
     postId: string,
