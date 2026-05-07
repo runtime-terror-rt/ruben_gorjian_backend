@@ -535,7 +535,7 @@ export class SocialMediaService {
       form.append("async_upload", String(asyncUpload));
       if (payload.platform === "instagram") {
         form.append("instagram_title", title);
-        // form.append("description", title);
+        form.append("instagram_description", title);
       }
 
       for (const url of mediaList) {
@@ -568,6 +568,7 @@ export class SocialMediaService {
       form.append("async_upload", String(asyncUpload));
       if (payload.platform === "instagram") {
         form.append("instagram_title", title);
+        // form.append("instagram_description", title);
       }
 
       const result = await this.api("/upload", {
