@@ -44,7 +44,7 @@ export function getTalexiaLogoAttachment() {
 export function buildTalexiaEmailHeader(eyebrow: string, title?: string) {
   const logoMarkup = logoFilePath
     ? `<img src="cid:${logoCid}" alt="Talexia" style="display:block;width:96px;max-width:100%;height:auto;" />`
-    : `<div style="color:#ffffff;font-size:28px;font-weight:800;letter-spacing:-0.04em;line-height:1;">Talexia</div>`;
+    : `<img src="https://i.ibb.co.com/MyBYGt5H/Talexia-logo.png" alt="Talexia" style="display:block;width:96px;max-width:100%;height:auto;" />`;
 
   return `
         <tr>
