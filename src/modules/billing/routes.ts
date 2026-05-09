@@ -79,6 +79,62 @@ function calculateCouponDiscountCents(coupon: ApplicableCoupon, subtotalCents: n
   return Math.max(0, Math.min(discountCents, subtotalCents));
 }
 
+router.get("/coupons/available", requireAuth, async (_req, res) => {
+  try {
+    const now = new Date();
+
+    const coupons = await prisma.coupon.findMany({
+      where: {
+        status: CouponStatus.ACTIVE,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+      select: {
+        id: true,
+        code: true,
+        discountType: true,
+        discountValue: true,
+        maxUses: true,
+        usedCount: true,
+        maxUsesPerClient: true,
+        description: true,
+        expiresAt: true,
+        applicablePlans: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: [{ expiresAt: "asc" }, { createdAt: "desc" }],
+    });
+
+    const availableCoupons = coupons.filter((coupon) => {
+      if (coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return res.json({
+      success: true,
+      message: "Available coupons fetched successfully",
+      coupons: availableCoupons.map((coupon) => ({
+        id: coupon.id,
+        code: coupon.code,
+        discountType: coupon.discountType,
+        discountValue: coupon.discountValue,
+        description: coupon.description,
+        expiresAt: coupon.expiresAt,
+      })),
+      total: availableCoupons.length,
+    });
+  } catch {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch available coupons",
+      error: "Failed to fetch available coupons",
+    });
+  }
+});
+
 async function resolveApplicableCoupon(params: {
   couponCode?: string;
   userId: string;
