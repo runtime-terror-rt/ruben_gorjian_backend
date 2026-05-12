@@ -966,6 +966,9 @@ export class SocialMediaService {
     // 🌐 backend-controlled redirect
     const redirectUrl = this.buildRedirectUrl(platform);
 
+    console.log("🚀 ~ onlinePost.service.ts:969 ~ SocialMediaService ~ createConnectLinkForUser ~ redirectUrl:", redirectUrl)
+
+
     const linkResult = await this.api("/uploadposts/users/generate-jwt", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
