@@ -981,6 +981,14 @@ export class SocialMediaService {
       }),
     });
 
+    console.log("generate-jwt payload sent:", JSON.stringify({
+  username,
+  platforms: [platform],
+  redirect_url: redirectUrl,
+  show_calendar: payload.showCalendar ?? true,
+}));
+console.log("generate-jwt response:", JSON.stringify(linkResult));
+
     // TEMPOrary. because redirect is not happening
 
     const connectMeta = this.extractConnectMeta(linkResult);
