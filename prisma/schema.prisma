@@ -1270,7 +1270,7 @@ model EnterprisePlanProposal {
 model BrandBrief {
   id         String   @id @default(uuid())
   userId     String
-  proposalId String
+  proposalId String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -1324,7 +1324,7 @@ model BrandBrief {
   talexiaPlan        String
 
   user     User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  proposal EnterprisePlanProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  proposal EnterprisePlanProposal? @relation(fields: [proposalId], references: [id], onDelete: Cascade)
 
   @@unique([userId, proposalId])
   @@index([userId])
