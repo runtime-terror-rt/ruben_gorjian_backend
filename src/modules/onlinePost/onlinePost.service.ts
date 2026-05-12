@@ -974,7 +974,7 @@ export class SocialMediaService {
         platforms: [platform],
         redirect_url: redirectUrl,
         show_calendar: payload.showCalendar ?? true,
-        state,
+        
       }),
     });
 
