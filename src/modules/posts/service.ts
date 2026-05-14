@@ -53,11 +53,11 @@ export interface CalendarPost {
 export class PostService {
   private getSchedulerFailureRecipients() {
     const adminEmail = (
-      (env as typeof env & { SCHEDULER_ADMIN_EMAIL?: string }).SCHEDULER_ADMIN_EMAIL ||
+      env.SCHEDULER_ADMIN_EMAIL ||
       "Office@talexia.us"
     ).trim();
     const devEmail = (
-      (env as typeof env & { SCHEDULER_DEV_EMAIL?: string }).SCHEDULER_DEV_EMAIL || ""
+      env.SCHEDULER_DEV_EMAIL || ""
     ).trim();
 
     return Array.from(

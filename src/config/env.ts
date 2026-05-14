@@ -37,6 +37,8 @@ const envSchema = z.object({
   CALENDLY_BOOKING_URL: z.string().url().optional(),
   CONTACT_FROM_EMAIL: z.string().email().optional(),
   CONTACT_TO_EMAIL: z.string().email().optional(),
+  SCHEDULER_ADMIN_EMAIL: z.string().email().optional(),
+  SCHEDULER_DEV_EMAIL: z.string().email().optional(),
   BRAND_BRIEF_MAIL_CONFIRMATION: z.string().optional(),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().optional(),

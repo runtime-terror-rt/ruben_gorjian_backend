@@ -74,7 +74,9 @@ function buildTransporter() {
 
 export async function sendSchedulerEmail(payload: SchedulerEmailPayload) {
   const transporter = buildTransporter();
-  if (!transporter || !env.CONTACT_FROM_EMAIL) {
+  const fromEmail = (env.CONTACT_FROM_EMAIL || env.SCHEDULER_ADMIN_EMAIL || "Office@talexia.us").trim();
+
+  if (!transporter || !fromEmail) {
     return { sent: false, reason: "Email not configured" };
   }
   const logoAttachment = getTalexiaLogoAttachment();
@@ -83,7 +85,7 @@ export async function sendSchedulerEmail(payload: SchedulerEmailPayload) {
     const html = buildSchedulerEmailHtml(payload);
 
     await transporter.sendMail({
-      from: env.CONTACT_FROM_EMAIL,
+      from: fromEmail,
       to: payload.to,
       subject: payload.subject,
       text: payload.body,

@@ -15,7 +15,11 @@ import { getSubscriptionPeriod } from "../../lib/subscription-period";
 import { validatePostAsUserPermission } from "../../middleware/requireAdminPostPermission";
 import { SchedulerStorageService, validateSchedulerContentType } from "./storage";
 import { sendSchedulerEmail } from "./email";
-import { enqueueSchedulerEmail } from "../jobs/scheduler-email-queue";
+import {
+  clearSchedulerReminderEmails,
+  enqueueSchedulerEmail,
+  enqueueSchedulerReminderEmails,
+} from "../jobs/scheduler-email-queue";
 import { enqueuePostPublish } from "../jobs/post-queue";
 import {
   Actor,
@@ -55,13 +59,8 @@ type SchedulerLifecycleAction =
   | "failed"
   | "canceled";
 
-const SCHEDULER_ADMIN_EMAIL = (
-  (env as typeof env & { SCHEDULER_ADMIN_EMAIL?: string }).SCHEDULER_ADMIN_EMAIL ||
-  "Office@talexia.us"
-).trim();
-const SCHEDULER_DEV_EMAIL = (
-  (env as typeof env & { SCHEDULER_DEV_EMAIL?: string }).SCHEDULER_DEV_EMAIL || ""
-).trim();
+const SCHEDULER_ADMIN_EMAIL = (env.SCHEDULER_ADMIN_EMAIL || "Office@talexia.us").trim();
+const SCHEDULER_DEV_EMAIL = (env.SCHEDULER_DEV_EMAIL || "").trim();
 
 type SchedulerNotificationPost = {
   id: string;
@@ -205,8 +204,8 @@ export class SchedulerService {
           select: {
             code: true,
             isCustomEnterprise: true,
-              platformQty: true,
-              platformLimit: true,
+            platformQty: true,
+            platformLimit: true,
             basePostQuota: true,
             postLimitType: true,
             photoSessionEnabled: true,
@@ -985,14 +984,73 @@ export class SchedulerService {
     );
   }
 
+  private shouldKeepReminderSchedule(post: SchedulerNotificationPost) {
+    if (!post.scheduledFor) {
+      return false;
+    }
+
+    if (post.scheduledFor.getTime() <= Date.now()) {
+      return false;
+    }
+
+    if (post.status === "POSTED" || post.status === "FAILED") {
+      return false;
+    }
+
+    if (
+      post.sessionStatus === "COMPLETED" ||
+      post.sessionStatus === "FAILED" ||
+      post.sessionStatus === "CANCELED"
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private async syncSchedulerReminderEmails(
+    postId: string,
+    action: SchedulerLifecycleAction,
+    post: SchedulerNotificationPost
+  ) {
+    if (action === "deleted") {
+      await clearSchedulerReminderEmails(postId);
+      logger.info("Scheduler reminders cleared for deleted schedule", { postId });
+      return;
+    }
+
+    if (!this.shouldKeepReminderSchedule(post)) {
+      await clearSchedulerReminderEmails(postId);
+      logger.info("Scheduler reminders cleared for non-reminder state", {
+        postId,
+        action,
+        postStatus: post.status,
+        sessionStatus: post.sessionStatus,
+        scheduledFor: post.scheduledFor?.toISOString() ?? null,
+      });
+      return;
+    }
+
+    await enqueueSchedulerReminderEmails(postId, post.scheduledFor!);
+  }
+
   private async triggerSchedulerLifecycleNotifications(
     postId: string,
     action: SchedulerLifecycleAction,
     postOverride?: SchedulerNotificationPost
   ) {
+    const post = postOverride ?? (await this.getSchedulerNotificationPost(postId));
+
+    if (!post && action !== "deleted") {
+      return;
+    }
+
     await Promise.allSettled([
-      this.createSchedulerInAppNotifications(postId, action, postOverride),
-      this.sendSchedulerLifecycleEmails(postId, action, postOverride),
+      this.createSchedulerInAppNotifications(postId, action, post ?? undefined),
+      this.sendSchedulerLifecycleEmails(postId, action, post ?? undefined),
+      post
+        ? this.syncSchedulerReminderEmails(postId, action, post)
+        : clearSchedulerReminderEmails(postId),
     ]);
 
     logger.info("Scheduler lifecycle hooks processed", {
@@ -2206,6 +2264,10 @@ export class SchedulerService {
 
       try {
         await this.storage.deleteObject(asset.storageKey);
+        logger.info("Scheduler media deleted from S3", {
+          assetId: asset.id,
+          storageKey: asset.storageKey,
+        });
       } catch (error) {
         logger.warn("Failed to delete scheduler media from S3", {
           assetId: asset.id,
