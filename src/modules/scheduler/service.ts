@@ -5,7 +5,6 @@ import {
   Prisma,
   ScheduleType,
   SocialPlatform,
-  SocialAccount,
   SessionStatus,
 } from "@prisma/client";
 import { env } from "../../config/env";
@@ -16,12 +15,18 @@ import { getSubscriptionPeriod } from "../../lib/subscription-period";
 import { validatePostAsUserPermission } from "../../middleware/requireAdminPostPermission";
 import { SchedulerStorageService, validateSchedulerContentType } from "./storage";
 import { sendSchedulerEmail } from "./email";
-import { enqueueSchedulerEmail } from "../jobs/scheduler-email-queue";
+import {
+  clearSchedulerReminderEmails,
+  enqueueSchedulerEmail,
+  enqueueSchedulerReminderEmails,
+} from "../jobs/scheduler-email-queue";
 import { enqueuePostPublish } from "../jobs/post-queue";
 import {
   Actor,
+  SchedulerClientListFilters,
   SchedulerCreateInput,
   SchedulerCreateSessionInput,
+  SchedulerFailureTicketFilters,
   SchedulerListFilters,
   SchedulerMultipartUploadInput,
   SchedulerPublishStatusInput,
@@ -54,10 +59,8 @@ type SchedulerLifecycleAction =
   | "failed"
   | "canceled";
 
-const SCHEDULER_ADMIN_EMAIL = (
-  (env as typeof env & { SCHEDULER_ADMIN_EMAIL?: string }).SCHEDULER_ADMIN_EMAIL ||
-  "Office@talexia.us"
-).trim();
+const SCHEDULER_ADMIN_EMAIL = (env.SCHEDULER_ADMIN_EMAIL || "Office@talexia.us").trim();
+const SCHEDULER_DEV_EMAIL = (env.SCHEDULER_DEV_EMAIL || "").trim();
 
 type SchedulerNotificationPost = {
   id: string;
@@ -200,6 +203,8 @@ export class SchedulerService {
         plan: {
           select: {
             code: true,
+            isCustomEnterprise: true,
+            platformQty: true,
             platformLimit: true,
             basePostQuota: true,
             postLimitType: true,
@@ -247,61 +252,132 @@ export class SchedulerService {
     return { user, subscription };
   }
 
-  private async validateSocialAccounts(
-    userId: string,
-    socialAccountIds: string[],
-    platformLimit: number | null
-  ): Promise<SchedulerTargetAccount[]> {
-    const uniqueIds = Array.from(new Set(socialAccountIds));
-    if (uniqueIds.length === 0) return [];
+  private async assertSchedulerUserAccess(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        status: true,
+      },
+    });
 
-    const socialAccounts = await prisma.socialAccount.findMany({
+    if (!user) {
+      throw new Error("Target user not found");
+    }
+
+    if (user.status === "BLOCKED") {
+      throw new Error("Blocked users cannot use the scheduler");
+    }
+
+    if (user.status === "DELETED") {
+      throw new Error("Deleted users cannot use the scheduler");
+    }
+
+    return { user };
+  }
+
+  private normalizeRequestedPlatforms(platforms?: string[]) {
+    if (!platforms || platforms.length === 0) return undefined;
+
+    const platformMap: Record<string, SocialPlatform> = {
+      fb: "FACEBOOK",
+      facebook: "FACEBOOK",
+      insta: "INSTAGRAM",
+      instagram: "INSTAGRAM",
+      tiktok: "TIKTOK",
+      "tik-tok": "TIKTOK",
+      "tik_tok": "TIKTOK",
+      tt: "TIKTOK",
+      linkedin: "LINKEDIN",
+      li: "LINKEDIN",
+    };
+
+    const normalized = platforms.map((value) => value.trim().toLowerCase()).filter(Boolean);
+    const unknown = normalized.filter((value) => !platformMap[value]);
+    if (unknown.length > 0) {
+      throw new Error(
+        `Unsupported platform value(s): ${unknown.join(", ")}. Allowed: fb, insta, tiktok, linkedin`
+      );
+    }
+
+    return Array.from(new Set(normalized.map((value) => platformMap[value])));
+  }
+
+  private mapPlatformLinksToTargets(
+    links: Array<{
+      id: string;
+      platform: SocialPlatform;
+      externalRef: string | null;
+      externalProfileUrl: string | null;
+    }>
+  ): SchedulerTargetAccount[] {
+    return links.map((link) => ({
+      id: null,
+      platform: link.platform,
+      displayName: link.externalProfileUrl ?? null,
+      externalAccountId: link.externalRef ?? null,
+      accessToken: null,
+      expiresAt: null,
+    }));
+  }
+
+  private async getValidatedConnectedTargets(
+    userId: string,
+    platformLimit: number | null,
+    options?: {
+      linkIds?: string[];
+      platforms?: string[];
+    }
+  ): Promise<SchedulerTargetAccount[]> {
+    const requestedLinkIds = Array.from(new Set(options?.linkIds ?? []));
+    const requestedPlatforms = this.normalizeRequestedPlatforms(options?.platforms);
+
+    const links = await prisma.socialPlatformLink.findMany({
       where: {
-        id: { in: uniqueIds },
+        userId,
+        ...(requestedLinkIds.length > 0 ? { id: { in: requestedLinkIds } } : {}),
       },
       select: {
         id: true,
         platform: true,
-        displayName: true,
-        externalAccountId: true,
-        accessToken: true,
-        expiresAt: true,
+        externalRef: true,
+        externalProfileUrl: true,
       },
-      orderBy: { createdAt: "asc" },
+      orderBy: { linkedAt: "asc" },
     });
 
-    if (platformLimit !== null && uniqueIds.length > platformLimit) {
+    if (requestedLinkIds.length > 0 && links.length !== requestedLinkIds.length) {
+      throw new Error("Selected target platforms must already be connected by this client");
+    }
+
+    if (links.length === 0) {
+      throw new Error(
+        "No connected social platforms found for this client. Connect at least one platform from /api/social-media/platform/my-links before scheduling."
+      );
+    }
+
+    let filteredLinks = links;
+    if (requestedPlatforms && requestedPlatforms.length > 0) {
+      const linkPlatforms = new Set(links.map((link) => link.platform));
+      const missing = requestedPlatforms.filter((platform) => !linkPlatforms.has(platform));
+      if (missing.length > 0) {
+        throw new Error(
+          `Requested platform(s) are not connected for this client: ${missing.join(", ")}`
+        );
+      }
+      filteredLinks = links.filter((link) => requestedPlatforms.includes(link.platform));
+    }
+
+    const uniquePlatformCount = new Set(filteredLinks.map((link) => link.platform)).size;
+    if (platformLimit !== null && uniquePlatformCount > platformLimit) {
       throw new Error(
         `Selected platform count exceeds the allowed limit for this subscription (${platformLimit})`
       );
     }
 
-    return socialAccounts;
-  }
-
-  private async getConnectedSocialAccountsForUser(
-    userId: string,
-    platformLimit: number | null
-  ): Promise<SchedulerTargetAccount[]> {
-    const socialAccounts = await prisma.socialAccount.findMany({
-      where: { userId },
-      select: {
-        id: true,
-        platform: true,
-        displayName: true,
-        externalAccountId: true,
-        accessToken: true,
-        expiresAt: true,
-      },
-      orderBy: { createdAt: "asc" },
-    });
-
-    if (platformLimit !== null && socialAccounts.length > platformLimit) {
-      throw new Error(
-        `Connected platform count exceeds the allowed limit for this subscription (${platformLimit})`
-      );
-    }
-    return socialAccounts;
+    return this.mapPlatformLinksToTargets(filteredLinks);
   }
 
   private async validateAssets(userId: string, assetIds: string[]) {
@@ -383,13 +459,14 @@ export class SchedulerService {
       throw new Error("An active subscription is required to schedule sessions");
     }
 
-    // Photo sessions are open to all active subscribers in this phase.
     if (scheduleType !== "VIDEO_SESSION") {
       return;
     }
 
-    if (!subscription.plan.videoSessionEnabled) {
-      throw new Error("Video session booking is not available for your current plan");
+    if (!subscription.videoAddonEnabled) {
+      throw new Error(
+        "VIDEO_SESSION_NOT_INCLUDED: Video session is not included in your current plan. Please add Video Session add-on."
+      );
     }
   }
 
@@ -455,7 +532,7 @@ export class SchedulerService {
       );
       const bookedAt = closestConflictAt ? closestConflictAt.toISOString() : "this time";
       throw new Error(
-        `Schedule booked at ${bookedAt}. Please schedule after ${remainingMinutes} min. Minimum break is ${SCHEDULE_MIN_BREAK_MINUTES} min.`
+        `SCHEDULE_90_MIN_CONFLICT: Schedule booked at ${bookedAt}. Please schedule after ${remainingMinutes} min. Minimum break is ${SCHEDULE_MIN_BREAK_MINUTES} min.`
       );
     }
   }
@@ -480,22 +557,22 @@ export class SchedulerService {
     const result =
       deltaHours > 0
         ? await tx.subscription.updateMany({
-            where: {
-              id: subscriptionId,
-              videoAddonEnabled: true,
-              videoSessionHours: { gte: requiredHours },
-            },
-            data: {
-              videoSessionHours: { decrement: requiredHours },
-            },
-          })
+          where: {
+            id: subscriptionId,
+            videoAddonEnabled: true,
+            videoSessionHours: { gte: requiredHours },
+          },
+          data: {
+            videoSessionHours: { decrement: requiredHours },
+          },
+        })
         : await tx.subscription.updateMany({
-            where: { id: subscriptionId },
-            data: {
-              videoSessionHours: { increment: requiredHours },
-              videoAddonEnabled: true,
-            },
-          });
+          where: { id: subscriptionId },
+          data: {
+            videoSessionHours: { increment: requiredHours },
+            videoAddonEnabled: true,
+          },
+        });
 
     if (result.count === 0) {
       throw new Error(
@@ -515,7 +592,9 @@ export class SchedulerService {
     }
 
     if (!subscription.videoAddonEnabled) {
-      throw new Error("Video session add-on is not enabled for this subscription");
+      throw new Error(
+        "VIDEO_SESSION_NOT_INCLUDED: Video session is not included in your current plan. Please add Video Session add-on."
+      );
     }
 
     const requiredHours = this.getVideoHoursNeededFromMinutes(sessionDurationMinutes);
@@ -525,7 +604,7 @@ export class SchedulerService {
 
     if ((subscription.videoSessionHours ?? 0) < requiredHours) {
       throw new Error(
-        `Video session duration exceeds purchased hours. Required: ${requiredHours}h, Available: ${subscription.videoSessionHours}h`
+        `VIDEO_SESSION_HOURS_EXCEEDED: Video session duration exceeds purchased hours. Required: ${requiredHours}h, Available: ${subscription.videoSessionHours}h`
       );
     }
   }
@@ -567,6 +646,47 @@ export class SchedulerService {
 
     if (count >= quota) {
       throw new Error(`You have reached your video session limit for this billing period (${quota})`);
+    }
+  }
+
+  private async enforceVideoHoursReservation(
+    userId: string,
+    subscription: Awaited<ReturnType<SchedulerService["getSchedulingSubscription"]>>,
+    scheduleType: Exclude<ScheduleType, "POSTING">,
+    requestedDurationMinutes: number,
+    excludePostId?: string
+  ) {
+    if (scheduleType !== "VIDEO_SESSION" || !subscription) {
+      return;
+    }
+
+    const { periodStart, periodEnd } = getSubscriptionPeriod(subscription);
+    const bookedSessions = await prisma.post.findMany({
+      where: {
+        userId,
+        scheduleType: "VIDEO_SESSION",
+        sessionStatus: "BOOKED",
+        scheduledFor: {
+          gte: periodStart,
+          lte: periodEnd,
+        },
+        ...(excludePostId ? { id: { not: excludePostId } } : {}),
+      },
+      select: {
+        sessionDurationMinutes: true,
+      },
+    });
+
+    const bookedHours = bookedSessions.reduce((sum, session) => {
+      return sum + this.getVideoHoursNeededFromMinutes(session.sessionDurationMinutes ?? 0);
+    }, 0);
+    const requestedHours = this.getVideoHoursNeededFromMinutes(requestedDurationMinutes);
+    const remainingHours = subscription.videoSessionHours ?? 0;
+
+    if (bookedHours + requestedHours > remainingHours) {
+      throw new Error(
+        `VIDEO_SESSION_HOURS_EXCEEDED: Booked video session hours exceed remaining subscription hours. Remaining: ${remainingHours}h, Already booked: ${bookedHours}h, Requested: ${requestedHours}h`
+      );
     }
   }
 
@@ -682,6 +802,20 @@ export class SchedulerService {
 
   private async listAdminEmails() {
     return [SCHEDULER_ADMIN_EMAIL];
+  }
+
+  private listFailureAlertEmails() {
+    const recipients = [SCHEDULER_ADMIN_EMAIL];
+    if (SCHEDULER_DEV_EMAIL) {
+      recipients.push(SCHEDULER_DEV_EMAIL);
+    }
+    return Array.from(
+      new Set(
+        recipients
+          .map((email) => email.trim().toLowerCase())
+          .filter((email) => email.length > 0)
+      )
+    );
   }
 
   private getScheduleLabel(scheduleType: ScheduleType) {
@@ -850,20 +984,155 @@ export class SchedulerService {
     );
   }
 
+  private shouldKeepReminderSchedule(post: SchedulerNotificationPost) {
+    if (!post.scheduledFor) {
+      return false;
+    }
+
+    if (post.scheduledFor.getTime() <= Date.now()) {
+      return false;
+    }
+
+    if (post.status === "POSTED" || post.status === "FAILED") {
+      return false;
+    }
+
+    if (
+      post.sessionStatus === "COMPLETED" ||
+      post.sessionStatus === "FAILED" ||
+      post.sessionStatus === "CANCELED"
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private async syncSchedulerReminderEmails(
+    postId: string,
+    action: SchedulerLifecycleAction,
+    post: SchedulerNotificationPost
+  ) {
+    if (action === "deleted") {
+      await clearSchedulerReminderEmails(postId);
+      logger.info("Scheduler reminders cleared for deleted schedule", { postId });
+      return;
+    }
+
+    if (!this.shouldKeepReminderSchedule(post)) {
+      await clearSchedulerReminderEmails(postId);
+      logger.info("Scheduler reminders cleared for non-reminder state", {
+        postId,
+        action,
+        postStatus: post.status,
+        sessionStatus: post.sessionStatus,
+        scheduledFor: post.scheduledFor?.toISOString() ?? null,
+      });
+      return;
+    }
+
+    await enqueueSchedulerReminderEmails(postId, post.scheduledFor!);
+  }
+
   private async triggerSchedulerLifecycleNotifications(
     postId: string,
     action: SchedulerLifecycleAction,
     postOverride?: SchedulerNotificationPost
   ) {
+    const post = postOverride ?? (await this.getSchedulerNotificationPost(postId));
+
+    if (!post && action !== "deleted") {
+      return;
+    }
+
     await Promise.allSettled([
-      this.createSchedulerInAppNotifications(postId, action, postOverride),
-      this.sendSchedulerLifecycleEmails(postId, action, postOverride),
+      this.createSchedulerInAppNotifications(postId, action, post ?? undefined),
+      this.sendSchedulerLifecycleEmails(postId, action, post ?? undefined),
+      post
+        ? this.syncSchedulerReminderEmails(postId, action, post)
+        : clearSchedulerReminderEmails(postId),
     ]);
 
     logger.info("Scheduler lifecycle hooks processed", {
       postId,
       lifecycleAction: action,
     });
+  }
+
+  private async openFailureTicketAndNotify(
+    postId: string,
+    failureReason: string,
+    actorId: string
+  ) {
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+          },
+        },
+        targets: {
+          select: {
+            platform: true,
+            errorMessage: true,
+          },
+        },
+      },
+    });
+
+    if (!post || post.scheduleType !== "POSTING") {
+      return;
+    }
+
+    const ticketPayload = {
+      postId: post.id,
+      userId: post.userId,
+      userEmail: post.user.email,
+      platform: Array.from(new Set(post.targets.map((target) => target.platform))),
+      failureReason,
+      status: "OPEN",
+      timestamp: new Date().toISOString(),
+      createdBy: actorId,
+    };
+
+    await prisma.postEvent.create({
+      data: {
+        postId,
+        type: "SCHEDULER_FAILURE_TICKET_OPENED",
+        message: JSON.stringify(ticketPayload),
+      },
+    });
+
+    const recipients = this.listFailureAlertEmails();
+    const subject = `[Scheduler] Failed Post Ticket Opened (${post.id})`;
+    const body =
+      `A failed scheduled post ticket has been opened.\n\n` +
+      `Post ID: ${post.id}\n` +
+      `Client ID: ${post.userId}\n` +
+      `Client Email: ${post.user.email || "N/A"}\n` +
+      `Platforms: ${ticketPayload.platform.join(", ") || "N/A"}\n` +
+      `Failure reason: ${failureReason}\n` +
+      `Ticket status: OPEN\n` +
+      `Opened at: ${ticketPayload.timestamp}`;
+
+    await Promise.all(
+      recipients.map(async (to) => {
+        const payload = {
+          to,
+          subject,
+          body,
+          context: "scheduler-failure-ticket-opened",
+          postId,
+          action: "failed",
+        };
+        const enqueued = await enqueueSchedulerEmail(payload);
+        if (!enqueued) {
+          await sendSchedulerEmail(payload);
+        }
+      })
+    );
   }
 
   async createMediaUploads(actor: Actor, data: SchedulerUploadInput) {
@@ -1026,7 +1295,7 @@ export class SchedulerService {
   }
 
   async createScheduledPost(actor: Actor, input: SchedulerCreateInput) {
-  const userId = await this.resolveTargetUser(actor, input.userId);
+    const userId = await this.resolveTargetUser(actor, input.userId);
 
     if (input.scheduledAt <= new Date()) {
       throw new Error("Scheduled time must be in the future");
@@ -1036,15 +1305,14 @@ export class SchedulerService {
     await this.assertScheduleDayAvailability(input.scheduledAt);
     await this.enforceQuota(userId, subscription);
 
-    const platformLimit =
-      subscription.plan.platformLimit !== null && subscription.plan.platformLimit !== undefined
-        ? subscription.plan.platformLimit + (subscription.addonPlatformQty ?? 0)
-        : null;
+    const planIncluded = subscription.plan ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null) : null;
+    const platformLimit = planIncluded !== null && planIncluded !== undefined
+      ? (subscription.plan.isCustomEnterprise ? planIncluded : planIncluded + (subscription.addonPlatformQty ?? 0))
+      : null;
 
-    const socialAccounts =
-      input.socialAccountIds && input.socialAccountIds.length > 0
-        ? await this.validateSocialAccounts(userId, input.socialAccountIds, platformLimit)
-        : await this.getConnectedSocialAccountsForUser(userId, platformLimit);
+    const socialAccounts = await this.getValidatedConnectedTargets(userId, platformLimit, {
+      platforms: input.platforms,
+    });
     const assets = await this.validateAssets(userId, input.uploadedAssetIds ?? []);
     this.validateMediaRules(socialAccounts, assets);
 
@@ -1148,18 +1416,20 @@ export class SchedulerService {
 
     await this.enforceQuota(existingPost.userId, subscription, existingPost.id);
 
-    const platformLimit =
-      subscription.plan.platformLimit !== null && subscription.plan.platformLimit !== undefined
-        ? subscription.plan.platformLimit + (subscription.addonPlatformQty ?? 0)
-        : null;
+    const planIncluded = subscription.plan ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null) : null;
+    const platformLimit = planIncluded !== null && planIncluded !== undefined
+      ? (subscription.plan.isCustomEnterprise ? planIncluded : planIncluded + (subscription.addonPlatformQty ?? 0))
+      : null;
 
-    const nextSocialAccountIds = input.socialAccountIds;
     const nextAssetIds = existingPost.PostAsset.map((entry) => entry.Asset.id);
 
-    const socialAccounts =
-      nextSocialAccountIds && nextSocialAccountIds.length > 0
-        ? await this.validateSocialAccounts(existingPost.userId, nextSocialAccountIds, platformLimit)
-        : await this.getConnectedSocialAccountsForUser(existingPost.userId, platformLimit);
+    const socialAccounts = await this.getValidatedConnectedTargets(
+      existingPost.userId,
+      platformLimit,
+      {
+        platforms: input.platforms,
+      }
+    );
     const assets = await this.validateAssets(existingPost.userId, nextAssetIds);
     this.validateMediaRules(socialAccounts, assets);
 
@@ -1300,31 +1570,24 @@ export class SchedulerService {
   }
 
   async createScheduledSession(
-  actor: Actor,
-  input: SchedulerCreateSessionInput
-) {
-  const userId = await this.resolveTargetUser(actor, input.userId);
+    actor: Actor,
+    input: SchedulerCreateSessionInput
+  ) {
+    const userId = await this.resolveTargetUser(actor, input.userId);
     if (input.scheduledAt <= new Date()) {
       throw new Error("Scheduled time must be in the future");
     }
     await this.assertScheduleDayAvailability(input.scheduledAt);
 
-    const { subscription } = await this.assertSchedulingAccess(userId);
-    this.assertSessionEntitlement(subscription, input.scheduleType);
+    await this.assertSchedulerUserAccess(userId);
     if (input.scheduleType === "VIDEO_SESSION") {
+      const { subscription } = await this.assertSchedulingAccess(userId);
+      this.assertSessionEntitlement(subscription, input.scheduleType);
       this.assertVideoAddonHours(subscription, input.sessionDurationMinutes);
     }
-    await this.enforceSessionQuota(userId, input.scheduleType, subscription);
-    const requiredVideoHours =
-      input.scheduleType === "VIDEO_SESSION"
-        ? this.getVideoHoursNeededFromMinutes(input.sessionDurationMinutes)
-        : 0;
+    const assets = await this.validateAssets(userId, input.uploadedAssetIds ?? []);
 
     const postId = await prisma.$transaction(async (tx) => {
-      if (input.scheduleType === "VIDEO_SESSION") {
-        await this.adjustVideoSessionHours(tx, subscription!.id, requiredVideoHours);
-      }
-
       const post = await tx.post.create({
         data: {
           userId,
@@ -1339,8 +1602,19 @@ export class SchedulerService {
           initiatedBy: isAdmin(actor) && userId !== actor.id ? "ADMIN" : "USER",
           adminId: isAdmin(actor) && userId !== actor.id ? actor.id : null,
           adminReason: isAdmin(actor) && userId !== actor.id ? input.adminReason ?? null : null,
+          assetId: assets[0]?.id ?? null,
         },
       });
+
+      if (assets.length > 0) {
+        await tx.postAsset.createMany({
+          data: assets.map((asset, index) => ({
+            postId: post.id,
+            assetId: asset.id,
+            order: index,
+          })),
+        });
+      }
 
       await tx.postEvent.create({
         data: {
@@ -1389,32 +1663,27 @@ export class SchedulerService {
     }
     await this.assertScheduleDayAvailability(nextScheduledAt, postId);
 
-    const { subscription } = await this.assertSchedulingAccess(existingPost.userId);
     const scheduleType = existingPost.scheduleType as Exclude<ScheduleType, "POSTING">;
-    this.assertSessionEntitlement(subscription, scheduleType);
+    await this.assertSchedulerUserAccess(existingPost.userId);
     const nextDurationMinutes =
       input.sessionDurationMinutes !== undefined
         ? input.sessionDurationMinutes
         : existingPost.sessionDurationMinutes ?? 0;
     if (scheduleType === "VIDEO_SESSION") {
+      const { subscription } = await this.assertSchedulingAccess(existingPost.userId);
+      this.assertSessionEntitlement(subscription, scheduleType);
       this.assertVideoAddonHours(subscription, nextDurationMinutes);
     }
-    await this.enforceSessionQuota(existingPost.userId, scheduleType, subscription, existingPost.id);
-    const previousVideoHours =
-      scheduleType === "VIDEO_SESSION"
-        ? this.getVideoHoursNeededFromMinutes(existingPost.sessionDurationMinutes ?? 0)
-        : 0;
-    const nextVideoHours =
-      scheduleType === "VIDEO_SESSION"
-        ? this.getVideoHoursNeededFromMinutes(nextDurationMinutes)
-        : 0;
-    const videoHoursDelta = nextVideoHours - previousVideoHours;
+    const existingAssetIds = existingPost.PostAsset.map((entry) => entry.Asset.id);
+    const newAssetIds = input.uploadedAssetIds ?? [];
+    const newAssets = await this.validateAssets(existingPost.userId, newAssetIds);
+    const mergedAssetIds = input.replaceMedia
+      ? newAssets.map((asset) => asset.id)
+      : Array.from(new Set([...existingAssetIds, ...newAssets.map((asset) => asset.id)]));
+    const mergedAssets = await this.validateAssets(existingPost.userId, mergedAssetIds);
+    const removedAssetIds = existingAssetIds.filter((assetId) => !mergedAssetIds.includes(assetId));
 
     await prisma.$transaction(async (tx) => {
-      if (scheduleType === "VIDEO_SESSION") {
-        await this.adjustVideoSessionHours(tx, subscription.id, videoHoursDelta);
-      }
-
       await tx.post.update({
         where: { id: postId },
         data: {
@@ -1425,12 +1694,25 @@ export class SchedulerService {
             input.sessionDurationMinutes !== undefined
               ? input.sessionDurationMinutes
               : existingPost.sessionDurationMinutes,
+          assetId: mergedAssets[0]?.id ?? null,
           ...(isAdmin(actor) && existingPost.userId !== actor.id && input.adminReason !== undefined
             ? { adminReason: input.adminReason }
             : {}),
           updatedAt: new Date(),
         },
       });
+
+      await tx.postAsset.deleteMany({ where: { postId } });
+
+      if (mergedAssets.length > 0) {
+        await tx.postAsset.createMany({
+          data: mergedAssets.map((asset, index) => ({
+            postId,
+            assetId: asset.id,
+            order: index,
+          })),
+        });
+      }
 
       await tx.postEvent.create({
         data: {
@@ -1443,6 +1725,8 @@ export class SchedulerService {
         },
       });
     });
+
+    await this.cleanupOrphanedSchedulerAssets(removedAssetIds, postId);
 
     await this.triggerSchedulerLifecycleNotifications(postId, "rescheduled");
 
@@ -1634,15 +1918,28 @@ export class SchedulerService {
       input.status === "completed" ? "completed" : "failed"
     );
 
+    if (input.status === "failed") {
+      await this.openFailureTicketAndNotify(postId, failureReason || "Publish failed", actor.id);
+    }
+
     return this.getScheduledPost(actor, postId);
   }
 
   async listScheduledPosts(actor: Actor, filters: SchedulerListFilters) {
     const range = normalizeDateRange(filters);
-    const targetUserId =
-      filters.userId && isAdmin(actor)
-        ? await this.resolveTargetUser(actor, filters.userId)
-        : null;
+    let targetUserId: string | null = null;
+    if (isAdmin(actor) && filters.userEmail) {
+      const userByEmail = await prisma.user.findUnique({
+        where: { email: filters.userEmail.toLowerCase() },
+        select: { id: true },
+      });
+      if (!userByEmail) {
+        throw new Error("Client not found for provided userEmail");
+      }
+      targetUserId = await this.resolveTargetUser(actor, userByEmail.id);
+    } else if (isAdmin(actor) && filters.userId) {
+      targetUserId = await this.resolveTargetUser(actor, filters.userId);
+    }
 
     const where: Prisma.PostWhereInput = {
       ...(isAdmin(actor)
@@ -1747,12 +2044,179 @@ export class SchedulerService {
         sessionStatus: filters.sessionStatus ?? [],
         failure: filters.failure ?? false,
         userId: targetUserId,
+        userEmail: filters.userEmail ?? null,
         platform: filters.platform ?? [],
         page: filters.page,
         pageSize: filters.pageSize,
       },
       meta: {
         count: posts.length,
+        totalCount,
+        page: filters.page,
+        pageSize: filters.pageSize,
+        totalPages,
+        hasNextPage: filters.page < totalPages,
+        hasPreviousPage: filters.page > 1,
+      },
+    };
+  }
+
+  async listSchedulerClients(actor: Actor, filters: SchedulerClientListFilters) {
+    if (!isAdmin(actor)) {
+      throw new Error("Only admin or super admin can access scheduler clients");
+    }
+
+    const where: Prisma.UserWhereInput = {
+      role: "USER",
+      ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.search
+        ? {
+          email: {
+            contains: filters.search,
+            mode: "insensitive",
+          },
+        }
+        : {}),
+    };
+
+    const totalCount = await prisma.user.count({ where });
+    const skip = (filters.page - 1) * filters.pageSize;
+    const users = await prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        status: true,
+        createdAt: true,
+        socialAccounts: {
+          select: { id: true },
+        },
+        subscriptions: {
+          where: { status: { in: ["ACTIVE", "TRIALING"] } },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { planCode: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: filters.pageSize,
+    });
+
+    const userIds = users.map((user) => user.id);
+    const nextScheduleRows = userIds.length
+      ? await prisma.post.findMany({
+        where: {
+          userId: { in: userIds },
+          scheduledFor: { not: null, gte: new Date() },
+        },
+        select: {
+          userId: true,
+          scheduledFor: true,
+        },
+        orderBy: [{ scheduledFor: "asc" }],
+      })
+      : [];
+
+    const nextScheduleMap = new Map<string, Date>();
+    for (const row of nextScheduleRows) {
+      if (!row.scheduledFor || nextScheduleMap.has(row.userId)) {
+        continue;
+      }
+      nextScheduleMap.set(row.userId, row.scheduledFor);
+    }
+
+    const totalPages = Math.max(1, Math.ceil(totalCount / filters.pageSize));
+
+    return {
+      items: users.map((user) => ({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        status: user.status,
+        createdAt: user.createdAt,
+        connectedPlatformCount: user.socialAccounts.length,
+        nextScheduledAt: nextScheduleMap.get(user.id)?.toISOString() ?? null,
+        activePlanCode: user.subscriptions[0]?.planCode ?? null,
+      })),
+      meta: {
+        count: users.length,
+        totalCount,
+        page: filters.page,
+        pageSize: filters.pageSize,
+        totalPages,
+        hasNextPage: filters.page < totalPages,
+        hasPreviousPage: filters.page > 1,
+      },
+    };
+  }
+
+  async listFailureTickets(actor: Actor, filters: SchedulerFailureTicketFilters) {
+    if (!isAdmin(actor)) {
+      throw new Error("Only admin or super admin can access failure tickets");
+    }
+
+    const where: Prisma.PostEventWhereInput = {
+      type: "SCHEDULER_FAILURE_TICKET_OPENED",
+      ...(filters.userId || filters.userEmail
+        ? {
+          post: {
+            ...(filters.userId ? { userId: filters.userId } : {}),
+            ...(filters.userEmail
+              ? {
+                user: {
+                  email: filters.userEmail.toLowerCase(),
+                },
+              }
+              : {}),
+          },
+        }
+        : {}),
+    };
+
+    const totalCount = await prisma.postEvent.count({ where });
+    const skip = (filters.page - 1) * filters.pageSize;
+    const rows = await prisma.postEvent.findMany({
+      where,
+      include: {
+        post: {
+          select: {
+            id: true,
+            userId: true,
+            user: { select: { email: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: filters.pageSize,
+    });
+
+    const totalPages = Math.max(1, Math.ceil(totalCount / filters.pageSize));
+
+    return {
+      items: rows.map((row) => {
+        let payload: any = {};
+        try {
+          payload = row.message ? JSON.parse(row.message) : {};
+        } catch {
+          payload = { failureReason: row.message || null };
+        }
+        return {
+          id: row.id,
+          postId: row.postId,
+          userId: row.post.userId,
+          userEmail: row.post.user.email,
+          platform: payload.platform ?? [],
+          failureReason: payload.failureReason ?? null,
+          status: payload.status ?? "OPEN",
+          timestamp: payload.timestamp ?? row.createdAt.toISOString(),
+          createdAt: row.createdAt,
+        };
+      }),
+      meta: {
+        count: rows.length,
         totalCount,
         page: filters.page,
         pageSize: filters.pageSize,
@@ -1800,6 +2264,10 @@ export class SchedulerService {
 
       try {
         await this.storage.deleteObject(asset.storageKey);
+        logger.info("Scheduler media deleted from S3", {
+          assetId: asset.id,
+          storageKey: asset.storageKey,
+        });
       } catch (error) {
         logger.warn("Failed to delete scheduler media from S3", {
           assetId: asset.id,

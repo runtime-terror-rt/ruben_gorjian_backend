@@ -10,11 +10,17 @@ import {
 import { OAuth2Client } from "google-auth-library";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
+import { GLOBAL_PLATFORM_LIMIT } from "../../config/limits";
 import { hashPassword, comparePassword } from "../../utils/password";
 import { signAccessToken } from "../../utils/tokens";
 import { requireAuth } from "../../middleware/requireAuth";
 import { env } from "../../config/env";
-import { sendPasswordResetEmail, sendVerificationEmail } from "./email";
+import {
+  sendNewUserRegistrationAdminEmail,
+  sendNewUserRegistrationEmail,
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+} from "./email";
 import { logger } from "../../lib/logger";
 import { logActivity } from "../dashboard/activity-logger";
 import type { PlanCategory } from "../../types/plan-category";
@@ -44,10 +50,10 @@ const googleRedirectUri = `${(env.APP_URL ?? "http://localhost:4000").replace(/\
 
 const googleClient = env.GOOGLE_CLIENT_ID
   ? new OAuth2Client(
-      env.GOOGLE_CLIENT_ID,
-      env.GOOGLE_CLIENT_SECRET,
-      googleRedirectUri,
-    )
+    env.GOOGLE_CLIENT_ID,
+    env.GOOGLE_CLIENT_SECRET,
+    googleRedirectUri,
+  )
   : null;
 const PASSWORD_RESET_EXPIRY_MS = 1000 * 60 * 60; // 1 hour
 const EMAIL_VERIFICATION_EXPIRY_MS = 1000 * 60 * 60 * 24; // 24 hours
@@ -104,6 +110,7 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
     { method: "GET", pathPattern: "/admin/overview/stats" },
     { method: "GET", pathPattern: "/admin/overview/revenue" },
     { method: "GET", pathPattern: "/admin/overview/activity" },
+
   ],
   USER_MANAGE: [
     { method: "ALL", pathPattern: "/api/admin/users*" },
@@ -147,6 +154,9 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
     { method: "GET", pathPattern: "/admin/calendars" },
     { method: "ALL", pathPattern: "/scheduler/sessions*" },
     { method: "ALL", pathPattern: "/scheduler/posts*" },
+    { method: "ALL", pathPattern: "/api/scheduler/failure-tickets" },
+    { method: "ALL", pathPattern: "/api/admin/scheduler/failure-tickets" },
+    { method: "ALL", pathPattern: "/api/scheduler/clients" },
   ],
   POST_MANAGE: [
     { method: "ALL", pathPattern: "/api/admin/users/:userId/posts*" },
@@ -176,6 +186,8 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<
   ENTERPRISE_PLAN: [
     { method: "ALL", pathPattern: "/api/admin/enterprise-plan*" },
     { method: "ALL", pathPattern: "/admin/enterprise-plan*" },
+    { method: "GET", pathPattern: "/api/brand-brief/admin/submissions" },
+    { method: "GET", pathPattern: "/api/brand-brief/admin/submissions/:id" },
   ],
   SUPPORT: [{ method: "ALL", pathPattern: "/api/contact/admin/submissions*" }],
   SUBMISSIONS: [
@@ -285,57 +297,69 @@ async function ensurePlanAvailable(planCode: string) {
     (p) => p.recurring?.interval === "year",
   );
 
+  const createPayload: any = {
+    code: planCode,
+    name: product.name,
+    category: toPlanCategory(product.metadata.category),
+    isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
+    platformLimit: GLOBAL_PLATFORM_LIMIT,
+    baseVisualQuota: product.metadata.baseVisualQuota
+      ? parseInt(product.metadata.baseVisualQuota)
+      : null,
+    basePostQuota: product.metadata.basePostQuota
+      ? parseInt(product.metadata.basePostQuota)
+      : null,
+    postLimitType: toPostLimitType(product.metadata.postLimitType),
+      schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
+      priceStandardCents: product.metadata.priceStandardCents
+        ? parseInt(product.metadata.priceStandardCents)
+        : (defaultPrice?.unit_amount ?? 0),
+    priceFounderCents: product.metadata.priceFounderCents
+      ? parseInt(product.metadata.priceFounderCents)
+      : (defaultPrice?.unit_amount ?? 0),
+    stripePriceStandardId: defaultPrice?.id,
+    hasYearlyPrice,
+  };
+
+  if (product.metadata.platformQty) {
+    createPayload.platformQty = parseInt(product.metadata.platformQty);
+  } else if (product.metadata.platformLimit) {
+    createPayload.platformQty = parseInt(product.metadata.platformLimit);
+  }
+
+  const updatePayload: any = {
+    name: product.name,
+    category: toPlanCategory(product.metadata.category),
+    isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
+    platformLimit: GLOBAL_PLATFORM_LIMIT,
+    baseVisualQuota: product.metadata.baseVisualQuota
+      ? parseInt(product.metadata.baseVisualQuota)
+      : null,
+    basePostQuota: product.metadata.basePostQuota
+      ? parseInt(product.metadata.basePostQuota)
+      : null,
+    postLimitType: toPostLimitType(product.metadata.postLimitType),
+    schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
+    priceStandardCents: product.metadata.priceStandardCents
+      ? parseInt(product.metadata.priceStandardCents)
+      : (defaultPrice?.unit_amount ?? 0),
+    priceFounderCents: product.metadata.priceFounderCents
+      ? parseInt(product.metadata.priceFounderCents)
+      : (defaultPrice?.unit_amount ?? 0),
+    stripePriceStandardId: defaultPrice?.id,
+    hasYearlyPrice,
+  };
+
+  if (product.metadata.platformQty) {
+    updatePayload.platformQty = parseInt(product.metadata.platformQty);
+  } else if (product.metadata.platformLimit) {
+    updatePayload.platformQty = parseInt(product.metadata.platformLimit);
+  }
+
   const synced = await prisma.plan.upsert({
     where: { code: planCode },
-    update: {
-      name: product.name,
-      category: toPlanCategory(product.metadata.category),
-      isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
-      platformLimit: product.metadata.platformLimit
-        ? parseInt(product.metadata.platformLimit)
-        : null,
-      baseVisualQuota: product.metadata.baseVisualQuota
-        ? parseInt(product.metadata.baseVisualQuota)
-        : null,
-      basePostQuota: product.metadata.basePostQuota
-        ? parseInt(product.metadata.basePostQuota)
-        : null,
-      postLimitType: toPostLimitType(product.metadata.postLimitType),
-      schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
-      priceStandardCents: product.metadata.priceStandardCents
-        ? parseInt(product.metadata.priceStandardCents)
-        : (defaultPrice?.unit_amount ?? 0),
-      priceFounderCents: product.metadata.priceFounderCents
-        ? parseInt(product.metadata.priceFounderCents)
-        : (defaultPrice?.unit_amount ?? 0),
-      stripePriceStandardId: defaultPrice?.id,
-      hasYearlyPrice,
-    },
-    create: {
-      code: planCode,
-      name: product.name,
-      category: toPlanCategory(product.metadata.category),
-      isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
-      platformLimit: product.metadata.platformLimit
-        ? parseInt(product.metadata.platformLimit)
-        : null,
-      baseVisualQuota: product.metadata.baseVisualQuota
-        ? parseInt(product.metadata.baseVisualQuota)
-        : null,
-      basePostQuota: product.metadata.basePostQuota
-        ? parseInt(product.metadata.basePostQuota)
-        : null,
-      postLimitType: toPostLimitType(product.metadata.postLimitType),
-      schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
-      priceStandardCents: product.metadata.priceStandardCents
-        ? parseInt(product.metadata.priceStandardCents)
-        : (defaultPrice?.unit_amount ?? 0),
-      priceFounderCents: product.metadata.priceFounderCents
-        ? parseInt(product.metadata.priceFounderCents)
-        : (defaultPrice?.unit_amount ?? 0),
-      stripePriceStandardId: defaultPrice?.id,
-      hasYearlyPrice,
-    },
+    update: updatePayload,
+    create: createPayload,
   });
 
   return synced;
@@ -447,14 +471,14 @@ router.get("/enterprise-invite/validate", async (req, res) => {
       userEmailVerified: existingUser?.emailVerified ?? null,
       proposal: invite.proposal
         ? {
-            id: invite.proposal.id,
-            planCode: invite.proposal.planCode,
-            planName: invite.proposal.planName,
-            amount: Number(invite.proposal.amount),
-            billingCycle: invite.proposal.billingCycle,
-            currency: invite.proposal.currency,
-            status: invite.proposal.status,
-          }
+          id: invite.proposal.id,
+          planCode: invite.proposal.planCode,
+          planName: invite.proposal.planName,
+          amount: Number(invite.proposal.amount),
+          billingCycle: invite.proposal.billingCycle,
+          currency: invite.proposal.currency,
+          status: invite.proposal.status,
+        }
         : null,
     },
   });
@@ -504,6 +528,13 @@ router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
         invite.planCode,
         existing.name ?? invite.fullName ?? undefined,
       );
+
+      await sendNewUserRegistrationAdminEmail({
+        email,
+        userName: existing.name ?? invite.fullName ?? undefined,
+        pendingPlanCode: invite.planCode,
+        sourceLabel: "enterprise invite",
+      });
 
       return res.status(200).json({
         message:
@@ -592,6 +623,13 @@ router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
 
   await ensureUserProviderRoutingConfig(user.id);
 
+  await sendVerificationEmail(
+    email,
+    verificationToken,
+    invite.planCode,
+    user.name ?? invite.fullName ?? undefined,
+  );
+
   await prisma.enterprisePlanInvite.update({
     where: { id: invite.id },
     data: {
@@ -610,12 +648,12 @@ router.post("/signup-enterprise-invite", authLimiter, async (req, res) => {
     },
   });
 
-  await sendVerificationEmail(
+  await sendNewUserRegistrationAdminEmail({
     email,
-    verificationToken,
-    invite.planCode,
-    user.name ?? invite.fullName ?? undefined,
-  );
+    userName: user.name ?? invite.fullName ?? undefined,
+    pendingPlanCode: invite.planCode,
+    sourceLabel: "enterprise invite",
+  });
 
   return res.status(201).json({
     message:
@@ -697,6 +735,13 @@ router.post("/signup", authLimiter, async (req, res) => {
     normalizedPendingPlanCode,
     user.name ?? undefined,
   );
+
+  await sendNewUserRegistrationAdminEmail({
+    email,
+    userName: user.name ?? undefined,
+    pendingPlanCode: normalizedPendingPlanCode,
+    sourceLabel: "email signup",
+  });
 
   // Do not issue session until email verified.
   return res.status(201).json({
@@ -912,19 +957,19 @@ router.get("/me", requireAuth, async (req, res) => {
   // Build subscription object: use actual subscription if exists, otherwise use pendingPlanCode
   const subscriptionObj = finalSubscription
     ? {
-        planCode: finalSubscription.planCode,
-        planCategory:
-          (finalSubscription.plan?.category as PlanCategory) || null,
-        status: finalSubscription.status,
-        priceType: finalSubscription.priceType,
-      }
+      planCode: finalSubscription.planCode,
+      planCategory:
+        (finalSubscription.plan?.category as PlanCategory) || null,
+      status: finalSubscription.status,
+      priceType: finalSubscription.priceType,
+    }
     : planCategory
       ? {
-          planCode: user.pendingPlanCode || null,
-          planCategory: planCategory as PlanCategory,
-          status: "INCOMPLETE" as const,
-          priceType: "STANDARD" as const,
-        }
+        planCode: user.pendingPlanCode || null,
+        planCategory: planCategory as PlanCategory,
+        status: "INCOMPLETE" as const,
+        priceType: "STANDARD" as const,
+      }
       : null;
 
   const permissions =
@@ -1030,7 +1075,7 @@ router.post("/reset-password", async (req, res) => {
     type: "PASSWORD_RESET",
     title: "Password Reset",
     description: "Password changed via password reset link",
-  }).catch(() => {});
+  }).catch(() => { });
 
   return res.json({ success: true });
 });
@@ -1117,7 +1162,7 @@ router.post("/change-password", requireAuth, async (req, res) => {
     type: "PASSWORD_CHANGED",
     title: "Password Changed",
     description: "User changed their password",
-  }).catch(() => {});
+  }).catch(() => { });
 
   return res.json({ success: true, message: "Password changed successfully" });
 });
@@ -1182,6 +1227,20 @@ router.post("/google", async (req, res) => {
         },
       });
       await ensureUserProviderRoutingConfig(user.id);
+
+      await sendNewUserRegistrationEmail({
+        email,
+        userName: payload.name ?? undefined,
+        pendingPlanCode: pendingPlanCode || undefined,
+        sourceLabel: "Google login",
+      });
+
+      await sendNewUserRegistrationAdminEmail({
+        email,
+        userName: payload.name ?? undefined,
+        pendingPlanCode: pendingPlanCode || undefined,
+        sourceLabel: "Google login",
+      });
     }
 
     if (user.status === "BLOCKED") {
@@ -1226,6 +1285,14 @@ router.post("/verify-email", async (req, res) => {
   await prisma.emailVerificationToken.update({
     where: { id: record.id },
     data: { usedAt: new Date() },
+  });
+
+  const verifiedUser = user;
+  await sendNewUserRegistrationEmail({
+    email: verifiedUser.email,
+    userName: verifiedUser.name ?? undefined,
+    pendingPlanCode: verifiedUser.pendingPlanCode ?? undefined,
+    sourceLabel: "email verification",
   });
 
   issueSession(res, user);
@@ -1319,6 +1386,7 @@ function safeUser(user: {
   calendarOnboardingCompleted?: boolean;
   visualOnboardingCompleted?: boolean;
   fullManagementOnboardingCompleted?: boolean;
+  brandBriefOnboardingCompleted?: boolean;
   pendingPlanCode?: string | null;
   profile?: {
     fullName?: string | null;
@@ -1348,6 +1416,7 @@ function safeUser(user: {
     onboardingStep: user.onboardingStep ?? 1,
     calendarOnboardingCompleted: user.calendarOnboardingCompleted ?? false,
     visualOnboardingCompleted: user.visualOnboardingCompleted ?? false,
+    brandBriefOnboardingCompleted: user.brandBriefOnboardingCompleted ?? false,
     fullManagementOnboardingCompleted:
       user.fullManagementOnboardingCompleted ?? false,
     pendingPlanCode: user.pendingPlanCode ?? null,
@@ -1519,6 +1588,20 @@ router.get("/google/callback", async (req, res) => {
         },
       });
       await ensureUserProviderRoutingConfig(user.id);
+
+      await sendNewUserRegistrationEmail({
+        email: payload.email,
+        userName: payload.name ?? undefined,
+        pendingPlanCode: pendingPlanCode || undefined,
+        sourceLabel: "Google login",
+      });
+
+      await sendNewUserRegistrationAdminEmail({
+        email: payload.email,
+        userName: payload.name ?? undefined,
+        pendingPlanCode: pendingPlanCode || undefined,
+        sourceLabel: "Google login",
+      });
     } else if (!user.googleId) {
       user = await prisma.user.update({
         where: { id: user.id },

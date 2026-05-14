@@ -29,28 +29,211 @@ function resolveRecipientName(name: string | undefined, email: string): string {
   return "User";
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function createTransporter() {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = env;
+
+  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+}
+
+function getMailSender() {
+  const { CONTACT_FROM_EMAIL } = env;
+  if (!CONTACT_FROM_EMAIL) {
+    return null;
+  }
+
+  return CONTACT_FROM_EMAIL;
+}
+
+function renderDetailRow(label: string, value: string) {
+  return `
+              <tr>
+                <td style="padding:12px 16px;color:#64748b;font-size:13px;font-weight:600;border-bottom:1px solid #e2e8f0;width:36%;background:#f8fafc;">${escapeHtml(label)}</td>
+                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${escapeHtml(value)}</td>
+              </tr>`;
+}
+
+function buildNewUserDetailTable(rows: Array<{ label: string; value: string }>) {
+  return `
+            <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin:24px 0 28px;">
+              ${rows.map((row) => renderDetailRow(row.label, row.value)).join("")}
+            </table>`;
+}
+
+function buildNewUserIntro(sourceLabel: string) {
+  return `Welcome to Talexia. Your account has been created through ${escapeHtml(sourceLabel)} and you can access your dashboard now.`;
+}
+
+function buildDashboardUrl() {
+  return `${verificationBaseUrl().replace(/\/$/, "")}/dashboard`;
+}
+
+async function sendWelcomeMail(params: {
+  email: string;
+  userName?: string;
+  pendingPlanCode?: string;
+  sourceLabel: string;
+}) {
+  const sender = getMailSender();
+  const transporter = createTransporter();
+  if (!sender || !transporter) {
+    return { sent: false, reason: "Email not configured" };
+  }
+
+  const logoAttachment = getTalexiaLogoAttachment();
+  const greetingName = resolveRecipientName(params.userName, params.email);
+  const dashboardUrl = buildDashboardUrl();
+  const subject = "Welcome to Talexia";
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+${buildTalexiaEmailHeader("New account notification", "A Talexia account has just been created")}
+        <tr>
+          <td style="padding:40px 40px 32px;">
+            <p style="margin:0 0 16px;color:#1e293b;font-size:16px;">Hi ${escapeHtml(greetingName)},</p>
+            <p style="margin:0 0 16px;color:#475569;font-size:15px;line-height:1.7;">${buildNewUserIntro(params.sourceLabel)}</p>
+            ${params.pendingPlanCode ? `<p style="margin:0 0 8px;color:#475569;font-size:14px;line-height:1.6;">Selected Plan: <strong>${escapeHtml(params.pendingPlanCode)}</strong></p>` : ""}
+            <p style="margin:0 0 24px;color:#475569;font-size:14px;line-height:1.6;">Use the Dashboard button below to continue.</p>
+            <table cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+              <tr>
+                <td><a href="${dashboardUrl}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">Dashboard</a></td>
+              </tr>
+            </table>
+            <p style="margin:0 0 8px;color:#94a3b8;font-size:13px;line-height:1.6;">If the button does not work, copy this link and open it in your browser:</p>
+            <p style="margin:0;color:#64748b;font-size:12px;line-height:1.6;word-break:break-all;">${dashboardUrl}</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;">
+            <p style="margin:0;color:#94a3b8;font-size:12px;">© ${new Date().getFullYear()} Talexia. All rights reserved.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  await transporter.sendMail({
+    from: sender,
+    to: params.email,
+    subject,
+    text: `Welcome to Talexia. Your account is ready.\n\nDashboard: ${dashboardUrl}`,
+    html,
+    ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
+  });
+
+  return { sent: true };
+}
+
+export async function sendNewUserRegistrationEmail(params: {
+  email: string;
+  userName?: string;
+  pendingPlanCode?: string;
+  sourceLabel: string;
+}) {
+  return sendWelcomeMail(params);
+}
+
+export async function sendNewUserRegistrationAdminEmail(params: {
+  email: string;
+  userName?: string;
+  sourceLabel: string;
+  pendingPlanCode?: string;
+}) {
+  const { ADMIN_EMAIL } = env;
+  const sender = getMailSender();
+  const transporter = createTransporter();
+
+  if (!sender || !transporter || !ADMIN_EMAIL) {
+    return { sent: false, reason: "Email not configured" };
+  }
+
+  const logoAttachment = getTalexiaLogoAttachment();
+  const clientName = resolveRecipientName(params.userName, params.email);
+  const subject = `New user registration - ${clientName}`;
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+${buildTalexiaEmailHeader("New User Registration", "A new user has joined Talexia")}
+        <tr>
+          <td style="padding:40px 40px 32px;">
+            <p style="margin:0 0 16px;color:#475569;font-size:15px;line-height:1.7;">A new account has been created via ${escapeHtml(params.sourceLabel)}. Details are summarized below.</p>
+${buildNewUserDetailTable([
+  { label: "Client Name", value: clientName },
+  { label: "Email", value: params.email },
+  { label: "Registration Type", value: params.sourceLabel },
+  { label: "Plan", value: params.pendingPlanCode ?? "Not selected" },
+  { label: "Created", value: new Date().toLocaleString() },
+])}
+            <p style="margin:0;color:#94a3b8;font-size:13px;line-height:1.6;">Please review the account in the admin dashboard if any manual action is needed.</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;">
+            <p style="margin:0;color:#94a3b8;font-size:12px;">© ${new Date().getFullYear()} Talexia. All rights reserved.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  await transporter.sendMail({
+    from: sender,
+    to: ADMIN_EMAIL,
+    subject,
+    text: `New user registration\n\nClient Name: ${clientName}\nEmail: ${params.email}\nRegistration Type: ${params.sourceLabel}\nPlan: ${params.pendingPlanCode ?? "Not selected"}\nCreated: ${new Date().toLocaleString()}`,
+    html,
+    ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
+  });
+
+  return { sent: true };
+}
+
 export async function sendVerificationEmail(
   email: string,
   token: string,
   pendingPlanCode?: string,
   userName?: string,
 ) {
-  const { CONTACT_FROM_EMAIL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, CONTACT_TO_EMAIL } = env;
-
-  if (!CONTACT_FROM_EMAIL || !SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
+  const sender = getMailSender();
+  const transporter = createTransporter();
+  if (!sender || !transporter) {
     return { sent: false, reason: "Email not configured" };
   }
 
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
   const logoAttachment = getTalexiaLogoAttachment();
-
   const verificationUrl = `${verificationBaseUrl().replace(/\/$/, "")}/verify?token=${encodeURIComponent(
-    token
+    token,
   )}${pendingPlanCode ? `&planCode=${encodeURIComponent(pendingPlanCode)}` : ""}`;
   const greetingName = resolveRecipientName(userName, email);
 
@@ -96,13 +279,12 @@ ${buildTalexiaEmailHeader("Email Verification")}
 </html>`;
 
   await transporter.sendMail({
-    from: CONTACT_FROM_EMAIL,
-    to: email, // send to the user
+    from: sender,
+    to: email,
     subject: "Verify your Talexia account",
     text: `Confirm your email to finish setting up your Talexia account.\n\nVerify: ${verificationUrl}\n\nIf you didn't request this, you can ignore it.`,
     html,
     ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
-    ...(CONTACT_TO_EMAIL ? { bcc: CONTACT_TO_EMAIL } : {}),
   });
 
   return { sent: true };
@@ -220,7 +402,7 @@ export async function sendEnterprisePlanInviteEmail(params: {
   const logoAttachment = getTalexiaLogoAttachment();
 
   const _inviteBase = verificationBaseUrl().replace(/\/$/, "");
-  const inviteUrl = `${_inviteBase}/enterprise-plan/accept?token=${encodeURIComponent(params.token)}${params.planCode ? `&planCode=${encodeURIComponent(
+  const inviteUrl = `${_inviteBase}/enterprise-plan/details?token=${encodeURIComponent(params.token)}${params.planCode ? `&planCode=${encodeURIComponent(
     params.planCode
   )}` : ""}`;
   const recipientName = resolveRecipientName(params.fullName, params.email);

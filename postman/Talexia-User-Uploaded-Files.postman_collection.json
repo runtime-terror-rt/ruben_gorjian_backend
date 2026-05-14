@@ -1,0 +1,164 @@
+{
+  "info": {
+    "_postman_id": "talexia-user-uploaded-files-2026",
+    "name": "Talexia User Uploaded Files",
+    "description": "Unified file listing API for user uploads with media-type filtering.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{authToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Files - All",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/uploads/files?type=all&page=1&limit=50",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "uploads",
+            "files"
+          ],
+          "query": [
+            {
+              "key": "type",
+              "value": "all"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "limit",
+              "value": "50"
+            }
+          ]
+        },
+        "description": "Get all upload-related files for the authenticated user."
+      },
+      "response": []
+    },
+    {
+      "name": "Files - Images Only",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/uploads/files?type=image&page=1&limit=50",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "uploads",
+            "files"
+          ],
+          "query": [
+            {
+              "key": "type",
+              "value": "image"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "limit",
+              "value": "50"
+            }
+          ]
+        },
+        "description": "Get only image files."
+      },
+      "response": []
+    },
+    {
+      "name": "Files - Videos Only",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/uploads/files?type=video&page=1&limit=50",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "uploads",
+            "files"
+          ],
+          "query": [
+            {
+              "key": "type",
+              "value": "video"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "limit",
+              "value": "50"
+            }
+          ]
+        },
+        "description": "Get only video files."
+      },
+      "response": []
+    },
+    {
+      "name": "Files - Audio Only",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/uploads/files?type=audio&page=1&limit=50",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "uploads",
+            "files"
+          ],
+          "query": [
+            {
+              "key": "type",
+              "value": "audio"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "limit",
+              "value": "50"
+            }
+          ]
+        },
+        "description": "Get only audio files."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

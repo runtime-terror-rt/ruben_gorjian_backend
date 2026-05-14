@@ -9,6 +9,7 @@ const { PrismaClient } = require('@prisma/client');
 const Stripe = require('stripe');
 
 const prisma = new PrismaClient();
+const GLOBAL_PLATFORM_LIMIT = 4;
 
 async function syncStripePlansToDatabase() {
   console.log('🔄 Syncing Stripe products to database...\n');
@@ -70,7 +71,8 @@ async function syncStripePlansToDatabase() {
         name: product.name,
         category: metadata.category || 'CALENDAR_ONLY',
         isJewelry: metadata.isJewelry?.toLowerCase() === 'true',
-        platformLimit: metadata.platformLimit ? parseInt(metadata.platformLimit) : null,
+        platformLimit: GLOBAL_PLATFORM_LIMIT,
+        platformQty: metadata.platformQty ? parseInt(metadata.platformQty) : metadata.platformLimit ? parseInt(metadata.platformLimit) : 1,
         baseVisualQuota: metadata.baseVisualQuota ? parseInt(metadata.baseVisualQuota) : null,
         basePostQuota: metadata.basePostQuota ? parseInt(metadata.basePostQuota) : null,
         priceStandardCents: price.unit_amount || 0,

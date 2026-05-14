@@ -18,7 +18,12 @@ import { requireAuth } from "../../middleware/requireAuth";
 import { requireAdmin } from "../../middleware/requireAdmin";
 import { hashPassword } from "../../utils/password";
 import { logger } from "../../lib/logger";
-import { sendEnterprisePlanInviteEmail, sendVerificationEmail } from "../auth/email";
+import {
+  sendEnterprisePlanInviteEmail,
+  sendNewUserRegistrationAdminEmail,
+  sendNewUserRegistrationEmail,
+  sendVerificationEmail,
+} from "../auth/email";
 import { stripeClient } from "../billing/stripe";
 import { hasExceededVerificationResendLimit } from "./limits";
 import { getOrCreateAdminOperation } from "./operations";
@@ -953,6 +958,13 @@ router.post("/users", async (req, res) => {
     await sendVerificationEmail(user.email, token, planCode, user.name ?? undefined);
   }
 
+  await sendNewUserRegistrationAdminEmail({
+    email: user.email,
+    userName: user.name ?? undefined,
+    pendingPlanCode: planCode,
+    sourceLabel: "admin registration",
+  });
+
   await createAuditLog({
     actorId: req.user!.id,
     actorEmail: req.user!.email,
@@ -988,6 +1000,7 @@ router.get("/users/:id", async (req, res) => {
           plan: {
             select: {
               platformLimit: true,
+              platformQty: true,
             },
           },
         },
@@ -1034,7 +1047,8 @@ router.get("/users/:id", async (req, res) => {
     }),
   ]);
 
-  const platformLimit = user.subscriptions[0]?.plan?.platformLimit ?? null;
+  const planInfo = user.subscriptions[0]?.plan;
+  const platformLimit = planInfo ? (planInfo.platformQty ?? planInfo.platformLimit ?? 0) : null;
 
   const posts = await prisma.post.findMany({
     where: { userId: id },
@@ -2034,7 +2048,9 @@ router.get("/subscriptions", async (_req, res) => {
           name: true,
           category: true,
           isJewelry: true,
+          isCustomEnterprise: true,
           platformLimit: true,
+          platformQty: true,
           baseVisualQuota: true,
           basePostQuota: true,
         },
@@ -2164,6 +2180,8 @@ function serializeSubscription(subscription: {
     name: string;
     category: string;
     isJewelry: boolean;
+    isCustomEnterprise: boolean;
+    platformQty: number | null;
     platformLimit: number | null;
     baseVisualQuota: number | null;
     basePostQuota: number | null;
@@ -2178,7 +2196,11 @@ function serializeSubscription(subscription: {
     planName: subscription.plan.name,
     planCategory: subscription.plan.category,
     planIsJewelry: subscription.plan.isJewelry,
-    platformLimit: subscription.plan.platformLimit,
+    platformLimit: subscription.plan
+      ? (subscription.plan.isCustomEnterprise
+        ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null)
+        : (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null))
+      : null,
     baseVisualQuota: subscription.plan.baseVisualQuota,
     basePostQuota: subscription.plan.basePostQuota,
     status: subscription.status,

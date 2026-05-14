@@ -75,6 +75,9 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<PagePermissionKey, RoutePermissionInput[
 		{ method: "GET", pathPattern: "/admin/calendars", description: "View admin calendar data (legacy mount)" },
 		{ method: "ALL", pathPattern: "/scheduler/sessions*", description: "Manage scheduler sessions (legacy mount)" },
 		{ method: "ALL", pathPattern: "/scheduler/posts*", description: "Manage scheduler posts (legacy mount)" },
+		{ method: "ALL", pathPattern: "/api/scheduler/failure-tickets", description: "Manage scheduler failure tickets" },
+    	{ method: "ALL", pathPattern: "/api/admin/scheduler/failure-tickets", description: "Manage admin scheduler failure tickets" },
+    	{ method: "ALL", pathPattern: "/api/scheduler/clients", description: "Manage scheduler clients" },
 	],
 	POST_MANAGE: [
 		{ method: "ALL", pathPattern: "/api/admin/users/:userId/posts*", description: "Manage admin posts" },
@@ -95,6 +98,8 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<PagePermissionKey, RoutePermissionInput[
 	ENTERPRISE_PLAN: [
 		{ method: "ALL", pathPattern: "/api/admin/enterprise-plan*", description: "Manage enterprise plans" },
 		{ method: "ALL", pathPattern: "/admin/enterprise-plan*", description: "Manage enterprise plans (legacy mount)" },
+		{ method: "GET", pathPattern: "/api/brand-brief/admin/submissions", description: "View brand brief submissions" },
+		{ method: "GET", pathPattern: "/api/brand-brief/admin/submissions/:id", description: "View brand brief submission details" },
 	],
 	SUPPORT: [
 		{ method: "ALL", pathPattern: "/api/contact/admin/submissions*", description: "Manage support submissions" },

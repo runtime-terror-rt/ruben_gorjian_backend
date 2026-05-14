@@ -13,6 +13,7 @@ import {
   deactivateOtherSubscriptions,
   logPlanChange,
 } from "./subscription-service";
+import { GLOBAL_PLATFORM_LIMIT } from "../../config/limits";
 import { toPostLimitType, toSchedulerRole } from "./plan-metadata";
 import { extractStripePeriodBounds } from "./stripe-period";
 import { upsertPlanFromPrice } from "./webhook";
@@ -26,6 +27,7 @@ const PLATFORM_ADDON_MONTHLY_CENTS = 500;
 const NY_SALES_TAX_BPS = 862.5;
 const YEARLY_MULTIPLIER = 12 * 0.8;
 const ALLOWED_FULL_MANAGEMENT_PLAN_CODES = new Set(["FMP-20", "FMP-35", "FM-70"]);
+const PLATFORM_LIMIT_EXCEEDED_ERROR = `Platform limit exceeded: max allowed platforms (including addons) is ${GLOBAL_PLATFORM_LIMIT}.`;
 
 async function ensureStripeCustomerForUser(userId: string, currentCustomerId?: string | null) {
   if (currentCustomerId) {
@@ -397,7 +399,13 @@ router.post("/checkout", requireAuth, async (req, res) => {
     planCode: z.string(),
     billingCycle: z.enum(["monthly", "yearly"]).optional().default("monthly"),
     termsAccepted: z.literal(true, { message: "Terms & Conditions must be accepted" }),
-    addonPlatformQty: z.coerce.number().int().min(0).max(10).optional().default(0),
+    addonPlatformQty: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(GLOBAL_PLATFORM_LIMIT, { message: PLATFORM_LIMIT_EXCEEDED_ERROR })
+      .optional()
+      .default(0),
     videoSessionHours: z.coerce.number().int().min(0).max(40).optional().default(0),
     couponCode: z.union([z.string().trim().min(3).max(64), z.literal("")]).optional(),
     // Backward compatibility for older frontend payload.
@@ -541,13 +549,13 @@ router.post("/checkout", requireAuth, async (req, res) => {
     let priceId = price.id;
 
     // Ensure plan exists in local DB for FK (always use monthly/default price for plan record)
-    const planPayload = {
+    const createPayload: any = {
       code: normalizedPlanCode,
       name: product.name,
       category: toPlanCategory(product.metadata.category),
       isCustomEnterprise: false,
       isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
-      platformLimit: product.metadata.platformLimit ? parseInt(product.metadata.platformLimit) : null,
+      platformLimit: GLOBAL_PLATFORM_LIMIT,
       baseVisualQuota: product.metadata.baseVisualQuota ? parseInt(product.metadata.baseVisualQuota) : null,
       basePostQuota: product.metadata.basePostQuota ? parseInt(product.metadata.basePostQuota) : null,
       postLimitType: toPostLimitType(product.metadata.postLimitType),
@@ -559,10 +567,40 @@ router.post("/checkout", requireAuth, async (req, res) => {
       stripePriceStandardId: price.id,
     };
 
+    // Only set platformQty on create or when explicit metadata is provided.
+    if (product.metadata.platformQty) {
+      createPayload.platformQty = parseInt(product.metadata.platformQty);
+    } else if (product.metadata.platformLimit) {
+      createPayload.platformQty = parseInt(product.metadata.platformLimit);
+    }
+
+    const updatePayload: any = {
+      name: product.name,
+      category: toPlanCategory(product.metadata.category),
+      isCustomEnterprise: false,
+      isJewelry: (product.metadata.isJewelry || "").toLowerCase() === "true",
+      platformLimit: GLOBAL_PLATFORM_LIMIT,
+      baseVisualQuota: product.metadata.baseVisualQuota ? parseInt(product.metadata.baseVisualQuota) : null,
+      basePostQuota: product.metadata.basePostQuota ? parseInt(product.metadata.basePostQuota) : null,
+      postLimitType: toPostLimitType(product.metadata.postLimitType),
+      schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
+      priceStandardCents: price.unit_amount ?? 0,
+      priceFounderCents: product.metadata.priceFounderCents
+        ? parseInt(product.metadata.priceFounderCents)
+        : price.unit_amount ?? 0,
+      stripePriceStandardId: price.id,
+    };
+
+    if (product.metadata.platformQty) {
+      updatePayload.platformQty = parseInt(product.metadata.platformQty);
+    } else if (product.metadata.platformLimit) {
+      updatePayload.platformQty = parseInt(product.metadata.platformLimit);
+    }
+
   await prisma.plan.upsert({
     where: { code: normalizedPlanCode },
-    update: planPayload,
-    create: planPayload,
+    update: updatePayload,
+    create: createPayload,
   });
 
   // Check if user has an active subscription to a different plan
@@ -727,6 +765,19 @@ router.post("/checkout", requireAuth, async (req, res) => {
         logger.error("Failed to create Stripe customer", error);
       }
     }
+  }
+
+  // Enforce global platform limit: ensure plan included platforms + addonPlatformQty <= GLOBAL_PLATFORM_LIMIT
+  const planRecord = await prisma.plan.findUnique({
+    where: { code: normalizedPlanCode },
+    select: { platformQty: true, platformLimit: true },
+  });
+
+  const planIncludedQty = planRecord?.platformQty ?? planRecord?.platformLimit ?? 0;
+  if (planIncludedQty + (addonPlatformQty ?? 0) > GLOBAL_PLATFORM_LIMIT) {
+    return res.status(400).json({
+      error: PLATFORM_LIMIT_EXCEEDED_ERROR,
+    });
   }
 
   // Create or update subscription record in INCOMPLETE state
@@ -913,6 +964,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
         addonPlatformQty: addonPlatformQty.toString(),
         videoAddonEnabled: videoAddonEnabled.toString(),
         videoSessionHours: videoSessionHours.toString(),
+        platformQty: (planFromDb?.platformQty ?? 0).toString(),
         ...(applicableCoupon
           ? {
             couponId: applicableCoupon.id,
@@ -933,6 +985,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
       addonPlatformQty: addonPlatformQty.toString(),
       videoAddonEnabled: videoAddonEnabled.toString(),
       videoSessionHours: videoSessionHours.toString(),
+      platformQty: (planFromDb?.platformQty ?? 0).toString(),
       ...(applicableCoupon
         ? {
           couponId: applicableCoupon.id,
@@ -1224,6 +1277,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
         addonPlatformQty: addonPlatformQty.toString(),
         videoAddonEnabled: videoAddonEnabled.toString(),
         videoSessionHours: videoSessionHours.toString(),
+        platformQty: (planFromDb?.platformQty ?? 0).toString(),
         enterpriseProposalId: proposal.id,
         enterpriseProposalPriceCents: quotedAmountCents.toString(),
         ...(applicableCoupon
@@ -1245,6 +1299,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
       addonPlatformQty: addonPlatformQty.toString(),
       videoAddonEnabled: videoAddonEnabled.toString(),
       videoSessionHours: videoSessionHours.toString(),
+      platformQty: (planFromDb?.platformQty ?? 0).toString(),
       enterpriseProposalId: proposal.id,
       enterpriseProposalPriceCents: quotedAmountCents.toString(),
       ...(applicableCoupon
@@ -1410,7 +1465,11 @@ router.post("/addons/video-session/checkout", requireAuth, async (req, res) => {
 
 router.post("/addons/platforms/checkout", requireAuth, async (req, res) => {
   const schema = z.object({
-    addonPlatformQty: z.coerce.number().int().min(1).max(10),
+    addonPlatformQty: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(10, { message: PLATFORM_LIMIT_EXCEEDED_ERROR }),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -1429,9 +1488,6 @@ router.post("/addons/platforms/checkout", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Active Stripe subscription not found" });
   }
 
-  if (activeSubscription.plan.platformLimit === null || activeSubscription.plan.platformLimit === undefined) {
-    return res.status(400).json({ error: "Current plan does not support platform add-ons" });
-  }
 
   if (!stripeClient) {
     return res.status(503).json({ error: "Stripe not configured" });
@@ -1465,6 +1521,38 @@ router.post("/addons/platforms/checkout", requireAuth, async (req, res) => {
   const existingAddonItem = stripeSubscription.items.data.find((item) => item.price.id === addonPriceId);
   const currentAddonQty = activeSubscription.addonPlatformQty ?? 0;
   const nextAddonQty = currentAddonQty + requestedQty;
+  // Debug: log quantities to help diagnose off-by-one issues for enterprise plans
+  logger.info("Addon checkout quantities", {
+    userId: req.user!.id,
+    planCode: activeSubscription.planCode,
+    planPlatformQty: activeSubscription.plan?.platformQty,
+    planPlatformLimit: activeSubscription.plan?.platformLimit,
+    planIncluded: activeSubscription.plan ? (activeSubscription.plan.platformQty ?? activeSubscription.plan.platformLimit ?? 0) : 0,
+    currentAddonQty,
+    requestedQty,
+    nextAddonQty,
+    globalLimit: GLOBAL_PLATFORM_LIMIT,
+  });
+
+  // Enforce global platform limit: plan.platformQty + addonPlatformQty must not exceed platformLimit (4).
+  const planIncluded = activeSubscription.plan ? (activeSubscription.plan.platformQty ?? activeSubscription.plan.platformLimit ?? 0) : 0;
+  const totalPlatformsAfter = activeSubscription.plan?.isCustomEnterprise ? nextAddonQty : planIncluded + nextAddonQty;
+  if (totalPlatformsAfter > GLOBAL_PLATFORM_LIMIT) {
+    logger.warn("Addon checkout would exceed global platform limit", {
+      userId: req.user!.id,
+      planCode: activeSubscription.planCode,
+      planIncluded,
+      currentAddonQty,
+      requestedQty,
+      nextAddonQty,
+      totalPlatformsAfter,
+      globalLimit: GLOBAL_PLATFORM_LIMIT,
+    });
+
+    return res.status(400).json({
+      error: PLATFORM_LIMIT_EXCEEDED_ERROR,
+    });
+  }
 
   const items: Stripe.SubscriptionUpdateParams.Item[] = [{ id: baseItem.id }];
   if (existingAddonItem) {
@@ -1482,6 +1570,7 @@ router.post("/addons/platforms/checkout", requireAuth, async (req, res) => {
       userId: req.user!.id,
       planCode: activeSubscription.planCode,
       billingCycle: activeSubscription.billingCycle === BillingCycle.YEARLY ? "yearly" : "monthly",
+      platformQty: String(activeSubscription.plan?.platformQty ?? activeSubscription.plan?.platformLimit ?? 0),
       addonPlatformQty: String(nextAddonQty),
       videoAddonEnabled: String(activeSubscription.videoAddonEnabled ?? false),
       videoSessionHours: String(activeSubscription.videoSessionHours ?? 0),
@@ -1494,26 +1583,42 @@ router.post("/addons/platforms/checkout", requireAuth, async (req, res) => {
       addonPlatformQty: nextAddonQty,
       updatedAt: new Date(),
     },
+    include: { plan: true },
   });
+
+  if (updatedSubscription.plan?.isCustomEnterprise) {
+    await prisma.plan.update({
+      where: { code: updatedSubscription.planCode },
+      data: { platformQty: nextAddonQty },
+    });
+  }
+
+  // Compute total platform quantity after addon purchase
+  const planIncludedPlatforms = updatedSubscription.plan.platformQty ?? updatedSubscription.plan.platformLimit ?? 0;
+  const totalPlatformsAfterAddon = updatedSubscription.plan?.isCustomEnterprise
+    ? planIncludedPlatforms
+    : planIncludedPlatforms + nextAddonQty;
 
   return res.json({
     success: true,
     subscription: {
       id: updatedSubscription.id,
       planCode: updatedSubscription.planCode,
-      addonPlatformQty: updatedSubscription.addonPlatformQty,
       billingCycle: updatedSubscription.billingCycle,
       status: updatedSubscription.status,
     },
-    stripe: {
-      id: updatedStripeSubscription.id,
-      status: updatedStripeSubscription.status,
+    plan: {
+      code: updatedSubscription.plan.code,
+      name: updatedSubscription.plan.name,
+      platformQty: planIncludedPlatforms,
     },
     addon: {
       type: "PLATFORM",
       requestedQty,
       currentQty: currentAddonQty,
       nextQty: nextAddonQty,
+      addonPlatformQty: nextAddonQty,
+      totalPlatformsAfterPayment: totalPlatformsAfterAddon,
       unitAmountCents: billingCycle === BillingCycle.YEARLY
         ? PLATFORM_ADDON_MONTHLY_CENTS * 12
         : PLATFORM_ADDON_MONTHLY_CENTS,
@@ -2094,6 +2199,11 @@ router.get("/current-plan", requireAuth, async (req, res) => {
       }
     }
 
+    const planIncluded = plan.platformQty ?? plan.platformLimit ?? 0;
+    const computedPlatformQty = plan.isCustomEnterprise
+      ? planIncluded
+      : planIncluded + (activeSubscription.addonPlatformQty ?? 0);
+
     return res.json({
       success: true,
       message: "Current plan details retrieved successfully",
@@ -2102,7 +2212,9 @@ router.get("/current-plan", requireAuth, async (req, res) => {
         name: plan.name,
         category: plan.category,
         isJewelry: plan.isJewelry,
-        platformLimit: plan.platformLimit,
+        platformLimit: GLOBAL_PLATFORM_LIMIT,
+        basePlatformQty: planIncluded,
+        platformQty: computedPlatformQty,
         baseVisualQuota: plan.baseVisualQuota,
         basePostQuota: plan.basePostQuota,
         postLimitType: plan.postLimitType,
@@ -2369,7 +2481,7 @@ router.get("/history", requireAuth, async (req, res) => {
           code: currentSubscription.plan.code,
           name: currentSubscription.plan.name,
           category: currentSubscription.plan.category,
-          platformLimit: currentSubscription.plan.platformLimit,
+          platformLimit: GLOBAL_PLATFORM_LIMIT,
           baseVisualQuota: currentSubscription.plan.baseVisualQuota,
           basePostQuota: currentSubscription.plan.basePostQuota,
           priceStandardCents: currentSubscription.plan.priceStandardCents,
@@ -2394,11 +2506,11 @@ router.get("/history", requireAuth, async (req, res) => {
         termsAcceptedAt: sub.termsAcceptedAt,
         createdAt: sub.createdAt,
         updatedAt: sub.updatedAt,
-        plan: {
+          plan: {
           code: sub.plan.code,
           name: sub.plan.name,
           category: sub.plan.category,
-          platformLimit: sub.plan.platformLimit,
+            platformLimit: GLOBAL_PLATFORM_LIMIT,
           baseVisualQuota: sub.plan.baseVisualQuota,
           basePostQuota: sub.plan.basePostQuota,
           priceStandardCents: sub.plan.priceStandardCents,
@@ -2561,6 +2673,7 @@ function serializePlan(plan: {
   category: string;
   isJewelry: boolean;
   platformLimit: number | null;
+  platformQty?: number | null;
   baseVisualQuota: number | null;
   basePostQuota: number | null;
   postLimitType?: string | null;
@@ -2574,7 +2687,7 @@ function serializePlan(plan: {
     name: plan.name,
     category: plan.category,
     isJewelry: plan.isJewelry,
-    platformLimit: plan.platformLimit,
+    platformLimit: GLOBAL_PLATFORM_LIMIT,
     baseVisualQuota: plan.baseVisualQuota,
     basePostQuota: plan.basePostQuota,
     postLimitType: plan.postLimitType || "NONE",

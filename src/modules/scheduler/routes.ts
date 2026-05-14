@@ -1,12 +1,15 @@
 import express from "express";
 import multer from "multer";
+import { z } from "zod";
 import { PostStatus, ScheduleType, SessionStatus, SocialPlatform } from "@prisma/client";
 import { requireAuth } from "../../middleware/requireAuth";
 import { requireAdmin } from "../../middleware/requireAdmin";
 import { SchedulerService } from "./service";
 import { parseEnumQueryList } from "./functions";
 import {
+  schedulerClientListQuerySchema,
   schedulerCreateSessionSchema,
+  schedulerFailureTicketsQuerySchema,
   formatZodError,
   schedulerListQuerySchema,
   schedulerCreatePostSchema,
@@ -15,9 +18,11 @@ import {
   schedulerUpdateSessionStatusSchema,
   schedulerUpdatePostSchema,
 } from "./validation";
+import { SchedulerStorageService } from "./storage";
 
 const router = express.Router();
 const schedulerService = new SchedulerService();
+const schedulerStorage = new SchedulerStorageService();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -30,7 +35,7 @@ const platformMap: Record<string, SocialPlatform> = {
   instagram: SocialPlatform.INSTAGRAM,
   facebook: SocialPlatform.FACEBOOK,
   linkedin: SocialPlatform.LINKEDIN,
-
+  tiktok: SocialPlatform.TIKTOK,
 };
 
 const postStatusMap: Record<string, PostStatus> = {
@@ -54,33 +59,63 @@ const sessionStatusMap: Record<string, SessionStatus> = {
   canceled: SessionStatus.CANCELED,
 };
 
-function resolveSessionErrorStatus(message: string) {
+function resolveSessionError(message: string) {
   const lowered = message.toLowerCase();
+  if (message.startsWith("VIDEO_SESSION_NOT_INCLUDED:")) {
+    return {
+      statusCode: 403,
+      code: "VIDEO_SESSION_NOT_INCLUDED",
+      message: message.replace("VIDEO_SESSION_NOT_INCLUDED:", "").trim(),
+    };
+  }
+  if (message.startsWith("VIDEO_SESSION_HOURS_EXCEEDED:")) {
+    return {
+      statusCode: 403,
+      code: "VIDEO_SESSION_HOURS_EXCEEDED",
+      message: message.replace("VIDEO_SESSION_HOURS_EXCEEDED:", "").trim(),
+    };
+  }
+  if (message.startsWith("SCHEDULE_90_MIN_CONFLICT:")) {
+    return {
+      statusCode: 400,
+      code: "SCHEDULE_90_MIN_CONFLICT",
+      message: message.replace("SCHEDULE_90_MIN_CONFLICT:", "").trim(),
+    };
+  }
+
   if (
     lowered.includes("not allowed") ||
     lowered.includes("not available for your current plan") ||
     lowered.includes("active subscription is required") ||
     lowered.includes("reached your") ||
     lowered.includes("no remaining") ||
-    lowered.includes("purchase more before booking") ||
-    lowered.includes("video session add-on is not enabled") ||
-    lowered.includes("insufficient video session hours") ||
     lowered.includes("only admin")
   ) {
-    if (
-      lowered.includes("purchase more before booking") ||
-      lowered.includes("insufficient video session hours") ||
-      lowered.includes("video session add-on is not enabled")
-    ) {
-      return 402;
-    }
-    return 403;
+    return { statusCode: 403, message };
   }
-  if (lowered.includes("not found")) return 404;
-  return 400;
+  if (lowered.includes("not found")) return { statusCode: 404, message };
+  return { statusCode: 400, message };
 }
 
 router.use(requireAuth);
+
+router.get("/clients", requireAdmin, async (req, res) => {
+  const parsed = schedulerClientListQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ error: "Invalid scheduler client filters", details: formatZodError(parsed.error) });
+  }
+
+  try {
+    const result = await schedulerService.listSchedulerClients(req.user!, parsed.data);
+    return res.json(result);
+  } catch (error) {
+    return res.status(400).json({
+      error: error instanceof Error ? error.message : "Failed to fetch scheduler clients",
+    });
+  }
+});
 
 router.post("/posts", upload.array("files", 20), async (req, res) => {
   const rawData = req.body?.data;
@@ -230,26 +265,72 @@ router.patch("/posts/:id/publish-status", requireAuth, requireAdmin, async (req,
   }
 });
 
-router.post("/sessions", async (req, res) => {
-  const parsed = schedulerCreateSessionSchema.safeParse(req.body);
+router.post("/sessions", upload.array("files", 20), async (req, res) => {
+  let payload: unknown = req.body;
+  if (typeof req.body?.data === "string" && req.body.data.trim()) {
+    try {
+      payload = JSON.parse(req.body.data);
+    } catch {
+      return res.status(400).json({
+        error: "Invalid scheduler session payload",
+        details: { issues: [{ path: "data", message: "data must be valid JSON", code: "invalid_json" }] },
+      });
+    }
+  }
+
+  const parsed = schedulerCreateSessionSchema.safeParse(payload);
   if (!parsed.success) {
     return res
       .status(400)
       .json({ error: "Invalid scheduler session payload", details: formatZodError(parsed.error) });
   }
 
+  const files = ((req as any).files ?? []) as Array<{
+    originalname: string;
+    mimetype: string;
+    size: number;
+    buffer: Buffer;
+  }>;
+
   try {
-    const session = await schedulerService.createScheduledSession(req.user!, parsed.data);
+    let uploadedAssetIds: string[] = [];
+    if (files.length > 0) {
+      const uploaded = await schedulerService.uploadMediaFiles(req.user!, {
+        userId: parsed.data.userId,
+        files,
+      });
+      uploadedAssetIds = uploaded.media.map((item) => item.id);
+    }
+
+    const session = await schedulerService.createScheduledSession(req.user!, {
+      ...parsed.data,
+      uploadedAssetIds,
+    });
     return res.status(201).json({ session });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create session";
-    const statusCode = resolveSessionErrorStatus(message);
-    return res.status(statusCode).json({ error: message });
+    const resolved = resolveSessionError(message);
+    return res.status(resolved.statusCode).json({
+      error: resolved.message,
+      ...(resolved.code ? { code: resolved.code } : {}),
+    });
   }
 });
 
-router.patch("/sessions/:id", async (req, res) => {
-  const parsed = schedulerUpdateSessionSchema.safeParse(req.body);
+router.patch("/sessions/:id", upload.array("files", 20), async (req, res) => {
+  let payload: unknown = req.body;
+  if (typeof req.body?.data === "string" && req.body.data.trim()) {
+    try {
+      payload = JSON.parse(req.body.data);
+    } catch {
+      return res.status(400).json({
+        error: "Invalid scheduler session update payload",
+        details: { issues: [{ path: "data", message: "data must be valid JSON", code: "invalid_json" }] },
+      });
+    }
+  }
+
+  const parsed = schedulerUpdateSessionSchema.safeParse(payload);
   if (!parsed.success) {
     return res
       .status(400)
@@ -257,14 +338,35 @@ router.patch("/sessions/:id", async (req, res) => {
   }
 
   const sessionId = req.params.id as string;
+  const files = ((req as any).files ?? []) as Array<{
+    originalname: string;
+    mimetype: string;
+    size: number;
+    buffer: Buffer;
+  }>;
 
   try {
-    const session = await schedulerService.updateScheduledSession(req.user!, sessionId, parsed.data);
+    let uploadedAssetIds: string[] = [];
+    if (files.length > 0) {
+      const uploaded = await schedulerService.uploadMediaFiles(req.user!, {
+        userId: parsed.data.userId,
+        files,
+      });
+      uploadedAssetIds = uploaded.media.map((item) => item.id);
+    }
+
+    const session = await schedulerService.updateScheduledSession(req.user!, sessionId, {
+      ...parsed.data,
+      uploadedAssetIds,
+    });
     return res.json({ session });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update session";
-    const statusCode = resolveSessionErrorStatus(message);
-    return res.status(statusCode).json({ error: message });
+    const resolved = resolveSessionError(message);
+    return res.status(resolved.statusCode).json({
+      error: resolved.message,
+      ...(resolved.code ? { code: resolved.code } : {}),
+    });
   }
 });
 
@@ -283,8 +385,11 @@ router.patch("/sessions/:id/status", requireAuth, requireAdmin, async (req, res)
     return res.json({ session });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update session status";
-    const statusCode = resolveSessionErrorStatus(message);
-    return res.status(statusCode).json({ error: message });
+    const resolved = resolveSessionError(message);
+    return res.status(resolved.statusCode).json({
+      error: resolved.message,
+      ...(resolved.code ? { code: resolved.code } : {}),
+    });
   }
 });
 
@@ -311,6 +416,7 @@ router.get("/posts", async (req, res) => {
       sessionStatus: sessionStatuses,
       failure: parsed.data.failure,
       userId: parsed.data.userId,
+      userEmail: parsed.data.userEmail,
       platform: platforms,
       page: parsed.data.page,
       pageSize: parsed.data.pageSize,
@@ -319,6 +425,56 @@ router.get("/posts", async (req, res) => {
   } catch (error) {
     return res.status(400).json({
       error: error instanceof Error ? error.message : "Failed to fetch scheduled posts",
+    });
+  }
+});
+
+router.get("/failure-tickets", requireAdmin, async (req, res) => {
+  const parsed = schedulerFailureTicketsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid failure ticket filters",
+      details: formatZodError(parsed.error),
+    });
+  }
+
+  try {
+    const result = await schedulerService.listFailureTickets(req.user!, parsed.data);
+    return res.json(result);
+  } catch (error) {
+    return res.status(400).json({
+      error: error instanceof Error ? error.message : "Failed to fetch failure tickets",
+    });
+  }
+});
+
+// TEMP DEBUG ENDPOINT: direct S3 object delete check.
+router.post("/debug/delete-s3-object", requireAdmin, async (req, res) => {
+  const schema = z.object({
+    storageKey: z.string().min(1),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid debug delete payload",
+      details: formatZodError(parsed.error),
+    });
+  }
+
+  try {
+    const result = await schedulerStorage.deleteObject(parsed.data.storageKey);
+    return res.json({
+      success: true,
+      message: "S3 delete request sent successfully",
+      aws: result ?? null,
+      storageKey: parsed.data.storageKey,
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: "S3 delete request failed",
+      awsError: error instanceof Error ? error.message : String(error),
+      storageKey: parsed.data.storageKey,
     });
   }
 });

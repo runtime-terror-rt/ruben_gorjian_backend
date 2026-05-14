@@ -169,6 +169,7 @@ Frontend payload values currently used by billing endpoints:
 
 - Auth
 - Billing
+- Scheduler
 - Uploads
 - AI captions
 - Social
@@ -446,6 +447,222 @@ Stripe webhook endpoint. Frontend should not call this.
 
 ---
 
+## Scheduler
+
+Base paths:
+- `/scheduler`
+- `/api/scheduler`
+
+Admin failure tickets:
+- `/api/scheduler/failure-tickets`
+
+### GET `/scheduler/clients`
+
+Auth: admin/super-admin.
+
+Query params:
+- `page` (default `1`)
+- `pageSize` (default `20`, max `100`)
+- `search` (optional partial email)
+- `status` (optional `ACTIVE|BLOCKED|DELETED`)
+
+Purpose:
+- client directory for scheduler management
+- includes connected platform count, next schedule date, active plan code
+
+### GET `/scheduler/posts`
+
+Auth required.
+
+Query params:
+- `view=day|week|month|list`
+- `date=YYYY-MM-DD`
+- `from=<ISO datetime>`
+- `to=<ISO datetime>`
+- `status` (comma-separated: `draft|scheduled|publishing|posted|failed`)
+- `scheduleType` (comma-separated: `posting|photo_session|video_session`)
+- `sessionStatus` (comma-separated: `booked|completed|failed|canceled`)
+- `failure=true|false`
+- `platform` (comma-separated: `instagram|facebook|linkedin`)
+- `userId` (admin filter)
+- `userEmail` (admin filter; resolves to userId internally)
+- `page`
+- `pageSize`
+
+Behavior:
+- client sees own schedules only
+- admin sees all schedules unless `userId`/`userEmail` filter is provided
+- pagination meta is always returned
+
+### GET `/scheduler/posts/:id`
+
+Auth required.
+
+Purpose:
+- get single schedule item detail (posting/session)
+- includes media, targets, owner summary, event history
+
+### POST `/scheduler/posts`
+
+Auth required.
+
+Content type: `multipart/form-data`
+
+Form-data:
+- `data` (required JSON string)
+- `files` (optional repeatable)
+
+`data` payload:
+```json
+{
+  "userId": "optional_client_id_for_admin",
+  "caption": "Caption",
+  "hashtags": ["tag1", "tag2"],
+  "cta": "Call to action",
+  "shortDescription": "Short text",
+  "scheduledAt": "2026-05-17T14:27:00+06:00",
+  "socialAccountIds": ["social_1", "social_2"],
+  "adminReason": "optional admin note"
+}
+```
+
+Rules:
+- scheduled time must be future
+- 90-minute minimum gap on same day across scheduler items
+- max 1 video file for posting schedules
+
+### PATCH `/scheduler/posts/:id`
+
+Auth required.
+
+JSON payload (all optional):
+```json
+{
+  "caption": "Updated caption",
+  "hashtags": ["updated"],
+  "cta": "Updated CTA",
+  "shortDescription": "Updated text",
+  "scheduledAt": "2026-05-18T10:00:00Z",
+  "socialAccountIds": ["social_1"],
+  "adminReason": "Optional"
+}
+```
+
+### DELETE `/scheduler/posts/:id`
+
+Auth required.
+
+Purpose:
+- delete posting or session schedule row
+- remove orphaned scheduler S3 assets
+
+### PATCH `/scheduler/posts/:id/publish-status`
+
+Auth: admin/super-admin.
+
+Payload:
+```json
+{
+  "status": "completed",
+  "failureReason": null,
+  "adminReason": "Optional note"
+}
+```
+
+`status` values:
+- `completed`
+- `failed`
+
+If failed:
+- opens failure ticket event
+- alerts admin/dev emails
+
+### POST `/scheduler/sessions`
+
+Auth required.
+
+Supports:
+- JSON body
+- multipart/form-data (`data` JSON + optional `files`)
+
+Payload:
+```json
+{
+  "userId": "optional_client_id_for_admin",
+  "scheduleType": "PHOTO_SESSION",
+  "scheduledAt": "2026-05-20T11:00:00+06:00",
+  "sessionTitle": "May photoshoot",
+  "sessionNotes": "Shot list",
+  "sessionDurationMinutes": 60,
+  "uploadedAssetIds": ["optional_existing_asset_id"],
+  "adminReason": "optional admin note"
+}
+```
+
+Rules:
+- session type: `PHOTO_SESSION|VIDEO_SESSION`
+- photo session supports multiple image/video uploads
+- video session requires:
+  - `subscription.videoAddonEnabled=true`
+  - `subscription.videoSessionHours >= ceil(sessionDurationMinutes/60)`
+
+### PATCH `/scheduler/sessions/:id`
+
+Auth required.
+
+Supports JSON or multipart.
+
+Payload fields:
+- `scheduledAt`
+- `sessionTitle`
+- `sessionNotes`
+- `sessionDurationMinutes`
+- `uploadedAssetIds`
+- `replaceMedia` (optional; replace vs append behavior)
+- `adminReason`
+
+### PATCH `/scheduler/sessions/:id/status`
+
+Auth: admin/super-admin.
+
+Payload:
+```json
+{
+  "status": "completed",
+  "sessionFailureReason": null,
+  "adminReason": "optional"
+}
+```
+
+`status` values:
+- `completed`
+- `failed`
+- `canceled`
+
+Rules:
+- `sessionFailureReason` required when failed
+- on VIDEO_SESSION completion, deducts hours once from subscription
+
+### GET `/scheduler/failure-tickets`
+
+Auth: admin/super-admin.
+
+Query params:
+- `page` (default `1`)
+- `pageSize` (default `20`, max `100`)
+- `userId` (optional)
+- `userEmail` (optional)
+
+Purpose:
+- list OPEN failure ticket events created when scheduled post publish fails
+
+Scheduler-specific error codes:
+- `VIDEO_SESSION_NOT_INCLUDED` (403)
+- `VIDEO_SESSION_HOURS_EXCEEDED` (403)
+- `SCHEDULE_90_MIN_CONFLICT` (400)
+
+---
+
 ## Uploads
 
 Base path: `/uploads`
@@ -485,6 +702,21 @@ Request body:
 ### GET `/uploads/assets`
 
 Auth required.
+
+### GET `/uploads/files`
+
+Auth required.
+
+Returns all upload-related files for the current user in one list (assets, brand files, submission files, enhanced delivery files, and avatar when available).
+
+Query params:
+- `type` (optional): `all` (default), `image`, `video`, `audio`
+- `page` (optional, default `1`)
+- `limit` (optional, default `50`, max `200`)
+
+Response includes:
+- `total`, `page`, `limit`, `totalPages`
+- `items[]` with `source`, `mediaType`, `storageKey`, `url`, `contentType`, `createdAt`
 
 ---
 
@@ -1356,29 +1588,35 @@ Auth required.
 
 Returns current profile and business settings.
 
-### PUT `/user/settings`
 ### PATCH `/user/settings`
 
-Same payload shape for update:
-```json
-{
-  "profile": {
-    "fullName": "User Name",
-    "bio": "Optional bio",
-    "avatar": {
-      "storageKey": "user/123/avatar.png",
-      "contentType": "image/png",
-      "remove": false
-    }
-  },
-  "business": {
-    "name": "Business Name",
-    "website": "https://example.com",
-    "industry": "Retail",
-    "timezone": "Asia/Dhaka"
-  }
-}
+Update profile, business settings, and optionally upload a new avatar photo.
+
+**Content-Type:** `multipart/form-data`
+
+**Form fields:**
+- `profile` (JSON string, optional): `{ "fullName": "string", "bio": "string" }`
+- `business` (JSON string, optional): `{ "name": "string", "website": "string|null", "industry": "string|null", "timezone": "string|null" }`
+- `avatar` (file, optional): Image file (jpg, jpeg, png, or webp). Max 5MB.
+
+**Example:**
 ```
+POST /user/settings
+Content-Type: multipart/form-data
+
+profile={"fullName":"John Doe","bio":"Bio text"}
+business={"name":"Company","timezone":"America/New_York"}
+avatar=<binary image file>
+```
+
+**Avatar:**
+- If file is provided, it will be uploaded directly to S3 and the storage key will be saved
+- If no file is provided and you want to remove the current avatar, send `removeAvatar=true` in the profile field
+- Supported formats: jpg, jpeg, png, webp (max 5MB)
+
+### PUT `/user/settings`
+
+Same as PATCH.
 
 ### DELETE `/user/settings/photo`
 
