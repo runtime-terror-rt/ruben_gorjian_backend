@@ -20,7 +20,6 @@ import {
   enqueueSchedulerEmail,
   enqueueSchedulerReminderEmails,
 } from "../jobs/scheduler-email-queue";
-import { enqueuePostPublish } from "../jobs/post-queue";
 import {
   Actor,
   SchedulerClientListFilters,
@@ -35,7 +34,14 @@ import {
   SchedulerUpdateInput,
   SchedulerUploadInput,
 } from "./interfaces";
-import { isAdmin, normalizeDateRange } from "./functions";
+import {
+  formatSchedulerDateTime,
+  getSchedulerDayRange,
+  isAdmin,
+  normalizeDateRange,
+  parseSchedulerDateTimeInput,
+  resolveSchedulerTimezone,
+} from "./functions";
 import { logActivity } from "../dashboard/activity-logger";
 
 const SCHEDULER_UPLOAD_CONTEXT = "SCHEDULER_POST";
@@ -67,6 +73,7 @@ type SchedulerNotificationPost = {
   userId: string;
   scheduleType: ScheduleType;
   scheduledFor: Date | null;
+  timezone: string | null;
   status: PostStatus;
   sessionStatus: SessionStatus | null;
   sessionFailureReason: string | null;
@@ -130,6 +137,11 @@ export class SchedulerService {
             email: true,
             name: true,
             status: true,
+            profile: {
+              select: {
+                timezone: true,
+              },
+            },
           },
         },
         admin: {
@@ -777,29 +789,6 @@ export class SchedulerService {
     };
   }
 
-  private async enqueueScheduledPostPublish(postId: string, scheduledAt: Date | null | undefined) {
-    if (!scheduledAt) {
-      logger.info("Post publish enqueue skipped: no scheduledAt", { postId });
-      return;
-    }
-
-    const delay = Math.max(0, scheduledAt.getTime() - Date.now());
-    const enqueued = await enqueuePostPublish(postId, {
-      delay,
-    });
-
-    if (!enqueued) {
-      logger.warn("Post publish enqueue skipped (queue unavailable)", { postId });
-      return;
-    }
-
-    logger.info("Post publish enqueued", {
-      postId,
-      delayMs: delay,
-      scheduledAt: scheduledAt.toISOString(),
-    });
-  }
-
   private async listAdminEmails() {
     return [SCHEDULER_ADMIN_EMAIL];
   }
@@ -934,8 +923,7 @@ export class SchedulerService {
       `Schedule Time: ${when}\n` +
       `${post.scheduleType !== "POSTING" ? `Duration (minutes): ${post.sessionDurationMinutes ?? "N/A"}\n` : ""}` +
       `${post.scheduleType === "POSTING" ? `Caption: ${post.caption ?? "N/A"}\n` : ""}` +
-      `${post.sessionFailureReason ? `Failure reason: ${post.sessionFailureReason}\n` : ""}` +
-      `\nRegards,\nTalexia`;
+      `${post.sessionFailureReason ? `Failure reason: ${post.sessionFailureReason}\n` : ""}`;
 
     const adminBody =
       `Scheduler update\n\n` +
@@ -1373,10 +1361,7 @@ export class SchedulerService {
       return post.id;
     });
 
-    await Promise.allSettled([
-      this.enqueueScheduledPostPublish(postId, input.scheduledAt),
-      this.triggerSchedulerLifecycleNotifications(postId, "created"),
-    ]);
+    await this.triggerSchedulerLifecycleNotifications(postId, "created");
 
     logActivity({
       userId,
@@ -1498,10 +1483,7 @@ export class SchedulerService {
 
     await this.cleanupOrphanedSchedulerAssets(removedAssetIds, postId);
 
-    await Promise.allSettled([
-      this.enqueueScheduledPostPublish(postId, nextScheduledAt),
-      this.triggerSchedulerLifecycleNotifications(postId, "rescheduled"),
-    ]);
+    await this.triggerSchedulerLifecycleNotifications(postId, "rescheduled");
 
     logActivity({
       userId: existingPost.userId,

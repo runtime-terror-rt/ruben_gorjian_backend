@@ -114,8 +114,7 @@ function buildReminderPayload(args: {
     `Hello,\n\n` +
     `This is a reminder that your ${args.scheduleType.replaceAll("_", " ").toLowerCase()} is scheduled ${leadText}.\n` +
     `Schedule ID: ${args.postId}\n` +
-    `Scheduled At (UTC): ${args.scheduledForIso}\n\n` +
-    `Regards,\nTalexia`;
+    `Scheduled At (UTC): ${args.scheduledForIso}`;
 
   return { subject, body };
 }

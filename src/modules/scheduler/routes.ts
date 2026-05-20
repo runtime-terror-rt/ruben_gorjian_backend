@@ -408,7 +408,7 @@ router.get("/posts", async (req, res) => {
     const platforms = parseEnumQueryList(parsed.data.platform, platformMap, "platform");
     const result = await schedulerService.listScheduledPosts(req.user!, {
       view: parsed.data.view,
-      date: parsed.data.date ? new Date(`${parsed.data.date}T00:00:00.000Z`) : undefined,
+      date: parsed.data.date,
       from: parsed.data.from,
       to: parsed.data.to,
       status: statuses,
