@@ -191,6 +191,20 @@ router.get("/revenue", async (req, res) => {
     return subscription.createdAt.getMonth() === monthIndex;
   });
 
+  function getRevenuePlanGroup(subscription: { planCode: string; plan?: { name: string } | null }) {
+    if (subscription.planCode.startsWith("ENT")) {
+      return {
+        planCode: "ENT",
+        planName: "Enterprise",
+      };
+    }
+
+    return {
+      planCode: subscription.planCode,
+      planName: subscription.plan?.name ?? subscription.planCode,
+    };
+  }
+
   for (const subscription of subscriptions) {
     const bucket = monthlyBuckets[subscription.createdAt.getMonth()];
     const standardCents = subscription.plan?.priceStandardCents ?? 0;
@@ -203,7 +217,8 @@ router.get("/revenue", async (req, res) => {
   const planMap = new Map<string, { planCode: string; planName: string; subscriptions: number; revenueCents: number }>();
 
   for (const subscription of filteredSubscriptions) {
-    const key = subscription.planCode;
+    const group = getRevenuePlanGroup(subscription);
+    const key = group.planCode;
     const standardCents = subscription.plan?.priceStandardCents ?? 0;
     const revenueCents = toRevenueCents(standardCents, subscription.billingCycle);
     const existing = planMap.get(key);
@@ -213,8 +228,8 @@ router.get("/revenue", async (req, res) => {
       existing.revenueCents += revenueCents;
     } else {
       planMap.set(key, {
-        planCode: subscription.planCode,
-        planName: subscription.plan?.name ?? subscription.planCode,
+        planCode: group.planCode,
+        planName: group.planName,
         subscriptions: 1,
         revenueCents,
       });

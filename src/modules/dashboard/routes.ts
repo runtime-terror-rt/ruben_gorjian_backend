@@ -373,18 +373,16 @@ router.get("/overview/upcoming-posts", async (req, res) => {
   }
 
   const now = new Date();
-  const until = new Date(now.getTime() + parsed.data.days * 24 * 60 * 60 * 1000);
 
   const items = await prisma.post.findMany({
     where: {
       userId,
       status: PostStatus.SCHEDULED,
       scheduledFor: {
-        gte: now,
-        lte: until,
+        gte: now, // only upcoming
       },
     },
-    orderBy: { scheduledFor: "asc" },
+    orderBy: { scheduledFor: "asc" }, // nearest first
     take: parsed.data.limit,
     select: {
       id: true,
@@ -402,7 +400,6 @@ router.get("/overview/upcoming-posts", async (req, res) => {
   return res.json({
     success: true,
     data: {
-      days: parsed.data.days,
       limit: parsed.data.limit,
       items: items.map((item) => ({
         postId: item.id,

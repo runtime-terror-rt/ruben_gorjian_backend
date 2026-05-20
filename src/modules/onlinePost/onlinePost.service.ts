@@ -534,8 +534,8 @@ export class SocialMediaService {
       form.append("status", "active");
       form.append("async_upload", String(asyncUpload));
       if (payload.platform === "instagram") {
+        form.append("instagram_title", title);
         form.append("instagram_description", title);
-        form.append("description", title);
       }
 
       for (const url of mediaList) {
@@ -568,6 +568,7 @@ export class SocialMediaService {
       form.append("async_upload", String(asyncUpload));
       if (payload.platform === "instagram") {
         form.append("instagram_title", title);
+        // form.append("instagram_description", title);
       }
 
       const result = await this.api("/upload", {
@@ -579,6 +580,121 @@ export class SocialMediaService {
 
     throw new BadRequestException("Use a direct image/video URL");
   }
+
+  // private async publishToProvider(payload: {
+  //   username: string;
+  //   platform: "facebook" | "instagram" | "tiktok";
+  //   title: string;
+  //   mediaUrl?: string;
+  //   mediaUrls?: string[];
+  //   asyncUpload?: boolean;
+  // }) {
+  //   const title = payload.title?.trim() || "Social media post";
+  //   const asyncUpload = payload.asyncUpload ?? true;
+
+  //   const mediaList = this.normalizeMediaUrls(
+  //     payload.mediaUrl,
+  //     payload.mediaUrls,
+  //   );
+
+  //   // ─────────────────────────────────────────────
+  //   // 1. TEXT ONLY POST
+  //   // ─────────────────────────────────────────────
+  //   if (mediaList.length === 0) {
+  //     if (payload.platform === "instagram") {
+  //       throw new BadRequestException(
+  //         "Instagram requires at least one image or video.",
+  //       );
+  //     }
+
+  //     const form = new FormData();
+  //     form.append("user", payload.username);
+  //     form.append("platform[]", payload.platform);
+  //     form.append("title", title);
+  //     form.append("status", "active");
+  //     form.append("async_upload", String(asyncUpload));
+
+  //     const result = await this.api("/upload_text", {
+  //       method: "POST",
+  //       body: form,
+  //     });
+
+  //     return { result, title, mediaList };
+  //   }
+
+  //   // ─────────────────────────────────────────────
+  //   // 2. IMAGE POST (CAROUSEL SUPPORT)
+  //   // ─────────────────────────────────────────────
+  //   if (mediaList.every((u) => this.isImageUrl(u))) {
+  //     if (payload.platform === "instagram" && mediaList.length > 10) {
+  //       throw new BadRequestException(
+  //         "Instagram supports maximum 10 images per carousel.",
+  //       );
+  //     }
+
+  //     const form = new FormData();
+
+  //     form.append("user", payload.username);
+  //     form.append("platform[]", payload.platform);
+  //     form.append("title", title);
+  //     form.append("status", "active");
+  //     form.append("async_upload", String(asyncUpload));
+
+  //     // Instagram-specific title (optional per API behavior)
+  //     if (payload.platform === "instagram") {
+  //       form.append("instagram_title", title);
+  //     }
+
+  //     // ✅ ONLY supported field from docs
+  //     for (const url of mediaList) {
+  //       form.append("photos[]", url);
+  //     }
+
+  //     const result = await this.api("/upload_photos", {
+  //       method: "POST",
+  //       body: form,
+  //     });
+
+  //     return { result, title, mediaList };
+  //   }
+
+  //   // ─────────────────────────────────────────────
+  //   // 3. VIDEO POST (SINGLE ONLY)
+  //   // ─────────────────────────────────────────────
+  //   if (mediaList.every((u) => this.isVideoUrl(u))) {
+  //     if (mediaList.length > 1) {
+  //       throw new BadRequestException("Only one video is allowed per post.");
+  //     }
+
+  //     const form = new FormData();
+
+  //     form.append("user", payload.username);
+  //     form.append("platform[]", payload.platform);
+  //     form.append("title", title);
+  //     form.append("status", "active");
+  //     form.append("async_upload", String(asyncUpload));
+
+  //     if (payload.platform === "instagram") {
+  //       form.append("instagram_title", title);
+  //     }
+
+  //     form.append("video", mediaList[0]);
+
+  //     const result = await this.api("/upload", {
+  //       method: "POST",
+  //       body: form,
+  //     });
+
+  //     return { result, title, mediaList };
+  //   }
+
+  //   // ─────────────────────────────────────────────
+  //   // 4. INVALID MIXED MEDIA
+  //   // ─────────────────────────────────────────────
+  //   throw new BadRequestException(
+  //     "Mixed or unsupported media types. Use only images or only videos.",
+  //   );
+  // }
 
   private async getOwnedPostOrThrow(
     postId: string,
@@ -850,6 +966,9 @@ export class SocialMediaService {
     // 🌐 backend-controlled redirect
     const redirectUrl = this.buildRedirectUrl(platform);
 
+    console.log("🚀 ~ onlinePost.service.ts:969 ~ SocialMediaService ~ createConnectLinkForUser ~ redirectUrl:", redirectUrl)
+
+
     const linkResult = await this.api("/uploadposts/users/generate-jwt", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -858,9 +977,17 @@ export class SocialMediaService {
         platforms: [platform],
         redirect_url: redirectUrl,
         show_calendar: payload.showCalendar ?? true,
-        state,
+        
       }),
     });
+
+    console.log("generate-jwt payload sent:", JSON.stringify({
+  username,
+  platforms: [platform],
+  redirect_url: redirectUrl,
+  show_calendar: payload.showCalendar ?? true,
+}));
+console.log("generate-jwt response:", JSON.stringify(linkResult));
 
     // TEMPOrary. because redirect is not happening
 
@@ -960,104 +1087,6 @@ export class SocialMediaService {
       platform: prismaPlatform,
     };
   }
-
-  // async disconnectLinkForUser(user: User, payload: { platform: string }) {
-  //   const platform = this.normalizePlatform(payload.platform);
-  //   const prismaPlatform = this.toPrismaPlatform(platform);
-
-  //   const existing = await this.prisma.socialPlatformLink.findUnique({
-  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
-  //   });
-
-  //   if (!existing) {
-  //     return {
-  //       success: true,
-  //       platform,
-  //       disconnected: false,
-  //       message: "Platform link was not connected.",
-  //     };
-  //   }
-
-  //   await this.disconnectProviderProfileByUsername(existing.platformUsername);
-
-  //   const previousLink = {
-  //     id: existing.id,
-  //     userId: existing.userId,
-  //     platform,
-  //     externalRef: existing.externalRef,
-  //     externalProfileUrl: existing.externalProfileUrl,
-  //     linkedAt: existing.linkedAt,
-  //     createdAt: existing.createdAt,
-  //     updatedAt: existing.updatedAt,
-  //   };
-
-  //   await this.prisma.socialPlatformLink.delete({
-  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
-  //   });
-
-  //   return {
-  //     success: true,
-  //     platform,
-  //     disconnected: true,
-  //     message: "Platform disconnected successfully.",
-  //     link: previousLink,
-  //   };
-  // }
-
-  // async disconnectLinkForUser(user: User, payload: { platform: string }) {
-  //   const platform = this.normalizePlatform(payload.platform);
-  //   const prismaPlatform = this.toPrismaPlatform(platform);
-
-  //   const existing = await this.prisma.socialPlatformLink.findUnique({
-  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
-  //   });
-
-  //   if (!existing) {
-  //     return {
-  //       success: true,
-  //       platform,
-  //       disconnected: false,
-  //       message: "Platform link was not connected.",
-  //     };
-  //   }
-
-  //   // 🔢 Count BEFORE deleting
-  //   const totalLinks = await this.prisma.socialPlatformLink.count({
-  //     where: { userId: user.id },
-  //   });
-
-  //   const username = this.uploadPostUsername(user);
-
-  //   const previousLink = {
-  //     id: existing.id,
-  //     userId: existing.userId,
-  //     platform,
-  //     externalRef: existing.externalRef,
-  //     externalProfileUrl: existing.externalProfileUrl,
-  //     linkedAt: existing.linkedAt,
-  //     createdAt: existing.createdAt,
-  //     updatedAt: existing.updatedAt,
-  //   };
-
-  //   // 🧹 Step 1: remove local link
-  //   await this.prisma.socialPlatformLink.delete({
-  //     where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
-  //   });
-
-  //   // delete all provider profiles
-  //   await this.disconnectProviderProfileByUsername(username);
-
-  //   return {
-  //     success: true,
-  //     platform,
-  //     disconnected: true,
-  //     message:
-  //       totalLinks === 1
-  //         ? "Platform disconnected and provider profile deleted."
-  //         : "Platform disconnected locally (provider profile retained).",
-  //     link: previousLink,
-  //   };
-  // }
 
   async disconnectLinkForUser(user: User) {
     // 1️⃣ Get all links

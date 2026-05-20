@@ -21,7 +21,15 @@ const optionalString = z.preprocess(
 );
 
 const submitSchema = z.object({
-  planCode: z.string().trim().min(1).max(100),
+  planCode: z
+    .preprocess(
+      (value) => {
+        if (typeof value !== "string") return undefined;
+        const trimmed = value.trim();
+        return trimmed.length ? trimmed : undefined;
+      },
+      z.string().max(100).optional(),
+    ),
   restaurantName: z.string().trim().min(1).max(250),
   location: z.string().trim().min(1).max(250),
   businessType: z.string().trim().min(1).max(250),
@@ -76,123 +84,119 @@ router.post("/", async (req, res) => {
   }
 
   const data = parsed.data;
-  const normalizedPlanCode = data.planCode.trim();
-
-  const proposal = await prisma.enterprisePlanProposal.findFirst({
-    where: {
-      planCode: normalizedPlanCode,
-      OR: [
-        { createdUserId: userId },
-        { email: user.email.toLowerCase() },
-      ],
-    },
-    select: {
-      id: true,
-      planCode: true,
-      planName: true,
-      email: true,
-    },
-  });
-
-  if (!proposal) {
-    return res.status(404).json({ error: "Enterprise plan proposal not found for this user" });
-  }
-
-  const submissionDate = data.submissionDate ?? new Date();
-
-  const brief = await prisma.brandBrief.upsert({
-    where: {
-      userId_proposalId: {
-        userId,
-        proposalId: proposal.id,
-      },
-    },
-    update: {
-      restaurantName: data.restaurantName,
-      location: data.location,
-      businessType: data.businessType,
-      cuisineType: data.cuisineType,
-      dietaryCertifications: data.dietaryCertifications,
-      websiteUrl: data.websiteUrl,
-      instagramHandle: data.instagramHandle,
-      facebookPageUrl: data.facebookPageUrl,
-      tiktokHandle: data.tiktokHandle,
-      onlineOrderingUrl: data.onlineOrderingUrl,
-      foodDescription: data.foodDescription,
-      uniqueSellingPoint: data.uniqueSellingPoint,
-      customerReviews: data.customerReviews,
-      forbiddenPhrases: data.forbiddenPhrases,
-      preferredPhrases: data.preferredPhrases,
-      captionSample1: data.captionSample1,
-      captionSample2: data.captionSample2,
-      captionSample3: data.captionSample3,
-      toneAndVoice: data.toneAndVoice,
-      captionTargeting: data.captionTargeting,
-      language: data.language,
-      signatureDishes: data.signatureDishes,
-      signatureDishDetails: data.signatureDishDetails,
-      excludedItems: data.excludedItems,
-      upcomingPromotions: data.upcomingPromotions,
-      hashtagStyle: data.hashtagStyle,
-      confirmMinDishes: data.confirmMinDishes,
-      actionShotsPossible: data.actionShotsPossible,
-      preferredShootTime: data.preferredShootTime,
-      physicalConstraints: data.physicalConstraints,
-      specialNotes: data.specialNotes,
-      clientName: data.clientName,
-      restaurantNameAuth: data.restaurantNameAuth,
-      submissionDate,
-      talexiaPlan: data.talexiaPlan ?? proposal.planName,
-    },
-    create: {
-      userId,
-      proposalId: proposal.id,
-      restaurantName: data.restaurantName,
-      location: data.location,
-      businessType: data.businessType,
-      cuisineType: data.cuisineType,
-      dietaryCertifications: data.dietaryCertifications,
-      websiteUrl: data.websiteUrl,
-      instagramHandle: data.instagramHandle,
-      facebookPageUrl: data.facebookPageUrl,
-      tiktokHandle: data.tiktokHandle,
-      onlineOrderingUrl: data.onlineOrderingUrl,
-      foodDescription: data.foodDescription,
-      uniqueSellingPoint: data.uniqueSellingPoint,
-      customerReviews: data.customerReviews,
-      forbiddenPhrases: data.forbiddenPhrases,
-      preferredPhrases: data.preferredPhrases,
-      captionSample1: data.captionSample1,
-      captionSample2: data.captionSample2,
-      captionSample3: data.captionSample3,
-      toneAndVoice: data.toneAndVoice,
-      captionTargeting: data.captionTargeting,
-      language: data.language,
-      signatureDishes: data.signatureDishes,
-      signatureDishDetails: data.signatureDishDetails,
-      excludedItems: data.excludedItems,
-      upcomingPromotions: data.upcomingPromotions,
-      hashtagStyle: data.hashtagStyle,
-      confirmMinDishes: data.confirmMinDishes,
-      actionShotsPossible: data.actionShotsPossible,
-      preferredShootTime: data.preferredShootTime,
-      physicalConstraints: data.physicalConstraints,
-      specialNotes: data.specialNotes,
-      clientName: data.clientName,
-      restaurantNameAuth: data.restaurantNameAuth,
-      submissionDate,
-      talexiaPlan: data.talexiaPlan ?? proposal.planName,
-    },
-    include: {
-      proposal: {
+  const normalizedPlanCode = data.planCode;
+  const proposal = normalizedPlanCode
+    ? await prisma.enterprisePlanProposal.findFirst({
+        where: { planCode: normalizedPlanCode },
         select: {
           id: true,
           planCode: true,
           planName: true,
         },
-      },
-    },
-  });
+      })
+    : null;
+
+  const briefPlanCode = proposal?.planCode ?? normalizedPlanCode ?? "GENERAL";
+  const briefPlanName = proposal?.planName ?? data.talexiaPlan?.trim() ?? "Brand Brief";
+
+  const submissionDate = data.submissionDate ?? new Date();
+  const briefBaseData = {
+    userId,
+    restaurantName: data.restaurantName,
+    location: data.location,
+    businessType: data.businessType,
+    cuisineType: data.cuisineType,
+    dietaryCertifications: data.dietaryCertifications,
+    websiteUrl: data.websiteUrl,
+    instagramHandle: data.instagramHandle,
+    facebookPageUrl: data.facebookPageUrl,
+    tiktokHandle: data.tiktokHandle,
+    onlineOrderingUrl: data.onlineOrderingUrl,
+    foodDescription: data.foodDescription,
+    uniqueSellingPoint: data.uniqueSellingPoint,
+    customerReviews: data.customerReviews,
+    forbiddenPhrases: data.forbiddenPhrases,
+    preferredPhrases: data.preferredPhrases,
+    captionSample1: data.captionSample1,
+    captionSample2: data.captionSample2,
+    captionSample3: data.captionSample3,
+    toneAndVoice: data.toneAndVoice,
+    captionTargeting: data.captionTargeting,
+    language: data.language,
+    signatureDishes: data.signatureDishes,
+    signatureDishDetails: data.signatureDishDetails,
+    excludedItems: data.excludedItems,
+    upcomingPromotions: data.upcomingPromotions,
+    hashtagStyle: data.hashtagStyle,
+    confirmMinDishes: data.confirmMinDishes,
+    actionShotsPossible: data.actionShotsPossible,
+    preferredShootTime: data.preferredShootTime,
+    physicalConstraints: data.physicalConstraints,
+    specialNotes: data.specialNotes,
+    clientName: data.clientName,
+    restaurantNameAuth: data.restaurantNameAuth,
+    submissionDate,
+    talexiaPlan: data.talexiaPlan?.trim() ?? briefPlanName,
+  };
+
+  const brief = proposal
+    ? await prisma.brandBrief.upsert({
+        where: {
+          userId_proposalId: {
+            userId,
+            proposalId: proposal.id,
+          },
+        },
+        update: briefBaseData,
+        create: {
+          ...briefBaseData,
+          proposalId: proposal.id,
+        },
+        include: {
+          proposal: {
+            select: {
+              id: true,
+              planCode: true,
+              planName: true,
+            },
+          },
+        },
+      })
+    : await (async () => {
+        const existingBrief = await prisma.brandBrief.findMany({
+          where: { userId },
+          select: { id: true, proposalId: true },
+          orderBy: { createdAt: "desc" },
+        });
+        const genericBrief = existingBrief.find((briefItem) => briefItem.proposalId === null);
+
+        return genericBrief
+          ? prisma.brandBrief.update({
+              where: { id: genericBrief.id },
+              data: briefBaseData,
+              include: {
+                proposal: {
+                  select: {
+                    id: true,
+                    planCode: true,
+                    planName: true,
+                  },
+                },
+              },
+            })
+          : prisma.brandBrief.create({
+              data: briefBaseData,
+              include: {
+                proposal: {
+                  select: {
+                    id: true,
+                    planCode: true,
+                    planName: true,
+                  },
+                },
+              },
+            });
+      })();
 
   await prisma.user.update({
     where: { id: userId },
@@ -205,8 +209,8 @@ router.post("/", async (req, res) => {
   try {
     const pdfBuffer = await buildBrandBriefPdf({
       id: brief.id,
-      planCode: proposal.planCode,
-      planName: proposal.planName,
+      planCode: briefPlanCode,
+      planName: briefPlanName,
       submittedByName: user.name || user.email,
       submittedByEmail: user.email,
       restaurantName: brief.restaurantName,
@@ -250,8 +254,8 @@ router.post("/", async (req, res) => {
     await sendBrandBriefSubmissionEmails({
       userEmail: user.email,
       userName: user.name || user.email,
-      planCode: proposal.planCode,
-      planName: proposal.planName,
+      planCode: briefPlanCode,
+      planName: briefPlanName,
       briefId: brief.id,
       briefCreatedAt: brief.createdAt,
       pdfBuffer,

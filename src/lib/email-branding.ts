@@ -42,9 +42,13 @@ export function getTalexiaLogoAttachment() {
 }
 
 export function buildTalexiaEmailHeader(eyebrow: string, title?: string) {
+  // const logoMarkup = logoFilePath
+  //   ? `<img src="cid:${logoCid}" alt="Talexia" style="display:block;width:96px;max-width:100%;height:auto;" />`
+  //   : `<img src="https://talexia-assets.s3.eu-north-1.amazonaws.com/user/cmonx0s48001vxnljjqp90xt5/1778911893048-Talexia_logo.png" alt="Talexia" style="display:block;width:96px;max-width:100%;height:auto;" />`;
+
   const logoMarkup = logoFilePath
-    ? `<img src="cid:${logoCid}" alt="Talexia" style="display:block;width:96px;max-width:100%;height:auto;" />`
-    : `<div style="color:#ffffff;font-size:28px;font-weight:800;letter-spacing:-0.04em;line-height:1;">Talexia</div>`;
+  ? `<img src="https://talexia-assets.s3.eu-north-1.amazonaws.com/user/cmonx0s48001vxnljjqp90xt5/1778911893048-Talexia_logo.png" alt="Talexia" style="display:block;width:96px;max-width:100%;height:auto;" />`
+  : `<img src="https://talexia-assets.s3.eu-north-1.amazonaws.com/user/cmonx0s48001vxnljjqp90xt5/1778911893048-Talexia_logo.png" alt="Talexia" style="display:block;width:96px;max-width:100%;height:auto;" />`;
 
   return `
         <tr>
