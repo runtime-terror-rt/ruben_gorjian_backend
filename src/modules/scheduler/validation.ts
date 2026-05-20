@@ -1,12 +1,13 @@
 import { z } from "zod";
+import { isValidSchedulerDateTimeInput } from "./functions";
 
 function dateTimeString(field: string) {
   return z
     .string()
-    .refine((value) => !Number.isNaN(new Date(value).getTime()), {
-      message: `${field} must be a valid ISO datetime`,
-    })
-    .transform((value) => new Date(value));
+    .trim()
+    .refine((value) => isValidSchedulerDateTimeInput(value), {
+      message: `${field} must be a valid datetime`,
+    });
 }
 
 export const schedulerMediaUserSchema = z.object({

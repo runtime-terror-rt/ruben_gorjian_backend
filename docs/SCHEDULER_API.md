@@ -465,6 +465,11 @@ Lifecycle events trigger:
 - in-app notification for admin users
 - lifecycle email to client
 - lifecycle email to admin address (`SCHEDULER_ADMIN_EMAIL`)
+- reminder email jobs at:
+  - 7 days before scheduled time
+  - 24 hours before scheduled time
+- reminder jobs are automatically canceled/recreated on reschedule
+- reminder jobs are canceled when item is deleted/completed/failed/canceled
 
 Failed posting additionally triggers:
 

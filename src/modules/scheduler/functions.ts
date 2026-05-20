@@ -1,6 +1,88 @@
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 import { Role } from "@prisma/client";
+import { isValidTimezone } from "../../lib/validators";
 import { Actor, SchedulerListFilters } from "./interfaces";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const LOCAL_DATETIME_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?$/;
+
+export function resolveSchedulerTimezone(timezoneValue?: string | null) {
+  if (timezoneValue && isValidTimezone(timezoneValue) && timezoneValue !== "AUTO") {
+    return timezoneValue;
+  }
+
+  const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (detected && isValidTimezone(detected)) {
+    return detected;
+  }
+
+  return "UTC";
+}
+
+export function isValidSchedulerDateTimeInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (LOCAL_DATETIME_PATTERN.test(trimmed)) {
+    return true;
+  }
+
+  return !Number.isNaN(new Date(trimmed).getTime());
+}
+
+export function parseSchedulerDateTimeInput(value: string | Date, timezoneValue?: string | null) {
+  if (value instanceof Date) {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("Invalid scheduler datetime");
+  }
+
+  if (LOCAL_DATETIME_PATTERN.test(trimmed)) {
+    const timezone = resolveSchedulerTimezone(timezoneValue);
+    return dayjs.tz(trimmed, timezone).toDate();
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("Invalid scheduler datetime");
+  }
+
+  return parsed;
+}
+
+export function formatSchedulerDateTime(date: Date | null | undefined, timezoneValue?: string | null) {
+  if (!date) {
+    return "TBD";
+  }
+
+  const timezone = resolveSchedulerTimezone(timezoneValue);
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZoneName: "short",
+  }).format(date);
+}
+
+export function getSchedulerDayRange(date: Date, timezoneValue?: string | null) {
+  const timezone = resolveSchedulerTimezone(timezoneValue);
+  const localDate = dayjs(date).tz(timezone);
+
+  return {
+    start: localDate.startOf("day").toDate(),
+    end: localDate.endOf("day").toDate(),
+  };
+}
 
 export function isAdmin(actor: Actor) {
   return actor.role === Role.ADMIN || actor.role === Role.SUPER_ADMIN;
@@ -59,15 +141,29 @@ export function parseStringArrayField(value: unknown, fieldName: string): string
   throw new Error(`${fieldName} must be an array`);
 }
 
-export function normalizeDateRange(filters: SchedulerListFilters) {
+export function normalizeDateRange(filters: SchedulerListFilters, timezoneValue?: string | null) {
+  const timezone = resolveSchedulerTimezone(timezoneValue);
+  const parseValue = (value: string | Date | undefined, boundary: "start" | "end") => {
+    if (!value) {
+      return null;
+    }
+
+    const parsed = parseSchedulerDateTimeInput(value, timezone);
+    return boundary === "start"
+      ? dayjs(parsed).tz(timezone).startOf("minute").toDate()
+      : dayjs(parsed).tz(timezone).endOf("minute").toDate();
+  };
+
   if (filters.from && filters.to) {
     return {
-      start: dayjs(filters.from).startOf("minute").toDate(),
-      end: dayjs(filters.to).endOf("minute").toDate(),
+      start: parseValue(filters.from, "start"),
+      end: parseValue(filters.to, "end"),
     };
   }
 
-  const anchor = filters.date ? dayjs(filters.date) : dayjs();
+  const anchor = filters.date
+    ? dayjs(parseSchedulerDateTimeInput(filters.date, timezone)).tz(timezone)
+    : dayjs().tz(timezone);
   switch (filters.view) {
     case "day":
       return {
@@ -89,8 +185,8 @@ export function normalizeDateRange(filters: SchedulerListFilters) {
     case "list":
     default:
       return {
-        start: filters.from ? dayjs(filters.from).startOf("minute").toDate() : null,
-        end: filters.to ? dayjs(filters.to).endOf("minute").toDate() : null,
+        start: parseValue(filters.from, "start"),
+        end: parseValue(filters.to, "end"),
       };
   }
 }

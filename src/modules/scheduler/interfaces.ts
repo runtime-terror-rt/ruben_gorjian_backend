@@ -16,7 +16,7 @@ export type SchedulerCreateInput = {
   hashtags?: string[];
   cta?: string | null;
   shortDescription?: string | null;
-  scheduledAt: Date;
+  scheduledAt: Date | string;
   platforms?: string[];
   uploadedAssetIds?: string[];
   adminReason?: string | null;
@@ -28,7 +28,7 @@ export type SchedulerUpdateInput = {
   hashtags?: string[];
   cta?: string | null;
   shortDescription?: string | null;
-  scheduledAt?: Date;
+  scheduledAt?: Date | string;
   platforms?: string[];
   adminReason?: string | null;
 };
@@ -54,9 +54,9 @@ export type SchedulerMultipartUploadInput = {
 
 export type SchedulerListFilters = {
   view: SchedulerView;
-  date?: Date;
-  from?: Date;
-  to?: Date;
+  date?: Date | string;
+  from?: Date | string;
+  to?: Date | string;
   status?: PostStatus[];
   scheduleType?: ScheduleType[];
   sessionStatus?: SessionStatus[];
@@ -86,7 +86,7 @@ export type SchedulerPublishStatusInput = {
 export type SchedulerCreateSessionInput = {
   userId?: string;
   scheduleType: Exclude<ScheduleType, "POSTING">;
-  scheduledAt: Date;
+  scheduledAt: Date | string;
   sessionTitle?: string | null;
   sessionNotes?: string | null;
   sessionDurationMinutes: number;
@@ -96,7 +96,7 @@ export type SchedulerCreateSessionInput = {
 
 export type SchedulerUpdateSessionInput = {
   userId?: string;
-  scheduledAt?: Date;
+  scheduledAt?: Date | string;
   sessionTitle?: string | null;
   sessionNotes?: string | null;
   sessionDurationMinutes?: number;

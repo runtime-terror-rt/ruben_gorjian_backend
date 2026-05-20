@@ -1,5 +1,6 @@
 import express from "express";
 import multer from "multer";
+import { z } from "zod";
 import { PostStatus, ScheduleType, SessionStatus, SocialPlatform } from "@prisma/client";
 import { requireAuth } from "../../middleware/requireAuth";
 import { requireAdmin } from "../../middleware/requireAdmin";
@@ -17,9 +18,11 @@ import {
   schedulerUpdateSessionStatusSchema,
   schedulerUpdatePostSchema,
 } from "./validation";
+import { SchedulerStorageService } from "./storage";
 
 const router = express.Router();
 const schedulerService = new SchedulerService();
+const schedulerStorage = new SchedulerStorageService();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -405,7 +408,7 @@ router.get("/posts", async (req, res) => {
     const platforms = parseEnumQueryList(parsed.data.platform, platformMap, "platform");
     const result = await schedulerService.listScheduledPosts(req.user!, {
       view: parsed.data.view,
-      date: parsed.data.date ? new Date(`${parsed.data.date}T00:00:00.000Z`) : undefined,
+      date: parsed.data.date,
       from: parsed.data.from,
       to: parsed.data.to,
       status: statuses,
@@ -441,6 +444,37 @@ router.get("/failure-tickets", requireAdmin, async (req, res) => {
   } catch (error) {
     return res.status(400).json({
       error: error instanceof Error ? error.message : "Failed to fetch failure tickets",
+    });
+  }
+});
+
+// TEMP DEBUG ENDPOINT: direct S3 object delete check.
+router.post("/debug/delete-s3-object", requireAdmin, async (req, res) => {
+  const schema = z.object({
+    storageKey: z.string().min(1),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid debug delete payload",
+      details: formatZodError(parsed.error),
+    });
+  }
+
+  try {
+    const result = await schedulerStorage.deleteObject(parsed.data.storageKey);
+    return res.json({
+      success: true,
+      message: "S3 delete request sent successfully",
+      aws: result ?? null,
+      storageKey: parsed.data.storageKey,
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: "S3 delete request failed",
+      awsError: error instanceof Error ? error.message : String(error),
+      storageKey: parsed.data.storageKey,
     });
   }
 });
