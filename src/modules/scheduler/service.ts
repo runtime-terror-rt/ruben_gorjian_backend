@@ -832,9 +832,25 @@ export class SchedulerService {
             id: true,
             email: true,
             name: true,
+            profile: {
+              select: {
+                timezone: true,
+              },
+            },
           },
         },
       },
+    }).then((post) => {
+      if (!post) return null;
+      return {
+        ...post,
+        timezone: post.user.profile?.timezone ?? null,
+        user: {
+          id: post.user.id,
+          email: post.user.email,
+          name: post.user.name,
+        },
+      };
     });
   }
 
@@ -1522,6 +1538,7 @@ export class SchedulerService {
       userId: existingPost.userId,
       scheduleType: existingPost.scheduleType,
       scheduledFor: existingPost.scheduledFor,
+      timezone: existingPost.user.profile?.timezone ?? null,
       status: existingPost.status,
       sessionStatus: existingPost.sessionStatus,
       sessionFailureReason: existingPost.sessionFailureReason,
