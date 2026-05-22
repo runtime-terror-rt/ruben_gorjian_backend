@@ -109,10 +109,11 @@ function buildReminderPayload(args: {
 }) {
   const isWeek = args.reminderType === "WEEK_BEFORE";
   const leadText = isWeek ? "in 1 week" : "in 24 hours";
-  const subject = `Reminder: ${args.scheduleType.replaceAll("_", " ")} is ${leadText}`;
+  const scheduleLabel = args.scheduleType.split("_").join(" ");
+  const subject = `Reminder: ${scheduleLabel} is ${leadText}`;
   const body =
     `Hello,\n\n` +
-    `This is a reminder that your ${args.scheduleType.replaceAll("_", " ").toLowerCase()} is scheduled ${leadText}.\n` +
+    `This is a reminder that your ${scheduleLabel.toLowerCase()} is scheduled ${leadText}.\n` +
     `Schedule ID: ${args.postId}\n` +
     `Scheduled At (UTC): ${args.scheduledForIso}`;
 

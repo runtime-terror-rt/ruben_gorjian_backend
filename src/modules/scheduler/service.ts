@@ -1284,13 +1284,14 @@ export class SchedulerService {
 
   async createScheduledPost(actor: Actor, input: SchedulerCreateInput) {
     const userId = await this.resolveTargetUser(actor, input.userId);
+    const scheduledAt = parseSchedulerDateTimeInput(input.scheduledAt);
 
-    if (input.scheduledAt <= new Date()) {
+    if (scheduledAt <= new Date()) {
       throw new Error("Scheduled time must be in the future");
     }
 
     const { subscription } = await this.assertSchedulingAccess(userId);
-    await this.assertScheduleDayAvailability(input.scheduledAt);
+    await this.assertScheduleDayAvailability(scheduledAt);
     await this.enforceQuota(userId, subscription);
 
     const planIncluded = subscription.plan ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null) : null;
@@ -1318,7 +1319,7 @@ export class SchedulerService {
           hashtags: formatHashtags(input.hashtags),
           cta: input.cta ?? null,
           shortDescription: input.shortDescription ?? null,
-          scheduledFor: input.scheduledAt,
+          scheduledFor: scheduledAt,
           status: "SCHEDULED",
           initiatedBy: isAdmin(actor) && userId !== actor.id ? "ADMIN" : "USER",
           adminId: isAdmin(actor) && userId !== actor.id ? actor.id : null,
@@ -1343,7 +1344,7 @@ export class SchedulerService {
           socialAccountId: account.id ?? null,
           platform: account.platform,
           status: PostTargetStatus.SCHEDULED,
-          scheduledFor: input.scheduledAt,
+          scheduledFor: scheduledAt,
         })),
       });
 
@@ -1353,8 +1354,8 @@ export class SchedulerService {
           type: "SCHEDULER_CREATED",
           message:
             isAdmin(actor) && userId !== actor.id
-              ? `Scheduled by admin ${actor.id} for ${input.scheduledAt.toISOString()}`
-              : `Scheduled by user for ${input.scheduledAt.toISOString()}`,
+              ? `Scheduled by admin ${actor.id} for ${scheduledAt.toISOString()}`
+              : `Scheduled by user for ${scheduledAt.toISOString()}`,
         },
       });
 
@@ -1367,7 +1368,7 @@ export class SchedulerService {
       userId,
       type: "SCHEDULE_CREATED",
       title: "Schedule Created",
-      description: `Scheduled for ${input.scheduledAt.toISOString()}`,
+      description: `Scheduled for ${scheduledAt.toISOString()}`,
     }).catch(() => { });
 
     return this.getScheduledPost(actor, postId);
@@ -1389,7 +1390,10 @@ export class SchedulerService {
     }
 
     const { subscription } = await this.assertSchedulingAccess(existingPost.userId);
-    const nextScheduledAt = input.scheduledAt ?? existingPost.scheduledFor;
+    const nextScheduledAt =
+      input.scheduledAt !== undefined
+        ? parseSchedulerDateTimeInput(input.scheduledAt)
+        : existingPost.scheduledFor;
 
     if (!nextScheduledAt) {
       throw new Error("Scheduled time is required");
@@ -1556,10 +1560,12 @@ export class SchedulerService {
     input: SchedulerCreateSessionInput
   ) {
     const userId = await this.resolveTargetUser(actor, input.userId);
-    if (input.scheduledAt <= new Date()) {
+    const scheduledAt = parseSchedulerDateTimeInput(input.scheduledAt);
+
+    if (scheduledAt <= new Date()) {
       throw new Error("Scheduled time must be in the future");
     }
-    await this.assertScheduleDayAvailability(input.scheduledAt);
+    await this.assertScheduleDayAvailability(scheduledAt);
 
     await this.assertSchedulerUserAccess(userId);
     if (input.scheduleType === "VIDEO_SESSION") {
@@ -1575,7 +1581,7 @@ export class SchedulerService {
           userId,
           scheduleType: input.scheduleType,
           status: "SCHEDULED",
-          scheduledFor: input.scheduledAt,
+          scheduledFor: scheduledAt,
           sessionStatus: "BOOKED",
           sessionTitle: input.sessionTitle ?? null,
           sessionNotes: input.sessionNotes ?? null,
@@ -1604,8 +1610,8 @@ export class SchedulerService {
           type: "SCHEDULER_SESSION_CREATED",
           message:
             isAdmin(actor) && userId !== actor.id
-              ? `Session booked by admin ${actor.id} for ${input.scheduledAt.toISOString()}`
-              : `Session booked by user for ${input.scheduledAt.toISOString()}`,
+              ? `Session booked by admin ${actor.id} for ${scheduledAt.toISOString()}`
+              : `Session booked by user for ${scheduledAt.toISOString()}`,
         },
       });
 
@@ -1636,7 +1642,10 @@ export class SchedulerService {
       throw new Error("Only booked sessions can be edited");
     }
 
-    const nextScheduledAt = input.scheduledAt ?? existingPost.scheduledFor;
+    const nextScheduledAt =
+      input.scheduledAt !== undefined
+        ? parseSchedulerDateTimeInput(input.scheduledAt)
+        : existingPost.scheduledFor;
     if (!nextScheduledAt) {
       throw new Error("Scheduled time is required");
     }
@@ -2018,7 +2027,7 @@ export class SchedulerService {
       items: posts.map((post) => this.formatPostResponse(post as Awaited<ReturnType<SchedulerService["getOwnedPost"]>>, actor)),
       filters: {
         view: filters.view,
-        date: filters.date?.toISOString() ?? null,
+        date: filters.date ? parseSchedulerDateTimeInput(filters.date).toISOString() : null,
         from: range.start?.toISOString() ?? null,
         to: range.end?.toISOString() ?? null,
         status: filters.status ?? [],
