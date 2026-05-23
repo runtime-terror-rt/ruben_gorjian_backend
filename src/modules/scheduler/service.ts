@@ -823,6 +823,22 @@ export class SchedulerService {
     return "created";
   }
 
+  private formatSchedulerEmailTime(
+    date: Date | null | undefined,
+    timezone?: string | null
+  ) {
+    if (!date) return "TBD";
+    const resolvedTimezone = resolveSchedulerTimezone(timezone);
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: resolvedTimezone,
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
+
   private async getSchedulerNotificationPost(postId: string): Promise<SchedulerNotificationPost | null> {
     return prisma.post.findUnique({
       where: { id: postId },
@@ -928,7 +944,7 @@ export class SchedulerService {
     const userEmail = post.user.email.trim().toLowerCase();
     const scheduleLabel = this.getScheduleLabel(post.scheduleType);
     const actionLabel = this.getActionLabel(action);
-    const when = post.scheduledFor ? post.scheduledFor.toISOString() : "TBD";
+    const when = this.formatSchedulerEmailTime(post.scheduledFor, post.timezone);
     const subject = `${scheduleLabel} ${actionLabel}`;
 
     const userBody =

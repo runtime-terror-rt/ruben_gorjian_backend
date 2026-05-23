@@ -104,7 +104,7 @@ function getReminderJobId(postId: string, type: SchedulerReminderType) {
 function buildReminderPayload(args: {
   postId: string;
   scheduleType: string;
-  scheduledForIso: string;
+  scheduledForText: string;
   reminderType: SchedulerReminderType;
 }) {
   const isWeek = args.reminderType === "WEEK_BEFORE";
@@ -115,7 +115,7 @@ function buildReminderPayload(args: {
     `Hello,\n\n` +
     `This is a reminder that your ${scheduleLabel.toLowerCase()} is scheduled ${leadText}.\n` +
     `Schedule ID: ${args.postId}\n` +
-    `Scheduled At (UTC): ${args.scheduledForIso}`;
+    `Scheduled At: ${args.scheduledForText}`;
 
   return { subject, body };
 }
@@ -185,6 +185,13 @@ async function processSchedulerReminderJob(
   }
 
   const scheduledForIso = post.scheduledFor!.toISOString();
+  const scheduledForText = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(post.scheduledFor!);
   if (expectedScheduledForIso && expectedScheduledForIso !== scheduledForIso) {
     logger.info("Scheduler reminder skipped: schedule changed", {
       postId,
@@ -208,7 +215,7 @@ async function processSchedulerReminderJob(
       const { subject, body } = buildReminderPayload({
         postId,
         scheduleType: post.scheduleType,
-        scheduledForIso,
+        scheduledForText,
         reminderType,
       });
       const sent = await sendSchedulerEmail({
