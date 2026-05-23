@@ -37,9 +37,32 @@ export class TiktokController {
           file, // pass single file
         }),
       );
-    } catch (error) {
-      return handleError(error, res);
-    }
+    } catch (error: any) {
+        const invalidPlatformMessages = error?.details?.error?.invalid_platforms
+          ? Object.values(error.details.error.invalid_platforms)
+          : [];
+
+        const message =
+          invalidPlatformMessages.join(', ') 
+          error?.details?.error?.message 
+          error?.details?.message 
+          error?.response?.data?.message 
+          error?.response?.data?.error 
+          error?.message 
+          'Something went wrong';
+
+        const statusCode =
+          error?.details?.statusCode 
+          error?.response?.status 
+          error?.statusCode 
+          error?.status 
+          500;
+
+        return res.status(statusCode).json({
+          success: false,
+          message,
+        });
+      }
   };
 
   publishNowTikTok = async (req: AuthedRequest, res: Response) => {
@@ -52,8 +75,31 @@ export class TiktokController {
           asyncUpload: req.body?.asyncUpload,
         }),
       );
-    } catch (error) {
-      return handleError(error, res);
+    } catch (error: any) {
+      const invalidPlatformMessages = error?.details?.error?.invalid_platforms
+        ? Object.values(error.details.error.invalid_platforms)
+        : [];
+
+      const message =
+        invalidPlatformMessages.join(', ') 
+        error?.details?.error?.message 
+        error?.details?.message 
+        error?.response?.data?.message 
+        error?.response?.data?.error 
+        error?.message 
+        'Something went wrong';
+
+      const statusCode =
+        error?.details?.statusCode 
+        error?.response?.status 
+        error?.statusCode 
+        error?.status 
+        500;
+
+      return res.status(statusCode).json({
+        success: false,
+        message,
+      });
     }
   };
 
