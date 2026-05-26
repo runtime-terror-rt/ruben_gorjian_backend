@@ -20,6 +20,7 @@ import {
   enqueueSchedulerEmail,
   enqueueSchedulerReminderEmails,
 } from "../jobs/scheduler-email-queue";
+import { clearQueuedPostPublish, enqueuePostPublish } from "../jobs/post-queue";
 import {
   Actor,
   SchedulerClientListFilters,
@@ -98,6 +99,41 @@ function formatHashtags(hashtags?: string[] | null) {
 
 export class SchedulerService {
   private readonly storage = new SchedulerStorageService();
+
+  private async syncScheduledPostPublishJob(
+    postId: string,
+    scheduledAt: Date | null | undefined,
+    enabled: boolean
+  ) {
+    await clearQueuedPostPublish(postId);
+
+    if (!enabled || !scheduledAt) {
+      logger.info("Scheduled post publish job cleared without re-enqueue", {
+        postId,
+        enabled,
+        scheduledAt: scheduledAt?.toISOString() ?? null,
+      });
+      return;
+    }
+
+    const delayMs = Math.max(0, scheduledAt.getTime() - Date.now());
+    const enqueued = await enqueuePostPublish(postId, { delay: delayMs });
+
+    if (!enqueued) {
+      logger.warn("Failed to enqueue scheduled post publish job", {
+        postId,
+        scheduledAt: scheduledAt.toISOString(),
+        delayMs,
+      });
+      return;
+    }
+
+    logger.info("Scheduled post publish job enqueued", {
+      postId,
+      scheduledAt: scheduledAt.toISOString(),
+      delayMs,
+    });
+  }
 
   private toSchedulerStatus(
     status: PostStatus,
@@ -1394,6 +1430,7 @@ export class SchedulerService {
       return post.id;
     });
 
+    await this.syncScheduledPostPublishJob(postId, scheduledAt, true);
     await this.triggerSchedulerLifecycleNotifications(postId, "created");
 
     logActivity({
@@ -1518,7 +1555,7 @@ export class SchedulerService {
     });
 
     await this.cleanupOrphanedSchedulerAssets(removedAssetIds, postId);
-
+    await this.syncScheduledPostPublishJob(postId, nextScheduledAt, true);
     await this.triggerSchedulerLifecycleNotifications(postId, "rescheduled");
 
     logActivity({
@@ -1547,6 +1584,7 @@ export class SchedulerService {
       await tx.post.delete({ where: { id: postId } });
     });
 
+    await this.syncScheduledPostPublishJob(postId, null, false);
     await this.cleanupOrphanedSchedulerAssets(assetIds, postId);
 
     await this.triggerSchedulerLifecycleNotifications(postId, "deleted", {
@@ -1937,6 +1975,7 @@ export class SchedulerService {
       });
     });
 
+    await this.syncScheduledPostPublishJob(postId, null, false);
     await this.triggerSchedulerLifecycleNotifications(
       postId,
       input.status === "completed" ? "completed" : "failed"

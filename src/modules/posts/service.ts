@@ -792,6 +792,35 @@ export class PostService {
       throw new Error("Post not found");
     }
 
+    if (post.scheduleType && post.scheduleType !== "POSTING") {
+      logger.info("Skipping queued publish for non-posting schedule", {
+        postId,
+        scheduleType: post.scheduleType,
+      });
+      return { skipped: true, reason: "NON_POSTING_SCHEDULE" };
+    }
+
+    if (post.status === "POSTED") {
+      logger.info("Skipping queued publish for already-posted post", { postId });
+      return { skipped: true, reason: "ALREADY_POSTED" };
+    }
+
+    if (post.status !== "SCHEDULED" && post.status !== "PUBLISHING") {
+      logger.info("Skipping queued publish for non-schedulable post status", {
+        postId,
+        status: post.status,
+      });
+      return { skipped: true, reason: "INVALID_POST_STATUS" };
+    }
+
+    if (post.scheduledFor && post.scheduledFor.getTime() > Date.now()) {
+      logger.info("Skipping queued publish because scheduled time has not arrived", {
+        postId,
+        scheduledFor: post.scheduledFor.toISOString(),
+      });
+      return { skipped: true, reason: "SCHEDULE_NOT_DUE" };
+    }
+
     if (!post.scheduledFor) {
       const subscription = await prisma.subscription.findFirst({
         where: { userId: post.userId, status: "ACTIVE" },

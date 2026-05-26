@@ -6,6 +6,10 @@ import { logger } from "../../lib/logger";
 const redis = getRedis();
 const bullmqConnection = redis as unknown as ConnectionOptions;
 
+function getPublishJobId(postId: string) {
+  return `post-publish:${postId}`;
+}
+
 export const postQueue =
   redis &&
   new Queue("post-publish", {
@@ -67,6 +71,35 @@ export async function enqueuePostPublish(postId: string, opts?: JobsOptions) {
     logger.warn("Redis not configured; skipping enqueue");
     return false;
   }
-  await postQueue.add("publish", { postId }, opts);
+  await postQueue.add("publish", { postId }, {
+    ...opts,
+    jobId: opts?.jobId ?? getPublishJobId(postId),
+  });
+  return true;
+}
+
+export async function clearQueuedPostPublish(postId: string) {
+  if (!postQueue) {
+    logger.warn("Redis not configured; skipping scheduled publish job clear", { postId });
+    return false;
+  }
+
+  const jobId = getPublishJobId(postId);
+  const job = await postQueue.getJob(jobId);
+  if (!job) {
+    return true;
+  }
+
+  try {
+    await job.remove();
+    logger.info("Scheduled publish job removed", { postId, jobId });
+  } catch (error) {
+    logger.warn("Failed to remove scheduled publish job", {
+      postId,
+      jobId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   return true;
 }
