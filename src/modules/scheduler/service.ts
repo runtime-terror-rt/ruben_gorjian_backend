@@ -1359,7 +1359,6 @@ export class SchedulerService {
     }
 
     const { subscription } = await this.assertSchedulingAccess(userId);
-    await this.assertScheduleDayAvailability(scheduledAt);
     await this.enforceQuota(userId, subscription);
 
     const planIncluded = subscription.plan ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null) : null;
@@ -1470,8 +1469,6 @@ export class SchedulerService {
     if (nextScheduledAt <= new Date()) {
       throw new Error("Scheduled time must be in the future");
     }
-    await this.assertScheduleDayAvailability(nextScheduledAt, postId);
-
     await this.enforceQuota(existingPost.userId, subscription, existingPost.id);
 
     const planIncluded = subscription.plan ? (subscription.plan.platformQty ?? subscription.plan.platformLimit ?? null) : null;
