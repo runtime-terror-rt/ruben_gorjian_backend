@@ -9,9 +9,11 @@ import { logActivity } from "../dashboard/activity-logger";
 import { env } from "../../config/env";
 import { enqueueSchedulerEmail } from "../jobs/scheduler-email-queue";
 import { sendSchedulerEmail } from "../scheduler/email";
+import { SocialMediaService } from "../onlinePost/onlinePost.service";
 
 const publisher = new SocialPublisher();
 const uploadPostService = new UploadPostService();
+const onlinePostService = new SocialMediaService();
 
 export interface CreatePostData {
   assetId?: string;
@@ -766,7 +768,7 @@ export class PostService {
     return { success: true };
   }
 
-  async publishPost(postId: string) {
+  async publishPost(postId: string, options?: { preferUploadPost?: boolean }) {
     const post = await prisma.post.findUnique({
       where: { id: postId },
       include: {
@@ -908,19 +910,60 @@ export class PostService {
             return { targetId: target.id, success: false, error: errorMsg };
           }
 
-          const provider = await decidePublishingProvider({
-            userId: post.userId,
-            platform: target.platform,
-            nativeAllowed:
-              Boolean(target.socialAccount?.id) &&
-              Boolean(target.socialAccount?.accessToken) &&
-              !String(target.socialAccount?.externalAccountId || "").startsWith("upload-post:"),
-          });
-          let providerUsed = provider;
-
           let result: { success: boolean; externalPostId?: string; error?: string };
           let pending = false;
-          if (provider === "UPLOAD_POST") {
+          let providerUsed = "QUEUE_UPLOAD_POST";
+
+          if (
+            options?.preferUploadPost &&
+            (target.platform === "INSTAGRAM" ||
+              target.platform === "FACEBOOK" ||
+              target.platform === "TIKTOK")
+          ) {
+            const queuePublish = await onlinePostService.publishForSchedulerQueue({
+              userId: post.userId,
+              userEmail: post.user?.email ?? null,
+              platform: target.platform,
+              title: content.text || post.caption || "Social media post",
+              mediaUrl: mediaToUse.length === 1 ? mediaToUse[0].url : undefined,
+              mediaUrls: mediaToUse.length > 1 ? mediaToUse.map((item) => item.url) : undefined,
+              asyncUpload: true,
+            });
+
+            const statusLower = String(queuePublish.status || "").toLowerCase();
+            const isTerminalPosted = statusLower === "posted" || statusLower === "completed";
+            const isTerminalFailed = statusLower === "failed" || statusLower === "partially_posted";
+
+            if (isTerminalPosted) {
+              result = {
+                success: true,
+                externalPostId: queuePublish.identifier,
+              };
+            } else if (isTerminalFailed) {
+              result = {
+                success: false,
+                externalPostId: queuePublish.identifier,
+                error: queuePublish.message || "Upload-Post reported failure",
+              };
+            } else {
+              pending = true;
+              result = {
+                success: false,
+                externalPostId: queuePublish.identifier,
+                error: undefined,
+              };
+            }
+          } else {
+            const provider = await decidePublishingProvider({
+              userId: post.userId,
+              platform: target.platform,
+              nativeAllowed:
+                Boolean(target.socialAccount?.id) &&
+                Boolean(target.socialAccount?.accessToken) &&
+                !String(target.socialAccount?.externalAccountId || "").startsWith("upload-post:"),
+            });
+            providerUsed = provider;
+            if (provider === "UPLOAD_POST") {
             const uploadResult = await uploadPostService.publishForTarget({
               postTargetId: target.id,
               userId: post.userId,
@@ -952,11 +995,12 @@ export class PostService {
                 error: undefined,
               };
             }
-          } else {
-            if (!target.socialAccount) {
-              return { targetId: target.id, success: false, error: "Social account not found" };
+            } else {
+              if (!target.socialAccount) {
+                return { targetId: target.id, success: false, error: "Social account not found" };
+              }
+              result = await publisher.publishPost(target.socialAccount.id, content);
             }
-            result = await publisher.publishPost(target.socialAccount.id, content);
           }
           
           // Log publish result for telemetry

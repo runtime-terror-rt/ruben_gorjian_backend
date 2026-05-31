@@ -171,7 +171,11 @@ export class SocialMediaService {
   }
 
   private uploadPostUsername(user: User): string {
-    return user.email.split("@")[0].replace(/[^a-zA-Z0-9_]/g, "_");
+    return this.uploadPostUsernameFromEmail(user.email);
+  }
+
+  private uploadPostUsernameFromEmail(email: string): string {
+    return email.split("@")[0].replace(/[^a-zA-Z0-9_]/g, "_");
   }
 
   private async api(path: string, init: RequestInit = {}) {
@@ -1177,6 +1181,54 @@ console.log("generate-jwt response:", JSON.stringify(linkResult));
     });
 
     return { success: true, result: published.result, savedPost };
+  }
+
+  async publishForSchedulerQueue(params: {
+    userId: string;
+    userEmail: string | null;
+    platform: SocialPlatform;
+    title: string;
+    mediaUrl?: string;
+    mediaUrls?: string[];
+    asyncUpload?: boolean;
+  }) {
+    if (!params.userEmail?.trim()) {
+      throw new BadRequestException("User email is required for scheduler publishing");
+    }
+
+    await this.ensurePlatformLinked(params.userId, params.platform);
+
+    const published = await this.publishToProvider({
+      username: this.uploadPostUsernameFromEmail(params.userEmail),
+      platform: this.fromPrismaPlatform(params.platform),
+      title: params.title,
+      mediaUrl: params.mediaUrl,
+      mediaUrls: params.mediaUrls,
+      asyncUpload: params.asyncUpload,
+    });
+
+    const ids = this.extractExternalIds(published.result);
+    const postUrl = this.extractPostUrl(published.result);
+    const raw =
+      typeof published.result === "object" && published.result
+        ? (published.result as Record<string, unknown>)
+        : {};
+
+    return {
+      title: published.title,
+      mediaList: published.mediaList,
+      result: published.result,
+      status:
+        typeof raw.status === "string" && raw.status.trim()
+          ? raw.status
+          : "posted",
+      message:
+        typeof raw.message === "string" && raw.message.trim()
+          ? raw.message
+          : undefined,
+      identifier: ids.jobId ?? ids.requestId ?? postUrl ?? undefined,
+      postUrl,
+    };
   }
 
   async publishNowMultipartByUser(
