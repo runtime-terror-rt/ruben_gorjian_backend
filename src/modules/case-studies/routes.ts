@@ -13,7 +13,6 @@ const multipartUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
     files: 20,
-    fileSize: 100 * 1024 * 1024,
   },
 });
 
