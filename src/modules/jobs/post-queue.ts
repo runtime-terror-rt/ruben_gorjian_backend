@@ -35,7 +35,7 @@ export function startPostQueueWorker(concurrency = 2) {
     "post-publish",
     async (job) => {
       const postId = job.data.postId as string;
-      const result = await postService.publishPost(postId);
+      const result = await postService.publishPost(postId, { preferUploadPost: true });
       return result;
     },
     {
