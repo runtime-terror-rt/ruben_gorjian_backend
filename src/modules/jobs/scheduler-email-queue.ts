@@ -98,7 +98,7 @@ export function startSchedulerEmailQueueWorker(concurrency = 3) {
 
 function getReminderJobId(postId: string, type: SchedulerReminderType) {
   const key = type === "WEEK_BEFORE" ? "week-before" : "day-before";
-  return `scheduler-reminder:${postId}:${key}`;
+  return `scheduler-reminder-${postId}-${key}`;
 }
 
 function buildReminderPayload(args: {

@@ -7,7 +7,7 @@ const redis = getRedis();
 const bullmqConnection = redis as unknown as ConnectionOptions;
 
 function getPublishJobId(postId: string) {
-  return `post-publish:${postId}`;
+  return `post-publish-${postId}`;
 }
 
 export const postQueue =
