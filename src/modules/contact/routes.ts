@@ -24,7 +24,7 @@ export const contactPayloadSchema = z.object({
   source: z.string().trim().optional().nullable(),
 });
 
-router.post("/", async (req, res) => {
+router.post("/submit-inquiry", async (req, res) => {
   const parsed = contactPayloadSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
