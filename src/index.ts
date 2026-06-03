@@ -7,7 +7,7 @@ import { cleanupWorker } from "./workers/cleanup";
 import { logger } from "./lib/logger";
 import { startPostQueueWorker } from "./modules/jobs/post-queue";
 import { startSchedulerEmailQueueWorker } from "./modules/jobs/scheduler-email-queue";
-import { syncPlansFromStripe } from "./lib/sync-plans";
+import { syncPlansFromStripe, syncPlansToStripeFromDatabase } from "./lib/sync-plans";
 import { initSocket } from "./lib/socket";
 import "dotenv/config";
 
@@ -20,6 +20,9 @@ async function start() {
   } catch (err) {
     logger.error("Database connection: failed", err);
   }
+
+  // Bootstrap canonical plan products/prices into Stripe first.
+  await syncPlansToStripeFromDatabase();
 
   // Sync plans from Stripe to database on startup
   await syncPlansFromStripe();
