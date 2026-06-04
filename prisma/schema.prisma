@@ -604,6 +604,7 @@ model ContactSubmission {
   repliedAt     DateTime?
   isResolved    Boolean   @default(false)
   resolvedAt    DateTime?
+  honeypot      String?
   createdAt     DateTime  @default(now())
   createdIp     String?
 
