@@ -22,6 +22,7 @@ export const contactPayloadSchema = z.object({
     .nullable(),
   message: z.string().trim().optional().nullable(),
   source: z.string().trim().optional().nullable(),
+  honeypot: z.string().optional().default(""),
 });
 
 router.post("/submit-inquiry", async (req, res) => {
@@ -30,8 +31,12 @@ router.post("/submit-inquiry", async (req, res) => {
     return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
-  const { fullName, businessName, email, websiteOrHandle, interests, postsPerMonth, message, source } =
+  const { fullName, businessName, email, websiteOrHandle, interests, postsPerMonth, message, source, honeypot } =
     parsed.data;
+
+  if (honeypot) {
+    return res.json({ success: true, data: { submissionId: "bot" } });
+  }
 
   const submission = await prisma.contactSubmission.create({
     data: {
@@ -47,16 +52,16 @@ router.post("/submit-inquiry", async (req, res) => {
     },
   });
 
-  await sendContactEmail({
-    fullName,
-    businessName,
-    email,
-    websiteOrHandle,
-    interests,
-    postsPerMonth,
-    message,
-    source,
-  });
+  // await sendContactEmail({
+  //   fullName,
+  //   businessName,
+  //   email,
+  //   websiteOrHandle,
+  //   interests,
+  //   postsPerMonth,
+  //   message,
+  //   source,
+  // });
 
   await sendConfirmationEmail({
     fullName,
