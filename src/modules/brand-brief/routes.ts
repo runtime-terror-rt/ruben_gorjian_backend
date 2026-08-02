@@ -6,6 +6,9 @@ import { requireAdmin } from "../../middleware/requireAdmin";
 import { buildBrandBriefPdf } from "./pdf";
 import { sendBrandBriefSubmissionEmails } from "./email";
 import { logger } from "../../lib/logger";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { env } from "../../config/env";
+import { clearBrandBriefReminders } from "../jobs/brand-brief-reminder-queue";
 
 const router = express.Router();
 
@@ -30,42 +33,99 @@ const submitSchema = z.object({
       },
       z.string().max(100).optional(),
     ),
-  restaurantName: z.string().trim().min(1).max(250),
-  location: z.string().trim().min(1).max(250),
+  brandName: z.string().trim().min(1).max(250),
   businessType: z.string().trim().min(1).max(250),
-  cuisineType: z.string().trim().min(1).max(250),
-  dietaryCertifications: z.array(z.string().trim().min(1).max(150)).max(50),
+  primaryLocation: z.string().trim().min(1).max(250),
   websiteUrl: optionalString,
-  instagramHandle: z.string().trim().min(1).max(250),
-  facebookPageUrl: optionalString,
-  tiktokHandle: optionalString,
-  onlineOrderingUrl: optionalString,
-  foodDescription: z.string().trim().min(1).max(5000),
-  uniqueSellingPoint: z.string().trim().min(1).max(5000),
-  customerReviews: z.string().trim().min(1).max(5000),
-  forbiddenPhrases: optionalString,
-  preferredPhrases: optionalString,
-  captionSample1: z.string().trim().min(1).max(5000),
-  captionSample2: z.string().trim().min(1).max(5000),
-  captionSample3: z.string().trim().min(1).max(5000),
-  toneAndVoice: z.array(z.string().trim().min(1).max(250)).min(1).max(50),
+  industryCategory: z.string().trim().min(1).max(250),
+  
+  brandStory: z.string().trim().min(1).max(10000),
+  brandVoiceDescriptors: z.array(z.string().trim().min(1).max(250)).min(1).max(50),
+  targetAudience: z.string().trim().min(1).max(10000),
+  taglines: optionalString,
+  brandsYouAdmire: optionalString,
+  whatToAvoid: optionalString,
+
+  aestheticDirection: z.array(z.string().trim().min(1).max(250)).min(1).max(50),
+  preferredColorPalette: optionalString,
+  stagingPreferences: optionalString,
+  visualReferences: optionalString,
+
+  productFocus: z.array(z.string().trim().min(1).max(250)).min(1).max(50),
+  typicalPriceRange: optionalString,
+  keyCollections: optionalString,
+  materialsCertifications: z.string().trim().min(1).max(10000),
+  seasonalCalendar: optionalString,
+  birthstoneTheming: z.string().trim().min(1).max(250),
+
+  sampleCaptions: z.string().trim().min(1).max(10000),
   captionTargeting: z.string().trim().min(1).max(2000),
   language: z.string().trim().min(1).max(100),
-  signatureDishes: z.array(z.string().trim().min(1).max(250)).min(1).max(100),
-  signatureDishDetails: z.string().trim().min(1).max(5000),
-  excludedItems: optionalString,
-  upcomingPromotions: optionalString,
   hashtagStyle: z.string().trim().min(1).max(1000),
-  confirmMinDishes: z.string().trim().min(1).max(1000),
-  actionShotsPossible: optionalString,
-  preferredShootTime: optionalString,
-  physicalConstraints: optionalString,
-  specialNotes: optionalString,
-  clientName: z.string().trim().min(1).max(250),
-  restaurantNameAuth: z.string().trim().min(1).max(250),
-  submissionDate: z.coerce.date().optional(),
-  talexiaPlan: z.string().trim().min(1).max(250).optional(),
+  sensitiveTopics: optionalString,
+
+  platforms: z.array(z.string().trim().min(1).max(250)).min(1).max(50),
+  timezone: z.string().trim().min(1).max(250),
+  preferredPostingDays: z.array(z.string().trim().min(1).max(250)).min(1).max(50),
+  preferredTimeWindows: z.array(z.string().trim().min(1).max(250)).min(1).max(50),
+  additionalPostingNotes: optionalString,
+  timeCriticalDates: optionalString,
+  platformAuthorizationContact: optionalString,
+
+  googleDriveEmails: z.string().trim().min(1).max(1000),
+  skuFilenameConvention: optionalString,
+  productIdentificationNotes: optionalString,
+
+  primaryContactName: z.string().trim().min(1).max(250),
+  primaryContactEmail: z.string().trim().min(1).max(250),
+  secondaryContactName: optionalString,
+  secondaryContactEmail: optionalString,
+  preferredCommunication: z.string().trim().min(1).max(250),
+  whatsappNumber: optionalString,
+
+  authSignedAs: z.string().trim().min(1).max(250),
+  authOnBehalfOf: z.string().trim().min(1).max(250),
+  authSubmissionDate: z.coerce.date(),
+  authTalexiaPlan: z.string().trim().min(1).max(250),
+  authIHaveReadAndAgree: z.boolean(),
 });
+
+function generateReferenceCode(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let randomStr = '';
+  for (let i = 0; i < 6; i++) {
+    randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `TLX-BB-${new Date().getFullYear()}-${randomStr}`;
+}
+
+async function uploadPdfToS3(userId: string, referenceCode: string, pdfBuffer: Buffer): Promise<string | null> {
+  if (!env.S3_BUCKET || !env.AWS_REGION || !env.AWS_ACCESS_KEY_ID || !env.AWS_SECRET_ACCESS_KEY) {
+    logger.warn("S3 not configured; skipping PDF upload");
+    return null;
+  }
+  try {
+    const s3 = new S3Client({
+      region: env.AWS_REGION,
+      credentials: {
+        accessKeyId: env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+      },
+    });
+    const key = `brand-briefs/${userId}/${referenceCode}.pdf`;
+    const command = new PutObjectCommand({
+      Bucket: env.S3_BUCKET,
+      Key: key,
+      Body: pdfBuffer,
+      ContentType: "application/pdf",
+    });
+    await s3.send(command);
+    return key;
+  } catch (error) {
+    logger.error("Failed to upload Brand Brief PDF to S3", error);
+    return null;
+  }
+}
 
 router.post("/", async (req, res) => {
   const parsed = submitSchema.safeParse(req.body);
@@ -97,106 +157,91 @@ router.post("/", async (req, res) => {
     : null;
 
   const briefPlanCode = proposal?.planCode ?? normalizedPlanCode ?? "GENERAL";
-  const briefPlanName = proposal?.planName ?? data.talexiaPlan?.trim() ?? "Brand Brief";
+  const briefPlanName = proposal?.planName ?? data.authTalexiaPlan?.trim() ?? "Brand Brief";
 
-  const submissionDate = data.submissionDate ?? new Date();
+  const referenceCode = generateReferenceCode();
+  
+  const agreedAuthorizationText = `By submitting this Brand Brief, I confirm and authorize the following.
+- All brand information provided in this Brief is accurate, current, and complete to the best of my knowledge.
+- I authorize Talexia to produce visual content, captions, hashtags, and posting schedules on behalf of my brand using the information provided in this Brief.
+- I authorize Talexia to publish content directly to my connected social media platforms on my behalf, without requiring my prior review or approval of individual posts.
+- I understand that Talexia's content is generated from this Brief, and that inaccurate or incomplete information may affect content quality.
+- I understand that stylistic preferences are not grounds for revision or regeneration — those are governed by this Brief and by future Brief updates.
+- I understand that verifiable factual errors in published content must be reported within 48 hours of publication and will be corrected in the next scheduled content cycle.
+- I understand that significant brand changes must be submitted as an updated Brand Brief to take effect the following month.
+- I confirm that I have read and accepted Talexia's Service Policy and Privacy Policy.
+
+By submitting this form, I am entering into a standing publishing authorization with Talexia that remains active for the duration of my subscription.`;
+
   const briefBaseData = {
     userId,
-    restaurantName: data.restaurantName,
-    location: data.location,
+    referenceCode,
+    agreedAuthorizationText,
+    brandName: data.brandName,
     businessType: data.businessType,
-    cuisineType: data.cuisineType,
-    dietaryCertifications: data.dietaryCertifications,
+    primaryLocation: data.primaryLocation,
     websiteUrl: data.websiteUrl,
-    instagramHandle: data.instagramHandle,
-    facebookPageUrl: data.facebookPageUrl,
-    tiktokHandle: data.tiktokHandle,
-    onlineOrderingUrl: data.onlineOrderingUrl,
-    foodDescription: data.foodDescription,
-    uniqueSellingPoint: data.uniqueSellingPoint,
-    customerReviews: data.customerReviews,
-    forbiddenPhrases: data.forbiddenPhrases,
-    preferredPhrases: data.preferredPhrases,
-    captionSample1: data.captionSample1,
-    captionSample2: data.captionSample2,
-    captionSample3: data.captionSample3,
-    toneAndVoice: data.toneAndVoice,
+    industryCategory: data.industryCategory,
+    brandStory: data.brandStory,
+    brandVoiceDescriptors: data.brandVoiceDescriptors,
+    targetAudience: data.targetAudience,
+    taglines: data.taglines,
+    brandsYouAdmire: data.brandsYouAdmire,
+    whatToAvoid: data.whatToAvoid,
+    aestheticDirection: data.aestheticDirection,
+    preferredColorPalette: data.preferredColorPalette,
+    stagingPreferences: data.stagingPreferences,
+    visualReferences: data.visualReferences,
+    productFocus: data.productFocus,
+    typicalPriceRange: data.typicalPriceRange,
+    keyCollections: data.keyCollections,
+    materialsCertifications: data.materialsCertifications,
+    seasonalCalendar: data.seasonalCalendar,
+    birthstoneTheming: data.birthstoneTheming,
+    sampleCaptions: data.sampleCaptions,
     captionTargeting: data.captionTargeting,
     language: data.language,
-    signatureDishes: data.signatureDishes,
-    signatureDishDetails: data.signatureDishDetails,
-    excludedItems: data.excludedItems,
-    upcomingPromotions: data.upcomingPromotions,
     hashtagStyle: data.hashtagStyle,
-    confirmMinDishes: data.confirmMinDishes,
-    actionShotsPossible: data.actionShotsPossible,
-    preferredShootTime: data.preferredShootTime,
-    physicalConstraints: data.physicalConstraints,
-    specialNotes: data.specialNotes,
-    clientName: data.clientName,
-    restaurantNameAuth: data.restaurantNameAuth,
-    submissionDate,
-    talexiaPlan: data.talexiaPlan?.trim() ?? briefPlanName,
+    sensitiveTopics: data.sensitiveTopics,
+    platforms: data.platforms,
+    timezone: data.timezone,
+    preferredPostingDays: data.preferredPostingDays,
+    preferredTimeWindows: data.preferredTimeWindows,
+    additionalPostingNotes: data.additionalPostingNotes,
+    timeCriticalDates: data.timeCriticalDates,
+    platformAuthorizationContact: data.platformAuthorizationContact,
+    googleDriveEmails: data.googleDriveEmails,
+    skuFilenameConvention: data.skuFilenameConvention,
+    productIdentificationNotes: data.productIdentificationNotes,
+    primaryContactName: data.primaryContactName,
+    primaryContactEmail: data.primaryContactEmail,
+    secondaryContactName: data.secondaryContactName,
+    secondaryContactEmail: data.secondaryContactEmail,
+    preferredCommunication: data.preferredCommunication,
+    whatsappNumber: data.whatsappNumber,
+    authSignedAs: data.authSignedAs,
+    authOnBehalfOf: data.authOnBehalfOf,
+    authSubmissionDate: data.authSubmissionDate,
+    authTalexiaPlan: data.authTalexiaPlan,
+    authIHaveReadAndAgree: data.authIHaveReadAndAgree,
   };
 
-  const brief = proposal
-    ? await prisma.brandBrief.upsert({
-        where: {
-          userId_proposalId: {
-            userId,
-            proposalId: proposal.id,
-          },
+  // We are now appending records so we just use create.
+  const brief = await prisma.brandBrief.create({
+    data: {
+      ...briefBaseData,
+      proposalId: proposal?.id || null,
+    },
+    include: {
+      proposal: {
+        select: {
+          id: true,
+          planCode: true,
+          planName: true,
         },
-        update: briefBaseData,
-        create: {
-          ...briefBaseData,
-          proposalId: proposal.id,
-        },
-        include: {
-          proposal: {
-            select: {
-              id: true,
-              planCode: true,
-              planName: true,
-            },
-          },
-        },
-      })
-    : await (async () => {
-        const existingBrief = await prisma.brandBrief.findMany({
-          where: { userId },
-          select: { id: true, proposalId: true },
-          orderBy: { createdAt: "desc" },
-        });
-        const genericBrief = existingBrief.find((briefItem) => briefItem.proposalId === null);
-
-        return genericBrief
-          ? prisma.brandBrief.update({
-              where: { id: genericBrief.id },
-              data: briefBaseData,
-              include: {
-                proposal: {
-                  select: {
-                    id: true,
-                    planCode: true,
-                    planName: true,
-                  },
-                },
-              },
-            })
-          : prisma.brandBrief.create({
-              data: briefBaseData,
-              include: {
-                proposal: {
-                  select: {
-                    id: true,
-                    planCode: true,
-                    planName: true,
-                  },
-                },
-              },
-            });
-      })();
+      },
+    },
+  });
 
   await prisma.user.update({
     where: { id: userId },
@@ -206,52 +251,79 @@ router.post("/", async (req, res) => {
     },
   });
 
+  // Clear any scheduled reminders
+  await clearBrandBriefReminders(userId);
+
   try {
     const pdfBuffer = await buildBrandBriefPdf({
       id: brief.id,
+      referenceCode: brief.referenceCode,
       planCode: briefPlanCode,
       planName: briefPlanName,
       submittedByName: user.name || user.email,
       submittedByEmail: user.email,
-      restaurantName: brief.restaurantName,
-      location: brief.location,
+      createdAt: brief.createdAt,
+      agreedAuthorizationText: brief.agreedAuthorizationText,
+      brandName: brief.brandName,
       businessType: brief.businessType,
-      cuisineType: brief.cuisineType,
-      dietaryCertifications: brief.dietaryCertifications,
+      primaryLocation: brief.primaryLocation,
       websiteUrl: brief.websiteUrl,
-      instagramHandle: brief.instagramHandle,
-      facebookPageUrl: brief.facebookPageUrl,
-      tiktokHandle: brief.tiktokHandle,
-      onlineOrderingUrl: brief.onlineOrderingUrl,
-      foodDescription: brief.foodDescription,
-      uniqueSellingPoint: brief.uniqueSellingPoint,
-      customerReviews: brief.customerReviews,
-      forbiddenPhrases: brief.forbiddenPhrases,
-      preferredPhrases: brief.preferredPhrases,
-      captionSample1: brief.captionSample1,
-      captionSample2: brief.captionSample2,
-      captionSample3: brief.captionSample3,
-      toneAndVoice: brief.toneAndVoice,
+      industryCategory: brief.industryCategory,
+      brandStory: brief.brandStory,
+      brandVoiceDescriptors: brief.brandVoiceDescriptors,
+      targetAudience: brief.targetAudience,
+      taglines: brief.taglines,
+      brandsYouAdmire: brief.brandsYouAdmire,
+      whatToAvoid: brief.whatToAvoid,
+      aestheticDirection: brief.aestheticDirection,
+      preferredColorPalette: brief.preferredColorPalette,
+      stagingPreferences: brief.stagingPreferences,
+      visualReferences: brief.visualReferences,
+      productFocus: brief.productFocus,
+      typicalPriceRange: brief.typicalPriceRange,
+      keyCollections: brief.keyCollections,
+      materialsCertifications: brief.materialsCertifications,
+      seasonalCalendar: brief.seasonalCalendar,
+      birthstoneTheming: brief.birthstoneTheming,
+      sampleCaptions: brief.sampleCaptions,
       captionTargeting: brief.captionTargeting,
       language: brief.language,
-      signatureDishes: brief.signatureDishes,
-      signatureDishDetails: brief.signatureDishDetails,
-      excludedItems: brief.excludedItems,
-      upcomingPromotions: brief.upcomingPromotions,
       hashtagStyle: brief.hashtagStyle,
-      confirmMinDishes: brief.confirmMinDishes,
-      actionShotsPossible: brief.actionShotsPossible,
-      preferredShootTime: brief.preferredShootTime,
-      physicalConstraints: brief.physicalConstraints,
-      specialNotes: brief.specialNotes,
-      clientName: brief.clientName,
-      restaurantNameAuth: brief.restaurantNameAuth,
-      submissionDate: brief.submissionDate,
-      talexiaPlan: brief.talexiaPlan,
-      createdAt: brief.createdAt,
+      sensitiveTopics: brief.sensitiveTopics,
+      platforms: brief.platforms,
+      timezone: brief.timezone,
+      preferredPostingDays: brief.preferredPostingDays,
+      preferredTimeWindows: brief.preferredTimeWindows,
+      additionalPostingNotes: brief.additionalPostingNotes,
+      timeCriticalDates: brief.timeCriticalDates,
+      platformAuthorizationContact: brief.platformAuthorizationContact,
+      googleDriveEmails: brief.googleDriveEmails,
+      skuFilenameConvention: brief.skuFilenameConvention,
+      productIdentificationNotes: brief.productIdentificationNotes,
+      primaryContactName: brief.primaryContactName,
+      primaryContactEmail: brief.primaryContactEmail,
+      secondaryContactName: brief.secondaryContactName,
+      secondaryContactEmail: brief.secondaryContactEmail,
+      preferredCommunication: brief.preferredCommunication,
+      whatsappNumber: brief.whatsappNumber,
+      authSignedAs: brief.authSignedAs,
+      authOnBehalfOf: brief.authOnBehalfOf,
+      authSubmissionDate: brief.authSubmissionDate,
+      authTalexiaPlan: brief.authTalexiaPlan,
+      authIHaveReadAndAgree: brief.authIHaveReadAndAgree,
     });
 
+    const pdfStorageKey = await uploadPdfToS3(userId, brief.referenceCode, pdfBuffer);
+    if (pdfStorageKey) {
+      await prisma.brandBrief.update({
+        where: { id: brief.id },
+        data: { pdfStorageKey },
+      });
+      brief.pdfStorageKey = pdfStorageKey;
+    }
+
     await sendBrandBriefSubmissionEmails({
+      referenceCode: brief.referenceCode,
       userEmail: user.email,
       userName: user.name || user.email,
       planCode: briefPlanCode,
@@ -259,44 +331,56 @@ router.post("/", async (req, res) => {
       briefId: brief.id,
       briefCreatedAt: brief.createdAt,
       pdfBuffer,
-      restaurantName: brief.restaurantName,
-      location: brief.location,
+      brandName: brief.brandName,
       businessType: brief.businessType,
-      cuisineType: brief.cuisineType,
-      dietaryCertifications: brief.dietaryCertifications,
+      primaryLocation: brief.primaryLocation,
       websiteUrl: brief.websiteUrl,
-      instagramHandle: brief.instagramHandle,
-      facebookPageUrl: brief.facebookPageUrl,
-      tiktokHandle: brief.tiktokHandle,
-      onlineOrderingUrl: brief.onlineOrderingUrl,
-      foodDescription: brief.foodDescription,
-      uniqueSellingPoint: brief.uniqueSellingPoint,
-      customerReviews: brief.customerReviews,
-      forbiddenPhrases: brief.forbiddenPhrases,
-      preferredPhrases: brief.preferredPhrases,
-      captionSample1: brief.captionSample1,
-      captionSample2: brief.captionSample2,
-      captionSample3: brief.captionSample3,
-      toneAndVoice: brief.toneAndVoice,
+      industryCategory: brief.industryCategory,
+      brandStory: brief.brandStory,
+      brandVoiceDescriptors: brief.brandVoiceDescriptors,
+      targetAudience: brief.targetAudience,
+      taglines: brief.taglines,
+      brandsYouAdmire: brief.brandsYouAdmire,
+      whatToAvoid: brief.whatToAvoid,
+      aestheticDirection: brief.aestheticDirection,
+      preferredColorPalette: brief.preferredColorPalette,
+      stagingPreferences: brief.stagingPreferences,
+      visualReferences: brief.visualReferences,
+      productFocus: brief.productFocus,
+      typicalPriceRange: brief.typicalPriceRange,
+      keyCollections: brief.keyCollections,
+      materialsCertifications: brief.materialsCertifications,
+      seasonalCalendar: brief.seasonalCalendar,
+      birthstoneTheming: brief.birthstoneTheming,
+      sampleCaptions: brief.sampleCaptions,
       captionTargeting: brief.captionTargeting,
       language: brief.language,
-      signatureDishes: brief.signatureDishes,
-      signatureDishDetails: brief.signatureDishDetails,
-      excludedItems: brief.excludedItems,
-      upcomingPromotions: brief.upcomingPromotions,
       hashtagStyle: brief.hashtagStyle,
-      confirmMinDishes: brief.confirmMinDishes,
-      actionShotsPossible: brief.actionShotsPossible,
-      preferredShootTime: brief.preferredShootTime,
-      physicalConstraints: brief.physicalConstraints,
-      specialNotes: brief.specialNotes,
-      clientName: brief.clientName,
-      restaurantNameAuth: brief.restaurantNameAuth,
-      submissionDate: brief.submissionDate,
-      talexiaPlan: brief.talexiaPlan,
+      sensitiveTopics: brief.sensitiveTopics,
+      platforms: brief.platforms,
+      timezone: brief.timezone,
+      preferredPostingDays: brief.preferredPostingDays,
+      preferredTimeWindows: brief.preferredTimeWindows,
+      additionalPostingNotes: brief.additionalPostingNotes,
+      timeCriticalDates: brief.timeCriticalDates,
+      platformAuthorizationContact: brief.platformAuthorizationContact,
+      googleDriveEmails: brief.googleDriveEmails,
+      skuFilenameConvention: brief.skuFilenameConvention,
+      productIdentificationNotes: brief.productIdentificationNotes,
+      primaryContactName: brief.primaryContactName,
+      primaryContactEmail: brief.primaryContactEmail,
+      secondaryContactName: brief.secondaryContactName,
+      secondaryContactEmail: brief.secondaryContactEmail,
+      preferredCommunication: brief.preferredCommunication,
+      whatsappNumber: brief.whatsappNumber,
+      authSignedAs: brief.authSignedAs,
+      authOnBehalfOf: brief.authOnBehalfOf,
+      authSubmissionDate: brief.authSubmissionDate,
+      authTalexiaPlan: brief.authTalexiaPlan,
+      authIHaveReadAndAgree: brief.authIHaveReadAndAgree,
     });
   } catch (error) {
-    logger.error("Brand brief email delivery failed", {
+    logger.error("Brand brief pdf/email processing failed", {
       brandBriefId: brief.id,
       userId,
       error,
@@ -356,11 +440,13 @@ router.get("/admin/submissions", requireAdmin, async (req, res) => {
       take: limit,
       select: {
         id: true,
-        restaurantName: true,
-        location: true,
+        referenceCode: true,
+        brandName: true,
+        primaryLocation: true,
         businessType: true,
         createdAt: true,
-        submissionDate: true,
+        authSubmissionDate: true,
+        pdfStorageKey: true,
         user: {
           select: {
             id: true,

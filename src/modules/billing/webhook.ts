@@ -19,6 +19,7 @@ import {
   ensureSingleActiveSubscription,
   logPlanChange,
 } from "./subscription-service";
+import { enqueueBrandBriefReminder } from "../jobs/brand-brief-reminder-queue";
 import { creditVisualTopup } from "../submissions/quota-service";
 import { toPostLimitType, toSchedulerRole } from "./plan-metadata";
 import { extractStripePeriodBounds } from "./stripe-period";
@@ -518,6 +519,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
           updatedAt: new Date(),
         },
       });
+      await enqueueBrandBriefReminder(userId);
       finalSubscriptionId = subscription.id;
     } else {
       // Create new subscription
@@ -576,6 +578,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripeE
           videoSessionHours: Number.isFinite(videoSessionHours) ? Math.max(videoSessionHours, 0) : 0,
         },
       });
+      await enqueueBrandBriefReminder(userId);
       finalSubscriptionId = subscription.id;
     }
 

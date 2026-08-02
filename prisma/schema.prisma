@@ -30,6 +30,8 @@ model User {
   visualOnboardingCompleted         Boolean                  @default(false)
   fullManagementOnboardingCompleted Boolean                  @default(false)
   brandBriefOnboardingCompleted     Boolean                  @default(false)
+  brandBriefReminderLevel           Int                      @default(0)
+  brandBriefLastReminderAt          DateTime?
   pendingPlanCode                   String? // Plan code selected before signup/checkout
   pendingPlanCodeSetAt              DateTime? // When pendingPlanCode was last set
   assets                            Asset[]
@@ -118,13 +120,13 @@ enum ScheduledPostStatus {
 }
 
 model Plan {
-  id                    String         @id @default(cuid())
-  code                  String         @unique
-  name                  String
-  category              PlanCategory
-  isCustomEnterprise    Boolean        @default(false)
-  isJewelry             Boolean        @default(false)
-  platformLimit         Int?           @default(4)
+  id                      String                   @id @default(cuid())
+  code                    String                   @unique
+  name                    String
+  category                PlanCategory
+  isCustomEnterprise      Boolean                  @default(false)
+  isJewelry               Boolean                  @default(false)
+  platformLimit           Int?                     @default(4)
   // Number of platforms included with the plan by default (e.g., 1,2,3)
   platformQty             Int                      @default(0)
   baseVisualQuota         Int?
@@ -1269,65 +1271,83 @@ model EnterprisePlanProposal {
 }
 
 model BrandBrief {
-  id         String   @id @default(uuid())
-  userId     String
-  proposalId String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id                      String   @id @default(uuid())
+  referenceCode           String   @unique
+  userId                  String
+  proposalId              String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  pdfStorageKey           String?
+  agreedAuthorizationText String   @db.Text
 
-  // 01 BRAND IDENTITY
-  restaurantName        String
-  location              String
-  businessType          String
-  cuisineType           String
-  dietaryCertifications String[]
+  // 01 THE BASICS
+  brandName        String
+  businessType     String
+  primaryLocation  String
+  websiteUrl       String?
+  industryCategory String
 
-  // 02 ONLINE PRESENCE
-  websiteUrl        String?
-  instagramHandle   String
-  facebookPageUrl   String?
-  tiktokHandle      String?
-  onlineOrderingUrl String?
+  // 02 ABOUT YOUR BRAND
+  brandStory            String   @db.Text
+  brandVoiceDescriptors String[]
+  targetAudience        String   @db.Text
+  taglines              String?  @db.Text
+  brandsYouAdmire       String?  @db.Text
+  whatToAvoid           String?  @db.Text
 
-  // 03 BRAND VOICE
-  foodDescription    String
-  uniqueSellingPoint String
-  customerReviews    String
-  forbiddenPhrases   String?
-  preferredPhrases   String?
-  captionSample1     String
-  captionSample2     String
-  captionSample3     String
-  toneAndVoice       String[]
-  captionTargeting   String
-  language           String
+  // 03 YOUR AESTHETIC
+  aestheticDirection    String[]
+  preferredColorPalette String?  @db.Text
+  stagingPreferences    String?  @db.Text
+  visualReferences      String?  @db.Text
 
-  // 04 MENU & CONTENT PRIORITIES
-  signatureDishes      String[]
-  signatureDishDetails String
-  excludedItems        String?
-  upcomingPromotions   String?
-  hashtagStyle         String
+  // 04 YOUR PRODUCT
+  productFocus            String[]
+  typicalPriceRange       String?
+  keyCollections          String?  @db.Text
+  materialsCertifications String   @db.Text
+  seasonalCalendar        String?  @db.Text
+  birthstoneTheming       String
 
-  // 05 SHOOT PREPARATION
-  confirmMinDishes    String
-  actionShotsPossible String?
-  preferredShootTime  String?
-  physicalConstraints String?
+  // 05 CAPTIONS & VOICE
+  sampleCaptions   String  @db.Text
+  captionTargeting String
+  language         String
+  hashtagStyle     String
+  sensitiveTopics  String? @db.Text
 
-  // 07 SPECIAL NOTES
-  specialNotes String?
+  // 06 PUBLISHING
+  platforms                    String[]
+  timezone                     String
+  preferredPostingDays         String[]
+  preferredTimeWindows         String[]
+  additionalPostingNotes       String?  @db.Text
+  timeCriticalDates            String?  @db.Text
+  platformAuthorizationContact String?
 
-  // 08 BRAND PUBLISHING AUTHORIZATION
-  clientName         String
-  restaurantNameAuth String
-  submissionDate     DateTime
-  talexiaPlan        String
+  // 07 CATALOG & SOURCE
+  googleDriveEmails          String
+  skuFilenameConvention      String? @db.Text
+  productIdentificationNotes String? @db.Text
 
-  user     User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // 08 OPERATIONAL
+  primaryContactName     String
+  primaryContactEmail    String
+  secondaryContactName   String?
+  secondaryContactEmail  String?
+  preferredCommunication String
+  whatsappNumber         String?
+
+  // 09 PUBLISHING AUTHORIZATION
+  authSignedAs          String
+  authOnBehalfOf        String
+  authSubmissionDate    DateTime
+  authTalexiaPlan       String
+  authIHaveReadAndAgree Boolean
+
+  user     User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   proposal EnterprisePlanProposal? @relation(fields: [proposalId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, proposalId])
   @@index([userId])
   @@index([proposalId])
 }

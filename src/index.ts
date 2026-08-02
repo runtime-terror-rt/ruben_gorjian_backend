@@ -6,6 +6,7 @@ import { schedulerWorker } from "./workers/scheduler";
 import { cleanupWorker } from "./workers/cleanup";
 import { logger } from "./lib/logger";
 import { startPostQueueWorker } from "./modules/jobs/post-queue";
+import { startBrandBriefReminderWorker } from "./modules/jobs/brand-brief-reminder-queue";
 import { startSchedulerEmailQueueWorker } from "./modules/jobs/scheduler-email-queue";
 import { syncPlansFromStripe, syncPlansToStripeFromDatabase } from "./lib/sync-plans";
 import { initSocket } from "./lib/socket";
@@ -30,6 +31,7 @@ async function start() {
   // Start the scheduler worker
   schedulerWorker.start(1); // Check every 1 minute
   startPostQueueWorker(2);
+  startBrandBriefReminderWorker(1);
   startSchedulerEmailQueueWorker(3);
 
   // Start the cleanup worker (runs daily)
