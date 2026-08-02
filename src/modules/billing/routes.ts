@@ -26,7 +26,7 @@ const VIDEO_SESSION_HOURLY_RATE_CENTS = 49_500;
 const PLATFORM_ADDON_MONTHLY_CENTS = 500;
 const NY_SALES_TAX_BPS = 862.5;
 const YEARLY_MULTIPLIER = 12 * 0.8;
-const ALLOWED_FULL_MANAGEMENT_PLAN_CODES = new Set(["FMP-20", "FMP-35", "FM-70"]);
+const ALLOWED_FULL_MANAGEMENT_PLAN_CODES = new Set(["ESSENTIALS", "SIGNATURE"]);
 const PLATFORM_LIMIT_EXCEEDED_ERROR = `Platform limit exceeded: max allowed platforms (including addons) is ${GLOBAL_PLATFORM_LIMIT}.`;
 
 async function ensureStripeCustomerForUser(userId: string, currentCustomerId?: string | null) {
@@ -885,6 +885,23 @@ router.post("/checkout", requireAuth, async (req, res) => {
     ...taxLineConfig,
   });
   cartSubtotalCentsParts.push(basePriceCents);
+
+  if (normalizedPlanCode === "SIGNATURE") {
+    const onboardingFeeCents = 9700;
+    lineItems.push({
+      price_data: {
+        currency: "usd",
+        unit_amount: onboardingFeeCents,
+        product_data: {
+          name: "One-time Onboarding Fee",
+          description: "Covers Brand Brief development, catalog setup, and brand voice training.",
+        },
+      },
+      quantity: 1,
+      ...taxLineConfig,
+    });
+    cartSubtotalCentsParts.push(onboardingFeeCents);
+  }
 
   if (addonPlatformQty > 0) {
     if (interval === "year" && env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID) {

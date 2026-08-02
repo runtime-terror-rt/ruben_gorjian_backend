@@ -133,11 +133,13 @@ model Plan {
   basePostQuota           Int?
   postLimitType           PostLimitType            @default(NONE)
   schedulerRole           SchedulerRole            @default(CLIENT)
-  priceStandardCents      Int
-  priceFounderCents       Int
-  stripePriceStandardId   String?
-  stripePriceFounderId    String?
-  hasYearlyPrice          Boolean                  @default(false)
+  priceStandardCents       Int
+  priceFounderCents        Int
+  priceYearlyStandardCents Int?
+  priceYearlyFounderCents  Int?
+  stripePriceStandardId    String?
+  stripePriceFounderId     String?
+  hasYearlyPrice           Boolean                  @default(false)
   photoSessionEnabled     Boolean                  @default(false)
   videoSessionEnabled     Boolean                  @default(false)
   photoSessionsPerPeriod  Int                      @default(0)
