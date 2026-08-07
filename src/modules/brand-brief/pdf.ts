@@ -172,10 +172,9 @@ function drawSummaryBlock(doc: PDFKit.PDFDocument, input: BrandBriefPdfInput) {
   drawSectionTitle(doc, "Submission Summary");
   drawTable(doc, [
     { label: "Reference Code", value: input.referenceCode },
-    { label: "Plan", value: `${input.planName} (${input.planCode})` },
+    { label: "Plan", value: input.planName },
     { label: "Submitted By", value: input.submittedByName === input.submittedByEmail ? input.submittedByEmail : `${input.submittedByName} <${input.submittedByEmail}>` },
     { label: "Created At", value: formatLongDate(input.createdAt) },
-    { label: "Talexia Plan", value: input.authTalexiaPlan },
   ]);
 }
 

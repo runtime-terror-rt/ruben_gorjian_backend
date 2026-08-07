@@ -144,7 +144,19 @@ router.post("/", async (req, res) => {
   }
 
   const data = parsed.data;
-  const normalizedPlanCode = data.planCode;
+  
+  // Try to find the user's active subscription first
+  const activeSubscription = await prisma.subscription.findFirst({
+    where: { userId, status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+  });
+  
+  if (!activeSubscription) {
+    return res.status(403).json({ error: "You must have an active plan to submit a Brand Brief." });
+  }
+  
+  const normalizedPlanCode = activeSubscription.planCode;
+  
   const proposal = normalizedPlanCode
     ? await prisma.enterprisePlanProposal.findFirst({
         where: { planCode: normalizedPlanCode },
@@ -156,8 +168,17 @@ router.post("/", async (req, res) => {
       })
     : null;
 
+  let dbPlanName = "Brand Brief";
+  if (normalizedPlanCode) {
+    const p = await prisma.plan.findUnique({
+      where: { code: normalizedPlanCode },
+      select: { name: true }
+    });
+    if (p) dbPlanName = p.name.toUpperCase();
+  }
+
   const briefPlanCode = proposal?.planCode ?? normalizedPlanCode ?? "GENERAL";
-  const briefPlanName = proposal?.planName ?? data.authTalexiaPlan?.trim() ?? "Brand Brief";
+  const briefPlanName = dbPlanName;
 
   const referenceCode = generateReferenceCode();
   

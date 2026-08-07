@@ -191,7 +191,7 @@ ${buildTalexiaEmailHeader("Brand Brief Submission Received", "Your submission ha
     from: CONTACT_FROM_EMAIL,
     to: payload.userEmail,
     subject: `Your Talexia Brand Brief — Confirmation Copy — ${payload.referenceCode}`,
-    text: `Your brand brief has been submitted successfully.\nReference Code: ${payload.referenceCode}\nPlan: ${payload.planName} (${payload.planCode})\nBrand: ${payload.brandName}\nLocation: ${payload.primaryLocation}\nSubmitted by: ${payload.userName} <${payload.userEmail}>`,
+    text: `Your brand brief has been submitted successfully.\nReference Code: ${payload.referenceCode}\nPlan: ${payload.planName}\nBrand: ${payload.brandName}\nLocation: ${payload.primaryLocation}\nSubmitted by: ${payload.userName} <${payload.userEmail}>`,
     html: userHtml,
     attachments: commonAttachments,
   });
@@ -212,7 +212,7 @@ ${buildTalexiaEmailHeader("New Brand Brief Submitted", "A client has submitted a
               { label: "Reference Code", value: safeReferenceCode },
               { label: "Client Name", value: safeUserName },
               { label: "Email", value: `<a href="mailto:${safeUserEmail}" style="color:#0f172a;text-decoration:none;font-weight:500;">${safeUserEmail}</a>` },
-              { label: "Plan", value: `${safePlanName} (${safePlanCode})` },
+              { label: "Plan", value: safePlanName },
               { label: "Brand Name", value: htmlEscape(payload.brandName) },
               { label: "Location", value: htmlEscape(payload.primaryLocation) },
             ])}
@@ -231,7 +231,7 @@ ${buildTalexiaEmailHeader("New Brand Brief Submitted", "A client has submitted a
       from: CONTACT_FROM_EMAIL,
       to: adminRecipient,
       subject: `New Brand Brief: ${payload.referenceCode} - ${payload.brandName}`,
-      text: `A client submitted a brand brief.\nReference Code: ${payload.referenceCode}\nClient: ${payload.userName}\nEmail: ${payload.userEmail}\nPlan: ${payload.planName} (${payload.planCode})\nBrand: ${payload.brandName}\nLocation: ${payload.primaryLocation}\nBrief ID: ${payload.briefId}`,
+      text: `A client submitted a brand brief.\nReference Code: ${payload.referenceCode}\nClient: ${payload.userName}\nEmail: ${payload.userEmail}\nPlan: ${payload.planName}\nBrand: ${payload.brandName}\nLocation: ${payload.primaryLocation}\nBrief ID: ${payload.briefId}`,
       html: adminHtml,
       attachments: commonAttachments,
     });
