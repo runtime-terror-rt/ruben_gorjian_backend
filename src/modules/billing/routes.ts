@@ -1163,7 +1163,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
   if (proposal.status === EnterpriseProposalStatus.PAYMENT_COMPLETED) {
     return res.status(409).json({
       success: false,
-      message: "Enterprise plan payment is already completed",
+      message: "Custom plan payment is already completed",
       planCode: normalizedPlanCode,
     });
   }
@@ -1259,7 +1259,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
         unit_amount: quotedAmountCents,
         product_data: {
           name: proposal.planName,
-          description: `Custom enterprise plan for ${proposal.companyName}`,
+          description: `Custom plan for ${proposal.companyName}`,
         },
       },
       quantity: 1,
@@ -1453,7 +1453,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
     userId,
     type: "SUBSCRIPTION_CHECKOUT_STARTED",
     title: "Subscription Checkout Started",
-    description: `Enterprise plan ${proposal.planName} (${proposal.billingCycle.toLowerCase()})`,
+    description: `Custom plan ${proposal.planName} (${proposal.billingCycle.toLowerCase()})`,
   }).catch(() => {});
 
   return res.json({

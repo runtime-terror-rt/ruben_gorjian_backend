@@ -82,8 +82,6 @@ enterprisePlanPublicRouter.get("/enterprise-plan/invites/:planCode/details", asy
         postsPerMonth: invite.proposal.postsPerMonth,
         reelsPerMonth: invite.proposal.reelsPerMonth,
         microReelsPerMonth: invite.proposal.microReelsPerMonth,
-        proPhotoShootFrequency: invite.proposal.proPhotoShootFrequency,
-        proPhotoShootLength: invite.proposal.proPhotoShootLength,
         captionHashtags: invite.proposal.captionHashtags,
         scheduling: invite.proposal.scheduling,
       }
