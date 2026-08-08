@@ -5,7 +5,7 @@ import Stripe from "stripe";
 import { upsertPlanFromPrice } from "../modules/billing/webhook";
 import { toPlanCategory } from "../modules/billing/billing-utils";
 
-const STARTUP_PLAN_CODES = ["FMP-20", "FMP-35", "FM-70"] as const;
+const STARTUP_PLAN_CODES = ["ESSENTIALS", "SIGNATURE"] as const;
 
 function buildPlanMetadata(plan: {
   code: string;

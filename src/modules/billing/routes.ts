@@ -26,7 +26,7 @@ const VIDEO_SESSION_HOURLY_RATE_CENTS = 49_500;
 const PLATFORM_ADDON_MONTHLY_CENTS = 500;
 const NY_SALES_TAX_BPS = 862.5;
 const YEARLY_MULTIPLIER = 12 * 0.8;
-const ALLOWED_FULL_MANAGEMENT_PLAN_CODES = new Set(["FMP-20", "FMP-35", "FM-70"]);
+const ALLOWED_FULL_MANAGEMENT_PLAN_CODES = new Set(["ESSENTIALS", "SIGNATURE"]);
 const PLATFORM_LIMIT_EXCEEDED_ERROR = `Platform limit exceeded: max allowed platforms (including addons) is ${GLOBAL_PLATFORM_LIMIT}.`;
 
 async function ensureStripeCustomerForUser(userId: string, currentCustomerId?: string | null) {
@@ -139,6 +139,7 @@ async function resolveApplicableCoupon(params: {
   couponCode?: string;
   userId: string;
   normalizedPlanCode: string;
+  billingCycle: BillingCycle;
 }): Promise<{ coupon: ApplicableCoupon | null; error?: string }> {
   const normalizedCouponCode = params.couponCode?.trim().toUpperCase();
   if (!normalizedCouponCode) {
@@ -182,6 +183,51 @@ async function resolveApplicableCoupon(params: {
 
   if (usageCount >= coupon.maxUsesPerClient) {
     return { coupon: null, error: "Coupon already used by this client" };
+  }
+
+  if (coupon.code === "1MFREE" && params.billingCycle === BillingCycle.YEARLY) {
+    return { coupon: null, error: "1MFREE cannot be used on annual plans." };
+  }
+
+  if (coupon.code === "1MFREE") {
+    const user = await prisma.user.findUnique({
+      where: { id: params.userId },
+      include: { brandProfile: true },
+    });
+
+    if (user) {
+      const emailDomain = user.email.split("@")[1]?.toLowerCase();
+      const userWebsite = user.brandProfile?.website?.toLowerCase().trim();
+      const FREE_EMAIL_PROVIDERS = [
+        "gmail.com",
+        "outlook.com",
+        "yahoo.com",
+        "icloud.com",
+        "hotmail.com",
+        "aol.com",
+      ];
+      const isFreeEmail = emailDomain ? FREE_EMAIL_PROVIDERS.includes(emailDomain) : false;
+
+      const pastUsages = await prisma.couponUsage.findMany({
+        where: { couponId: coupon.id },
+        include: { user: { include: { brandProfile: true } } },
+      });
+
+      for (const usage of pastUsages) {
+        if (usage.userId === params.userId) continue;
+
+        const otherWebsite = usage.user.brandProfile?.website?.toLowerCase().trim();
+        const otherEmailDomain = usage.user.email.split("@")[1]?.toLowerCase();
+
+        if (userWebsite && otherWebsite && userWebsite === otherWebsite) {
+          return { coupon: null, error: "This company has already redeemed a free month." };
+        }
+
+        if (!isFreeEmail && emailDomain && otherEmailDomain && emailDomain === otherEmailDomain) {
+          return { coupon: null, error: "This company has already redeemed a free month." };
+        }
+      }
+    }
   }
 
   return { coupon };
@@ -413,6 +459,7 @@ router.post("/coupons/validate", requireAuth, async (req, res) => {
     couponCode: z.string().trim().min(3).max(64),
     planCode: z.string(),
     subtotalCents: z.coerce.number().int().min(0).optional(),
+    billingCycle: z.enum(["monthly", "yearly"]).optional().default("monthly"),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -422,10 +469,12 @@ router.post("/coupons/validate", requireAuth, async (req, res) => {
 
   const userId = req.user!.id;
   const normalizedPlanCode = parsed.data.planCode.trim().toUpperCase();
+  const billingCycleEnum = parsed.data.billingCycle === "yearly" ? BillingCycle.YEARLY : BillingCycle.MONTHLY;
   const couponResult = await resolveApplicableCoupon({
     couponCode: parsed.data.couponCode,
     userId,
     normalizedPlanCode,
+    billingCycle: billingCycleEnum,
   });
 
   if (couponResult.error || !couponResult.coupon) {
@@ -596,6 +645,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
       couponCode,
       userId,
       normalizedPlanCode,
+      billingCycle: billingCycleEnum,
     });
     if (couponResult.error) {
       return res.status(400).json({ error: couponResult.error });
@@ -886,6 +936,23 @@ router.post("/checkout", requireAuth, async (req, res) => {
   });
   cartSubtotalCentsParts.push(basePriceCents);
 
+  if (normalizedPlanCode === "SIGNATURE") {
+    const onboardingFeeCents = 9700;
+    lineItems.push({
+      price_data: {
+        currency: "usd",
+        unit_amount: onboardingFeeCents,
+        product_data: {
+          name: "One-time Onboarding Fee",
+          description: "Covers Brand Brief development, catalog setup, and brand voice training.",
+        },
+      },
+      quantity: 1,
+      ...taxLineConfig,
+    });
+    cartSubtotalCentsParts.push(onboardingFeeCents);
+  }
+
   if (addonPlatformQty > 0) {
     if (interval === "year" && env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID) {
       lineItems.push({
@@ -1086,6 +1153,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
     couponCode,
     userId,
     normalizedPlanCode,
+    billingCycle: proposal.billingCycle,
   });
   if (couponResult.error) {
     return res.status(400).json({ error: couponResult.error });
@@ -1095,7 +1163,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
   if (proposal.status === EnterpriseProposalStatus.PAYMENT_COMPLETED) {
     return res.status(409).json({
       success: false,
-      message: "Enterprise plan payment is already completed",
+      message: "Custom plan payment is already completed",
       planCode: normalizedPlanCode,
     });
   }
@@ -1191,7 +1259,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
         unit_amount: quotedAmountCents,
         product_data: {
           name: proposal.planName,
-          description: `Custom enterprise plan for ${proposal.companyName}`,
+          description: `Custom plan for ${proposal.companyName}`,
         },
       },
       quantity: 1,
@@ -1385,7 +1453,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
     userId,
     type: "SUBSCRIPTION_CHECKOUT_STARTED",
     title: "Subscription Checkout Started",
-    description: `Enterprise plan ${proposal.planName} (${proposal.billingCycle.toLowerCase()})`,
+    description: `Custom plan ${proposal.planName} (${proposal.billingCycle.toLowerCase()})`,
   }).catch(() => {});
 
   return res.json({

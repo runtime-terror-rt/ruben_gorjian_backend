@@ -2,46 +2,69 @@ import PDFDocument from "pdfkit";
 
 type BrandBriefPdfInput = {
   id: string;
+  referenceCode: string;
   planCode: string;
   planName: string;
   submittedByName: string;
   submittedByEmail: string;
-  restaurantName: string;
-  location: string;
+  createdAt: Date;
+  
+  brandName: string;
   businessType: string;
-  cuisineType: string;
-  dietaryCertifications: string[];
+  primaryLocation: string;
   websiteUrl?: string | null;
-  instagramHandle: string;
-  facebookPageUrl?: string | null;
-  tiktokHandle?: string | null;
-  onlineOrderingUrl?: string | null;
-  foodDescription: string;
-  uniqueSellingPoint: string;
-  customerReviews: string;
-  forbiddenPhrases?: string | null;
-  preferredPhrases?: string | null;
-  captionSample1: string;
-  captionSample2: string;
-  captionSample3: string;
-  toneAndVoice: string[];
+  industryCategory: string;
+
+  brandStory: string;
+  brandVoiceDescriptors: string[];
+  targetAudience: string;
+  taglines?: string | null;
+  brandsYouAdmire?: string | null;
+  whatToAvoid?: string | null;
+
+  aestheticDirection: string[];
+  preferredColorPalette?: string | null;
+  stagingPreferences?: string | null;
+  visualReferences?: string | null;
+
+  productFocus: string[];
+  typicalPriceRange?: string | null;
+  keyCollections?: string | null;
+  materialsCertifications: string;
+  seasonalCalendar?: string | null;
+  birthstoneTheming: string;
+
+  sampleCaptions: string;
   captionTargeting: string;
   language: string;
-  signatureDishes: string[];
-  signatureDishDetails: string;
-  excludedItems?: string | null;
-  upcomingPromotions?: string | null;
   hashtagStyle: string;
-  confirmMinDishes: string;
-  actionShotsPossible?: string | null;
-  preferredShootTime?: string | null;
-  physicalConstraints?: string | null;
-  specialNotes?: string | null;
-  clientName: string;
-  restaurantNameAuth: string;
-  submissionDate: Date;
-  talexiaPlan: string;
-  createdAt: Date;
+  sensitiveTopics?: string | null;
+
+  platforms: string[];
+  timezone: string;
+  preferredPostingDays: string[];
+  preferredTimeWindows: string[];
+  additionalPostingNotes?: string | null;
+  timeCriticalDates?: string | null;
+  platformAuthorizationContact?: string | null;
+
+  googleDriveEmails: string;
+  skuFilenameConvention?: string | null;
+  productIdentificationNotes?: string | null;
+
+  primaryContactName: string;
+  primaryContactEmail: string;
+  secondaryContactName?: string | null;
+  secondaryContactEmail?: string | null;
+  preferredCommunication: string;
+  whatsappNumber?: string | null;
+
+  authSignedAs: string;
+  authOnBehalfOf: string;
+  authSubmissionDate: Date;
+  authTalexiaPlan: string;
+  authIHaveReadAndAgree: boolean;
+  agreedAuthorizationText: string;
 };
 
 type TableRow = {
@@ -59,11 +82,26 @@ const CELL_PADDING = 8;
 const ROW_MIN_HEIGHT = 28;
 
 function formatDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
 }
 
 function formatLongDate(date: Date): string {
-  return date.toISOString().replace("T", " ").replace(".000Z", " UTC");
+  const formatted = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    timeZoneName: 'short'
+  }).format(date);
+  // Optional: Convert EST/EDT to ET
+  return formatted.replace(/(EST|EDT)$/, "ET");
 }
 
 function valueOrNA(value?: string | null): string {
@@ -133,12 +171,10 @@ function drawTable(doc: PDFKit.PDFDocument, rows: TableRow[]) {
 function drawSummaryBlock(doc: PDFKit.PDFDocument, input: BrandBriefPdfInput) {
   drawSectionTitle(doc, "Submission Summary");
   drawTable(doc, [
-    { label: "Submission ID", value: input.id },
-    { label: "Plan", value: `${input.planName} (${input.planCode})` },
-    { label: "Submitted By", value: `${input.submittedByName} <${input.submittedByEmail}>` },
+    { label: "Reference Code", value: input.referenceCode },
+    { label: "Plan", value: input.planName },
+    { label: "Submitted By", value: input.submittedByName === input.submittedByEmail ? input.submittedByEmail : `${input.submittedByName} <${input.submittedByEmail}>` },
     { label: "Created At", value: formatLongDate(input.createdAt) },
-    { label: "Submission Date", value: formatDate(input.submissionDate) },
-    { label: "Talexia Plan", value: input.talexiaPlan },
   ]);
 }
 
@@ -152,76 +188,95 @@ export async function buildBrandBriefPdf(input: BrandBriefPdfInput): Promise<Buf
     doc.on("error", reject);
 
     doc.font("Helvetica-Bold").fontSize(20).fillColor("#0f172a").text("Brand Brief Submission", { align: "left" });
+    doc.moveDown(0.2);
+    doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f172a").text(`Reference Code: ${input.referenceCode}`, { align: "left" });
     doc.moveDown(0.35);
     doc.font("Helvetica").fontSize(10).fillColor("#475569").text("Prepared for Talexia internal review and client record keeping.");
     doc.moveDown(0.8);
 
     drawSummaryBlock(doc, input);
 
-    drawSectionTitle(doc, "01. Brand Identity");
+    drawSectionTitle(doc, "01. The Basics");
     drawTable(doc, [
-      { label: "Restaurant Name", value: input.restaurantName },
-      { label: "Location", value: input.location },
+      { label: "Brand Name", value: input.brandName },
       { label: "Business Type", value: input.businessType },
-      { label: "Cuisine Type", value: input.cuisineType },
-      { label: "Dietary Certifications", value: formatList(input.dietaryCertifications) },
-    ]);
-
-    drawSectionTitle(doc, "02. Online Presence");
-    drawTable(doc, [
+      { label: "Primary Location", value: input.primaryLocation },
       { label: "Website URL", value: valueOrNA(input.websiteUrl) },
-      { label: "Instagram Handle", value: input.instagramHandle },
-      { label: "Facebook Page URL", value: valueOrNA(input.facebookPageUrl) },
-      { label: "TikTok Handle", value: valueOrNA(input.tiktokHandle) },
-      { label: "Online Ordering URL", value: valueOrNA(input.onlineOrderingUrl) },
+      { label: "Industry Category", value: input.industryCategory },
     ]);
 
-    drawSectionTitle(doc, "03. Brand Voice");
+    drawSectionTitle(doc, "02. About Your Brand");
     drawTable(doc, [
-      { label: "Food Description", value: input.foodDescription },
-      { label: "Unique Selling Point", value: input.uniqueSellingPoint },
-      { label: "Customer Reviews", value: input.customerReviews },
-      { label: "Forbidden Phrases", value: valueOrNA(input.forbiddenPhrases) },
-      { label: "Preferred Phrases", value: valueOrNA(input.preferredPhrases) },
-      { label: "Caption Sample 1", value: input.captionSample1 },
-      { label: "Caption Sample 2", value: input.captionSample2 },
-      { label: "Caption Sample 3", value: input.captionSample3 },
-      { label: "Tone And Voice", value: formatList(input.toneAndVoice) },
+      { label: "Brand Story", value: input.brandStory },
+      { label: "Brand Voice", value: formatList(input.brandVoiceDescriptors) },
+      { label: "Target Audience", value: input.targetAudience },
+      { label: "Taglines", value: valueOrNA(input.taglines) },
+      { label: "Brands You Admire", value: valueOrNA(input.brandsYouAdmire) },
+      { label: "What To Avoid", value: valueOrNA(input.whatToAvoid) },
+    ]);
+
+    drawSectionTitle(doc, "03. Your Aesthetic");
+    drawTable(doc, [
+      { label: "Aesthetic Direction", value: formatList(input.aestheticDirection) },
+      { label: "Preferred Color Palette", value: valueOrNA(input.preferredColorPalette) },
+      { label: "Staging Preferences", value: valueOrNA(input.stagingPreferences) },
+      { label: "Visual References", value: valueOrNA(input.visualReferences) },
+    ]);
+
+    drawSectionTitle(doc, "04. Your Product");
+    drawTable(doc, [
+      { label: "Product Focus", value: formatList(input.productFocus) },
+      { label: "Typical Price Range", value: valueOrNA(input.typicalPriceRange) },
+      { label: "Key Collections", value: valueOrNA(input.keyCollections) },
+      { label: "Materials & Certs", value: input.materialsCertifications },
+      { label: "Seasonal Calendar", value: valueOrNA(input.seasonalCalendar) },
+      { label: "Birthstone Theming", value: input.birthstoneTheming },
+    ]);
+
+    drawSectionTitle(doc, "05. Captions & Voice");
+    drawTable(doc, [
+      { label: "Sample Captions", value: input.sampleCaptions },
       { label: "Caption Targeting", value: input.captionTargeting },
       { label: "Language", value: input.language },
-    ]);
-
-    drawSectionTitle(doc, "04. Menu & Content Priorities");
-    drawTable(doc, [
-      { label: "Signature Dishes", value: formatList(input.signatureDishes) },
-      { label: "Signature Dish Details", value: input.signatureDishDetails },
-      { label: "Excluded Items", value: valueOrNA(input.excludedItems) },
-      { label: "Upcoming Promotions", value: valueOrNA(input.upcomingPromotions) },
       { label: "Hashtag Style", value: input.hashtagStyle },
+      { label: "Sensitive Topics", value: valueOrNA(input.sensitiveTopics) },
     ]);
 
-    drawSectionTitle(doc, "05. Shoot Preparation");
+    drawSectionTitle(doc, "06. Publishing");
     drawTable(doc, [
-      { label: "Confirm Min Dishes", value: input.confirmMinDishes },
-      { label: "Action Shots Possible", value: valueOrNA(input.actionShotsPossible) },
-      { label: "Preferred Shoot Time", value: valueOrNA(input.preferredShootTime) },
-      { label: "Physical Constraints", value: valueOrNA(input.physicalConstraints) },
+      { label: "Platforms", value: formatList(input.platforms) },
+      { label: "Timezone", value: input.timezone },
+      { label: "Preferred Posting Days", value: formatList(input.preferredPostingDays) },
+      { label: "Preferred Time Windows", value: formatList(input.preferredTimeWindows) },
+      { label: "Additional Posting Notes", value: valueOrNA(input.additionalPostingNotes) },
+      { label: "Time Critical Dates", value: valueOrNA(input.timeCriticalDates) },
+      { label: "Platform Auth Contact", value: valueOrNA(input.platformAuthorizationContact) },
     ]);
 
-    drawSectionTitle(doc, "06. Sample Captions");
+    drawSectionTitle(doc, "07. Catalog & Source");
     drawTable(doc, [
-      { label: "Sample Caption 1", value: input.captionSample1 },
-      { label: "Sample Caption 2", value: input.captionSample2 },
-      { label: "Sample Caption 3", value: input.captionSample3 },
-      { label: "Special Notes", value: valueOrNA(input.specialNotes) },
+      { label: "Google Drive Emails", value: input.googleDriveEmails },
+      { label: "SKU/Filename Conv.", value: valueOrNA(input.skuFilenameConvention) },
+      { label: "Product ID Notes", value: valueOrNA(input.productIdentificationNotes) },
     ]);
 
-    drawSectionTitle(doc, "07. Brand Publishing Authorization");
+    drawSectionTitle(doc, "08. Operational");
     drawTable(doc, [
-      { label: "Client Name", value: input.clientName },
-      { label: "Restaurant Name (Authorization)", value: input.restaurantNameAuth },
-      { label: "Submission Date", value: formatDate(input.submissionDate) },
-      { label: "Talexia Plan", value: input.talexiaPlan },
+      { label: "Primary Contact Name", value: input.primaryContactName },
+      { label: "Primary Contact Email", value: input.primaryContactEmail },
+      { label: "Secondary Contact Name", value: valueOrNA(input.secondaryContactName) },
+      { label: "Secondary Contact Email", value: valueOrNA(input.secondaryContactEmail) },
+      { label: "Preferred Comm Method", value: input.preferredCommunication },
+      { label: "WhatsApp Number", value: valueOrNA(input.whatsappNumber) },
+    ]);
+
+    drawSectionTitle(doc, "09. Publishing Authorization");
+    drawTable(doc, [
+      { label: "Signed As", value: input.authSignedAs },
+      { label: "On Behalf Of Brand", value: input.authOnBehalfOf },
+      { label: "Submission Date", value: formatDate(input.authSubmissionDate) },
+      { label: "Talexia Plan", value: input.authTalexiaPlan },
+      { label: "Has Read & Agreed", value: input.authIHaveReadAndAgree ? "Yes" : "No" },
     ]);
 
     doc.end();

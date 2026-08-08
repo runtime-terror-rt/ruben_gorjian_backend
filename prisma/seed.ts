@@ -1,66 +1,46 @@
 import "dotenv/config";
 import * as bcrypt from "bcryptjs";
-import {
-  PostStatus,
-  PostTargetStatus,
-  PrismaClient,
-  PriceType,
-  PostLimitType,
-  SchedulerRole,
-  SocialPlatform,
-  SubscriptionStatus,
-  PlanCategory,
-} from "@prisma/client";
+import { PrismaClient, PlanCategory, PostLimitType, SchedulerRole } from "@prisma/client";
 import { GLOBAL_PLATFORM_LIMIT } from "../src/config/limits";
 
 const prisma = new PrismaClient();
 
 console.log("Connecting to database:", process.env.DATABASE_URL?.split("@")[1]);
 
-// Only Full Management plans (Calendar Only and Visual Calendar removed).
-// Quotas and prices aligned with pricing-catalog and Stripe.
 const planSeed = [
   {
-    code: "FMP-20",
-    name: "Full Management",
-    category: PlanCategory.FULL_MANAGEMENT,
-    isJewelry: false,
-    platformLimit: GLOBAL_PLATFORM_LIMIT,
-    platformQty: 1,
-    baseVisualQuota: 0,
-    basePostQuota: 12,
-    postLimitType: PostLimitType.HARD,
-    schedulerRole: SchedulerRole.ADMIN,
-    priceStandardCents: 39500, // $395
-    priceFounderCents: 27650, // $276.50
-  },
-  {
-    code: "FMP-35",
-    name: "Full Management Plus",
+    code: "ESSENTIALS",
+    name: "Essentials",
     category: PlanCategory.FULL_MANAGEMENT,
     isJewelry: false,
     platformLimit: GLOBAL_PLATFORM_LIMIT,
     platformQty: 2,
     baseVisualQuota: 0,
-    basePostQuota: 16,
+    basePostQuota: 12,
     postLimitType: PostLimitType.HARD,
-    schedulerRole: SchedulerRole.ADMIN,
-    priceStandardCents: 49500, // $495
-    priceFounderCents: 34650, // $346.50
+    schedulerRole: SchedulerRole.CLIENT,
+    priceStandardCents: 39700,
+    priceFounderCents: 39700,
+    priceYearlyStandardCents: 428800,
+    priceYearlyFounderCents: 428800,
+    hasYearlyPrice: true,
   },
   {
-    code: "FM-70",
-    name: "Full Management Premium",
+    code: "SIGNATURE",
+    name: "Signature",
     category: PlanCategory.FULL_MANAGEMENT,
     isJewelry: false,
     platformLimit: GLOBAL_PLATFORM_LIMIT,
     platformQty: 3,
     baseVisualQuota: 0,
-    basePostQuota: 20,
+    basePostQuota: 24,
     postLimitType: PostLimitType.HARD,
-    schedulerRole: SchedulerRole.ADMIN,
-    priceStandardCents: 94900, // $949
-    priceFounderCents: 66430, // $664.30
+    schedulerRole: SchedulerRole.CLIENT,
+    priceStandardCents: 59700,
+    priceFounderCents: 59700,
+    priceYearlyStandardCents: 644800,
+    priceYearlyFounderCents: 644800,
+    hasYearlyPrice: true,
   },
 ];
 
@@ -83,8 +63,38 @@ async function main() {
     });
   }
 
-  const seededUsers = await seedUsersAndSubscriptions();
-  await seedPosts(seededUsers);
+  const adminEmail = (process.env.ADMIN_EMAIL).toLowerCase();
+  
+  const admin = await prisma.user.upsert({
+    where: { email: adminEmail },
+    update: { role: "SUPER_ADMIN" },
+    create: {
+      email: adminEmail,
+      passwordHash: await bcrypt.hash(process.env.ADMIN_PASSWORD, 10),
+      role: "SUPER_ADMIN",
+      emailVerified: true,
+      onboardingCompleted: true,
+      isFounder: false,
+    },
+    select: { id: true }
+  });
+
+  // Seed 1MFREE coupon
+  await prisma.coupon.upsert({
+    where: { code: "1MFREE" },
+    update: {
+      discountType: "percentage",
+      discountValue: 100,
+      status: "ACTIVE",
+    },
+    create: {
+      code: "1MFREE",
+      discountType: "percentage",
+      discountValue: 100,
+      status: "ACTIVE",
+      createdBy: admin.id,
+    },
+  });
 }
 
 main()
@@ -96,217 +106,3 @@ main()
     await prisma.$disconnect();
     process.exit(1);
   });
-
-async function seedUsersAndSubscriptions() {
-  const usersToSeed = [
-    {
-      email: "admin@talexia.test",
-      password: "TalexiaAdmin123!",
-      role: "ADMIN" as const,
-      isFounder: true,
-      onboardingCompleted: true,
-      emailVerified: true,
-      planCode: "FMP-35",
-      priceType: PriceType.FOUNDER,
-      status: SubscriptionStatus.ACTIVE,
-    },
-    {
-      email: "agency@talexia.test",
-      password: "TalexiaUser123!",
-      role: "USER" as const,
-      isFounder: false,
-      onboardingCompleted: true,
-      emailVerified: true,
-      planCode: "FM-70",
-      priceType: PriceType.STANDARD,
-      status: SubscriptionStatus.ACTIVE,
-    },
-    {
-      email: "brand@talexia.test",
-      password: "TalexiaBrand123!",
-      role: "USER" as const,
-      isFounder: false,
-      onboardingCompleted: true,
-      emailVerified: true,
-      planCode: "FMP-20",
-      priceType: PriceType.STANDARD,
-      status: SubscriptionStatus.ACTIVE,
-    },
-  ];
-
-  const records: Array<{ id: string; email: string }> = [];
-
-  for (const user of usersToSeed) {
-    const passwordHash = await bcrypt.hash(user.password, 10);
-    const saved = await prisma.user.upsert({
-      where: { email: user.email },
-      update: {
-        passwordHash,
-        role: user.role,
-        isFounder: user.isFounder,
-        onboardingCompleted: user.onboardingCompleted,
-        emailVerified: user.emailVerified,
-      },
-      create: {
-        email: user.email,
-        passwordHash,
-        role: user.role,
-        isFounder: user.isFounder,
-        onboardingCompleted: user.onboardingCompleted,
-        emailVerified: user.emailVerified,
-      },
-      select: { id: true, email: true },
-    });
-
-    records.push(saved);
-
-    await prisma.subscription.deleteMany({ where: { userId: saved.id } });
-    await prisma.subscription.create({
-      data: {
-        userId: saved.id,
-        planCode: user.planCode,
-        priceType: user.priceType,
-        status: user.status,
-      },
-    });
-
-    // Track founder record for admin user if needed
-    if (user.isFounder) {
-      await prisma.founder.upsert({
-        where: { userId: saved.id },
-        update: {},
-        create: { userId: saved.id },
-      });
-    }
-  }
-
-  return records;
-}
-
-async function seedPosts(users: Array<{ id: string; email: string }>) {
-  for (const user of users) {
-    await prisma.postTarget.deleteMany({
-      where: { post: { userId: user.id } },
-    });
-    await prisma.post.deleteMany({
-      where: { userId: user.id },
-    });
-    const socialAccounts = await ensureSocialAccounts(user.id);
-
-    const now = new Date();
-    const inThreeDays = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 3);
-    const inFiveDays = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 5);
-    const pastDay = new Date(now.getTime() - 1000 * 60 * 60 * 24 * 2);
-
-    const posts: Array<{
-      status: PostStatus;
-      scheduledFor: Date;
-      caption: string;
-      targets: Array<{
-        platform: SocialPlatform;
-        status: PostTargetStatus;
-        scheduledFor: Date;
-        publishedAt?: Date;
-        socialAccountId: string;
-      }>;
-    }> = [
-        {
-          status: PostStatus.SCHEDULED,
-          scheduledFor: inThreeDays,
-          caption: "Teaser drop next week",
-          targets: [
-            {
-              platform: SocialPlatform.INSTAGRAM,
-              status: PostTargetStatus.SCHEDULED,
-              scheduledFor: inThreeDays,
-              socialAccountId: socialAccounts.instagram,
-            },
-            {
-              platform: SocialPlatform.FACEBOOK,
-              status: PostTargetStatus.SCHEDULED,
-              scheduledFor: inThreeDays,
-              socialAccountId: socialAccounts.facebook,
-            },
-          ],
-        },
-        {
-          status: PostStatus.SCHEDULED,
-          scheduledFor: inFiveDays,
-          caption: "LinkedIn thought leadership",
-          targets: [
-            {
-              platform: SocialPlatform.LINKEDIN,
-              status: PostTargetStatus.SCHEDULED,
-              scheduledFor: inFiveDays,
-              socialAccountId: socialAccounts.linkedin,
-            },
-          ],
-        },
-        {
-          status: PostStatus.POSTED,
-          scheduledFor: pastDay,
-          caption: "Recap from recent campaign",
-          targets: [
-            {
-              platform: SocialPlatform.INSTAGRAM,
-              status: PostTargetStatus.POSTED,
-              scheduledFor: pastDay,
-              publishedAt: now,
-              socialAccountId: socialAccounts.instagram,
-            },
-          ],
-        },
-      ];
-
-    for (const post of posts) {
-      await prisma.post.create({
-        data: {
-          userId: user.id,
-          status: post.status,
-          scheduledFor: post.scheduledFor,
-          caption: post.caption,
-          targets: {
-            create: post.targets.map((target) => ({
-              platform: target.platform,
-              status: target.status,
-              scheduledFor: target.scheduledFor,
-              publishedAt: target.publishedAt,
-              socialAccountId: target.socialAccountId,
-            })),
-          },
-        },
-      });
-    }
-  }
-}
-
-async function ensureSocialAccounts(userId: string) {
-  const platforms = [SocialPlatform.INSTAGRAM, SocialPlatform.FACEBOOK, SocialPlatform.LINKEDIN];
-  const ids: Record<"instagram" | "facebook" | "linkedin", string> = {
-    instagram: "",
-    facebook: "",
-    linkedin: "",
-  };
-
-  for (const platform of platforms) {
-    const existing = await prisma.socialAccount.findFirst({
-      where: { userId, platform },
-    });
-    const account =
-      existing ||
-      (await prisma.socialAccount.create({
-        data: {
-          userId,
-          platform,
-          externalAccountId: `${platform.toLowerCase()}-${userId}`,
-          displayName: `${platform} Account`,
-        },
-      }));
-
-    if (platform === SocialPlatform.INSTAGRAM) ids.instagram = account.id;
-    if (platform === SocialPlatform.FACEBOOK) ids.facebook = account.id;
-    if (platform === SocialPlatform.LINKEDIN) ids.linkedin = account.id;
-  }
-
-  return ids;
-}

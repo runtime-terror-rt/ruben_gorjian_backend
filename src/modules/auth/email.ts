@@ -382,8 +382,6 @@ export async function sendEnterprisePlanInviteEmail(params: {
   postsPerMonth?: number | null;
   reelsPerMonth?: number | null;
   microReelsPerMonth?: number | null;
-  proPhotoShootFrequency?: string | null;
-  proPhotoShootLength?: string | null;
   captionHashtags?: boolean | null;
   scheduling?: boolean | null;
 }) {
@@ -418,12 +416,12 @@ export async function sendEnterprisePlanInviteEmail(params: {
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-${buildTalexiaEmailHeader("Enterprise Plan Invitation", "A custom enterprise plan invitation is ready")}
+${buildTalexiaEmailHeader("Custom Plan Invitation", "A custom plan invitation is ready")}
         <tr>
           <td style="padding:40px 40px 32px;">
             <p style="margin:0 0 20px;color:#1e293b;font-size:16px;">Hi ${recipientName},</p>
             <p style="margin:0 0 16px;color:#475569;font-size:15px;line-height:1.6;">
-              You have been invited to activate a custom Talexia Enterprise plan.
+              You have been invited to activate a Custom Talexia Plan.
             </p>
             <!-- Plan details table -->
             <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:24px;">
@@ -459,10 +457,7 @@ ${buildTalexiaEmailHeader("Enterprise Plan Invitation", "A custom enterprise pla
                 <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Micro Reels / month</td>
                 <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.microReelsPerMonth}</td>
               </tr>` : ""}
-              ${params.proPhotoShootFrequency ? `<tr style="background:#f8fafc;">
-                <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Pro Photoshoot Frequency</td>
-                <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.proPhotoShootFrequency}${params.proPhotoShootLength ? ` — ${params.proPhotoShootLength}` : ""}</td>
-              </tr>` : ""}
+
               ${typeof params.captionHashtags === "boolean" ? `<tr>
                 <td style="padding:12px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">Caption Hashtags</td>
                 <td style="padding:12px 16px;color:#1e293b;font-size:13px;border-bottom:1px solid #e2e8f0;">${params.captionHashtags ? "Yes" : "No"}</td>
@@ -495,8 +490,8 @@ ${buildTalexiaEmailHeader("Enterprise Plan Invitation", "A custom enterprise pla
   await transporter.sendMail({
     from: CONTACT_FROM_EMAIL,
     to: params.email,
-    subject: "Your Talexia Enterprise Plan Is Ready",
-    text: `You have been invited to activate a custom Talexia Enterprise plan (${params.planCode}).\n\nOpen: ${inviteUrl}`,
+    subject: "Your Talexia Custom Plan Is Ready",
+    text: `You have been invited to activate a Custom Talexia Plan (${params.planCode}).\n\nOpen: ${inviteUrl}`,
     html,
     ...(logoAttachment ? { attachments: [logoAttachment] } : {}),
     ...(CONTACT_TO_EMAIL ? { bcc: CONTACT_TO_EMAIL } : {}),

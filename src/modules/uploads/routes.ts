@@ -282,7 +282,7 @@ router.get("/files", requireAuth, async (req, res) => {
           assetType: asset.type,
           storageKey: asset.storageKey,
         }),
-        fileName: sanitizeFilename(asset.storageKey.split("/").pop() || "upload"),
+        fileName: extractOriginalFileName(asset.storageKey),
         contentType: asset.contentType,
         storageKey: asset.storageKey,
         url: toPublicUrl(asset.storageKey),
@@ -360,7 +360,7 @@ router.get("/files", requireAuth, async (req, res) => {
           mimeType: profile.avatarContentType,
           storageKey: profile.avatarStorageKey,
         }),
-        fileName: sanitizeFilename(profile.avatarStorageKey.split("/").pop() || "avatar"),
+        fileName: extractOriginalFileName(profile.avatarStorageKey),
         contentType: profile.avatarContentType,
         storageKey: profile.avatarStorageKey,
         url: toPublicUrl(profile.avatarStorageKey),
@@ -409,10 +409,16 @@ function sanitizeFilename(fileName: string): string {
   const base = rawBase.normalize("NFKD");
 
   const cleaned = base
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/[^a-zA-Z0-9._\-\s()[\]]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 120);
 
   return cleaned || "upload";
+}
+
+function extractOriginalFileName(storageKey: string): string {
+  const base = storageKey.split("/").pop() || "upload";
+  const match = base.match(/^\d{13}-(.+)$/);
+  return match ? match[1] : base;
 }

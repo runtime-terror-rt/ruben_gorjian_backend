@@ -96,8 +96,8 @@ const PAGE_ROUTE_PERMISSION_MAP: Record<PagePermissionKey, RoutePermissionInput[
 		{ method: "ALL", pathPattern: "/admin/coupons*", description: "Manage coupons (legacy mount)" },
 	],
 	ENTERPRISE_PLAN: [
-		{ method: "ALL", pathPattern: "/api/admin/enterprise-plan*", description: "Manage enterprise plans" },
-		{ method: "ALL", pathPattern: "/admin/enterprise-plan*", description: "Manage enterprise plans (legacy mount)" },
+		{ method: "ALL", pathPattern: "/api/admin/enterprise-plan*", description: "Manage custom plans" },
+		{ method: "ALL", pathPattern: "/admin/enterprise-plan*", description: "Manage custom plans (legacy mount)" },
 		{ method: "GET", pathPattern: "/api/brand-brief/admin/submissions", description: "View brand brief submissions" },
 		{ method: "GET", pathPattern: "/api/brand-brief/admin/submissions/:id", description: "View brand brief submission details" },
 	],

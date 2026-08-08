@@ -255,8 +255,6 @@ const enterpriseInviteSchema = z.object({
   postsPerMonth: z.coerce.number().int().min(0).max(5_000).optional(),
   reelsPerMonth: z.coerce.number().int().min(0).max(500).optional(),
   microReelsPerMonth: z.coerce.number().int().min(0).max(500).optional(),
-  proPhotoShootFrequency: z.string().trim().min(1).max(120).optional(),
-  proPhotoShootLength: z.string().trim().min(1).max(120).optional(),
   captionHashtags: z.boolean(),
   scheduling: z.boolean(),
   amount: z.coerce.number().positive().max(1_000_000),
@@ -268,16 +266,16 @@ const enterpriseInviteSchema = z.object({
   ),
 });
 
-async function generateEnterprisePlanCode() {
+async function generateCustomPlanCode() {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const suffix = crypto.randomBytes(4).toString("hex").toUpperCase();
-    const candidate = `ENT_${suffix}`;
+    const candidate = `CUS_${suffix}`;
     const exists = await prisma.plan.findUnique({ where: { code: candidate }, select: { code: true } });
     if (!exists) {
       return candidate;
     }
   }
-  throw new Error("Unable to generate a unique enterprise plan code");
+  throw new Error("Unable to generate a unique custom plan code");
 }
 
 router.post("/enterprise-plan/invites", async (req, res) => {
@@ -287,7 +285,7 @@ router.post("/enterprise-plan/invites", async (req, res) => {
   }
 
   const data = parsed.data;
-  const planCode = await generateEnterprisePlanCode();
+  const planCode = await generateCustomPlanCode();
   const billingCycle = data.billingCycle === "YEARLY" ? BillingCycle.YEARLY : BillingCycle.MONTHLY;
   const recipientEmail = data.email.toLowerCase().trim();
   const amount = Number(data.amount.toFixed(2));
@@ -332,8 +330,6 @@ router.post("/enterprise-plan/invites", async (req, res) => {
       postsPerMonth: data.postsPerMonth,
       reelsPerMonth: data.reelsPerMonth,
       microReelsPerMonth: data.microReelsPerMonth,
-      proPhotoShootFrequency: data.proPhotoShootFrequency,
-      proPhotoShootLength: data.proPhotoShootLength,
       captionHashtags: data.captionHashtags,
       scheduling: data.scheduling,
       amount: new Prisma.Decimal(amount),
@@ -355,8 +351,6 @@ router.post("/enterprise-plan/invites", async (req, res) => {
       socialPlatforms: data.socialPlatforms,
       reelsPerMonth: data.reelsPerMonth,
       microReelsPerMonth: data.microReelsPerMonth,
-      proPhotoShootFrequency: data.proPhotoShootFrequency,
-      proPhotoShootLength: data.proPhotoShootLength,
       captionHashtags: data.captionHashtags,
       scheduling: data.scheduling,
       planCode,
@@ -381,8 +375,6 @@ router.post("/enterprise-plan/invites", async (req, res) => {
     postsPerMonth: data.postsPerMonth ?? null,
     reelsPerMonth: data.reelsPerMonth ?? null,
     microReelsPerMonth: data.microReelsPerMonth ?? null,
-    proPhotoShootFrequency: data.proPhotoShootFrequency ?? null,
-    proPhotoShootLength: data.proPhotoShootLength ?? null,
     captionHashtags: data.captionHashtags ?? null,
     scheduling: data.scheduling ?? null,
   });
@@ -473,8 +465,6 @@ router.patch("/enterprise-plan/invites/:id", async (req, res) => {
         postsPerMonth: data.postsPerMonth,
         reelsPerMonth: data.reelsPerMonth,
         microReelsPerMonth: data.microReelsPerMonth,
-        proPhotoShootFrequency: data.proPhotoShootFrequency,
-        proPhotoShootLength: data.proPhotoShootLength,
         captionHashtags: data.captionHashtags,
         scheduling: data.scheduling,
         amount: new Prisma.Decimal(amount),
@@ -494,8 +484,6 @@ router.patch("/enterprise-plan/invites/:id", async (req, res) => {
         socialPlatforms: data.socialPlatforms,
         reelsPerMonth: data.reelsPerMonth,
         microReelsPerMonth: data.microReelsPerMonth,
-        proPhotoShootFrequency: data.proPhotoShootFrequency,
-        proPhotoShootLength: data.proPhotoShootLength,
         captionHashtags: data.captionHashtags,
         scheduling: data.scheduling,
         expiresAt,
@@ -698,8 +686,6 @@ router.get("/enterprise-plan/invites/:id/details", async (req, res) => {
         postsPerMonth: invite.proposal.postsPerMonth,
         reelsPerMonth: invite.proposal.reelsPerMonth,
         microReelsPerMonth: invite.proposal.microReelsPerMonth,
-        proPhotoShootFrequency: invite.proposal.proPhotoShootFrequency,
-        proPhotoShootLength: invite.proposal.proPhotoShootLength,
         captionHashtags: invite.proposal.captionHashtags,
         scheduling: invite.proposal.scheduling,
         internalNotes: invite.proposal.internalNotes,
@@ -770,8 +756,6 @@ router.post("/enterprise-plan/invites/:id/resend", async (req, res) => {
     postsPerMonth: invite.proposal?.postsPerMonth ?? null,
     reelsPerMonth: invite.proposal?.reelsPerMonth ?? null,
     microReelsPerMonth: invite.proposal?.microReelsPerMonth ?? null,
-    proPhotoShootFrequency: invite.proposal?.proPhotoShootFrequency ?? null,
-    proPhotoShootLength: invite.proposal?.proPhotoShootLength ?? null,
     captionHashtags: invite.proposal?.captionHashtags ?? null,
     scheduling: invite.proposal?.scheduling ?? null,
   });
