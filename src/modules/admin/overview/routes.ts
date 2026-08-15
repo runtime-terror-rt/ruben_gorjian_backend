@@ -7,7 +7,7 @@ import { requireAdmin } from "../../../middleware/requireAdmin";
 
 const router = express.Router();
 
-const YEARLY_MULTIPLIER = 12 * 0.8;
+const YEARLY_MULTIPLIER = 12 * 0.9;
 const MONTH_LABELS = [
   "January",
   "February",

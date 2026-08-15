@@ -25,7 +25,7 @@ const router = express.Router();
 const VIDEO_SESSION_HOURLY_RATE_CENTS = 49_500;
 const PLATFORM_ADDON_MONTHLY_CENTS = 500;
 const NY_SALES_TAX_BPS = 862.5;
-const YEARLY_MULTIPLIER = 12 * 0.8;
+const YEARLY_MULTIPLIER = 12 * 0.9;
 const ALLOWED_FULL_MANAGEMENT_PLAN_CODES = new Set(["ESSENTIALS", "SIGNATURE"]);
 const PLATFORM_LIMIT_EXCEEDED_ERROR = `Platform limit exceeded: max allowed platforms (including addons) is ${GLOBAL_PLATFORM_LIMIT}.`;
 
@@ -247,17 +247,17 @@ async function resolveOrCreateYearlyPrice(params: {
     active: true,
   });
 
-  const yearlyPrice = allPrices.data.find((p) => p.recurring?.interval === "year");
-  if (yearlyPrice) {
-    return yearlyPrice;
-  }
-
   if ((params.defaultPrice.recurring?.interval || "") !== "month") {
     throw new Error("Yearly billing is not available for this plan");
   }
 
   const monthlyCents = params.defaultPrice.unit_amount ?? 0;
   const yearlyCents = Math.round(monthlyCents * YEARLY_MULTIPLIER);
+
+  const yearlyPrice = allPrices.data.find((p) => p.recurring?.interval === "year" && p.unit_amount === yearlyCents);
+  if (yearlyPrice) {
+    return yearlyPrice;
+  }
 
   const created = await stripeClient.prices.create(
     {
