@@ -10,7 +10,6 @@ docker-compose*.yml
 tests
 docs
 postman
-scripts
 public
 coverage
 .nyc_output
