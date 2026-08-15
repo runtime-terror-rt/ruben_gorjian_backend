@@ -237,6 +237,7 @@ async function resolveOrCreateYearlyPrice(params: {
   product: Stripe.Product;
   defaultPrice: Stripe.Price;
   normalizedPlanCode: string;
+  explicitYearlyCents?: number | null;
 }): Promise<Stripe.Price> {
   if (!stripeClient) {
     throw new Error("Stripe not configured");
@@ -252,7 +253,7 @@ async function resolveOrCreateYearlyPrice(params: {
   }
 
   const monthlyCents = params.defaultPrice.unit_amount ?? 0;
-  const yearlyCents = Math.round(monthlyCents * YEARLY_MULTIPLIER);
+  const yearlyCents = params.explicitYearlyCents ?? Math.round(monthlyCents * YEARLY_MULTIPLIER);
 
   const yearlyPrice = allPrices.data.find((p) => p.recurring?.interval === "year" && p.unit_amount === yearlyCents);
   if (yearlyPrice) {
@@ -394,6 +395,7 @@ async function resolvePriceForPlanAndCycle(params: {
       product,
       defaultPrice: standardMonthlyPrice,
       normalizedPlanCode: params.normalizedPlanCode,
+      explicitYearlyCents: planFromDb?.priceYearlyStandardCents,
     });
   }
 
@@ -628,6 +630,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
           product,
           defaultPrice: standardMonthlyPrice,
           normalizedPlanCode,
+          explicitYearlyCents: planFromDb?.priceYearlyStandardCents,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Yearly billing is not available for this plan.";

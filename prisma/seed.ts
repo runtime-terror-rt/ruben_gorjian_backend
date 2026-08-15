@@ -21,8 +21,8 @@ const planSeed = [
     schedulerRole: SchedulerRole.CLIENT,
     priceStandardCents: 39700,
     priceFounderCents: 39700,
-    priceYearlyStandardCents: 428760,
-    priceYearlyFounderCents: 428760,
+    priceYearlyStandardCents: 428800,
+    priceYearlyFounderCents: 428800,
     hasYearlyPrice: true,
   },
   {
@@ -38,8 +38,8 @@ const planSeed = [
     schedulerRole: SchedulerRole.CLIENT,
     priceStandardCents: 59700,
     priceFounderCents: 59700,
-    priceYearlyStandardCents: 644760,
-    priceYearlyFounderCents: 644760,
+    priceYearlyStandardCents: 644800,
+    priceYearlyFounderCents: 644800,
     hasYearlyPrice: true,
   },
 ];
