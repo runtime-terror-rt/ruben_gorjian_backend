@@ -1036,7 +1036,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
               couponCode: applicableCoupon.code,
             },
           },
-          { idempotencyKey: `coupon-${applicableCoupon.code}-pct-${percentOff}` }
+          { idempotencyKey: `coupon-${applicableCoupon.id}-pct-${percentOff}` }
         );
       } else {
         stripeCoupon = await stripeClient.coupons.create(
@@ -1051,7 +1051,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
               couponCode: applicableCoupon.code,
             },
           },
-          { idempotencyKey: `coupon-${applicableCoupon.code}-amt-${couponDiscountCents}` }
+          { idempotencyKey: `coupon-${applicableCoupon.id}-amt-${couponDiscountCents}` }
         );
       }
       checkoutDiscounts = [{ coupon: stripeCoupon.id }];
@@ -1352,7 +1352,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
               couponCode: applicableCoupon.code,
             },
           },
-          { idempotencyKey: `coupon-${applicableCoupon.code}-pct-${percentOff}` }
+          { idempotencyKey: `coupon-${applicableCoupon.id}-pct-${percentOff}` }
         );
       } else {
         stripeCoupon = await stripeClient.coupons.create(
@@ -1367,7 +1367,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
               couponCode: applicableCoupon.code,
             },
           },
-          { idempotencyKey: `coupon-${applicableCoupon.code}-amt-${couponDiscountCents}` }
+          { idempotencyKey: `coupon-${applicableCoupon.id}-amt-${couponDiscountCents}` }
         );
       }
       checkoutDiscounts = [{ coupon: stripeCoupon.id }];
