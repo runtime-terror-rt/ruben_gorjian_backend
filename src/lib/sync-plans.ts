@@ -159,7 +159,7 @@ export async function syncPlansToStripeFromDatabase() {
       }
 
       if (plan.hasYearlyPrice) {
-        const yearlyUnitAmount = Math.round(plan.priceStandardCents * 12 * 0.8);
+        const yearlyUnitAmount = plan.priceYearlyStandardCents ?? Math.round(plan.priceStandardCents * 12 * 0.9);
         await ensureStripePrice({
           productId: product.id,
           recurringInterval: "year",
