@@ -693,10 +693,10 @@ router.post("/checkout", requireAuth, async (req, res) => {
       basePostQuota: product.metadata.basePostQuota ? parseInt(product.metadata.basePostQuota) : null,
       postLimitType: toPostLimitType(product.metadata.postLimitType),
       schedulerRole: toSchedulerRole(product.metadata.schedulerRole),
-      priceStandardCents: price.unit_amount ?? 0,
+      priceStandardCents: standardMonthlyPrice.unit_amount ?? 0,
       priceFounderCents: product.metadata.priceFounderCents
         ? parseInt(product.metadata.priceFounderCents)
-        : price.unit_amount ?? 0,
+        : standardMonthlyPrice.unit_amount ?? 0,
       stripePriceStandardId: price.id,
     };
 
