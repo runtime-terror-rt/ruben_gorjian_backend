@@ -16,7 +16,9 @@
     "test:social": "ts-node src/test-social.ts",
     "upload-post:smoke": "ts-node -P tsconfig.scripts.json scripts/upload-post-smoke.ts",
     "stripe:replace-plans": "ts-node -P tsconfig.scripts.json scripts/create-and-replace-stripe-plans.ts",
-    "stripe:yearly-prices": "ts-node -P tsconfig.scripts.json scripts/create-stripe-yearly-prices.ts"
+    "stripe:yearly-prices": "ts-node -P tsconfig.scripts.json scripts/create-stripe-yearly-prices.ts",
+    "stripe:fix-prices": "ts-node -P tsconfig.scripts.json scripts/fix-stripe-default-prices.ts",
+    "stripe:fix-metadata": "ts-node -P tsconfig.scripts.json scripts/fix-stripe-metadata.ts"
   },
   "repository": {
     "type": "git",
