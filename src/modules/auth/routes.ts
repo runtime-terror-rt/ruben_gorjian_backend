@@ -369,6 +369,7 @@ const credentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   pendingPlanCode: z.string().optional(), // Optional plan code selected before signup
+  websiteUrl: z.string().optional().default(""), // Honeypot field for bots
 });
 
 const enterpriseInviteSignupSchema = z.object({
@@ -667,7 +668,18 @@ router.post("/signup", authLimiter, async (req, res) => {
       .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
-  const { email, password, pendingPlanCode } = parsed.data;
+  const { email, password, pendingPlanCode, websiteUrl } = parsed.data;
+
+  if (websiteUrl) {
+    logger.info("Bot prevented from registering (Honeypot triggered)", { email, honeypotValue: websiteUrl });
+    return res.status(201).json({
+      message: "Account created successfully. Check your email to verify.",
+      requiresVerification: true,
+      email,
+      planCode: pendingPlanCode,
+    });
+  }
+
   const normalizedPendingPlanCode = pendingPlanCode?.trim().toUpperCase();
 
   const existing = await prisma.user.findUnique({ where: { email } });
