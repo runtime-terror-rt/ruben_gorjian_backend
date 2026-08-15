@@ -21,8 +21,8 @@ const planSeed = [
     schedulerRole: SchedulerRole.CLIENT,
     priceStandardCents: 39700,
     priceFounderCents: 39700,
-    priceYearlyStandardCents: 428800,
-    priceYearlyFounderCents: 428800,
+    priceYearlyStandardCents: 428760,
+    priceYearlyFounderCents: 428760,
     hasYearlyPrice: true,
   },
   {
@@ -38,8 +38,8 @@ const planSeed = [
     schedulerRole: SchedulerRole.CLIENT,
     priceStandardCents: 59700,
     priceFounderCents: 59700,
-    priceYearlyStandardCents: 644800,
-    priceYearlyFounderCents: 644800,
+    priceYearlyStandardCents: 644760,
+    priceYearlyFounderCents: 644760,
     hasYearlyPrice: true,
   },
 ];
@@ -63,14 +63,18 @@ async function main() {
     });
   }
 
-  const adminEmail = (process.env.ADMIN_EMAIL).toLowerCase();
+  if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) {
+    throw new Error("ADMIN_EMAIL and ADMIN_PASSWORD must be set in .env");
+  }
+
+  const adminEmail = process.env.ADMIN_EMAIL.toLowerCase();
   
   const admin = await prisma.user.upsert({
     where: { email: adminEmail },
     update: { role: "SUPER_ADMIN" },
     create: {
       email: adminEmail,
-      passwordHash: await bcrypt.hash(process.env.ADMIN_PASSWORD, 10),
+      passwordHash: bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10),
       role: "SUPER_ADMIN",
       emailVerified: true,
       onboardingCompleted: true,
