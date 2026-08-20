@@ -11,6 +11,19 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { buildStorageUrl } from "../../lib/validators";
 import { logger } from "../../lib/logger";
+
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+import customParseFormat from "dayjs/plugin/customParseFormat";
+import ExcelJS from "exceljs";
+import { z } from "zod";
+import { schedulerBulkUploadConfirmSchema } from "./validation";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.extend(customParseFormat);
+
 import { getSubscriptionPeriod } from "../../lib/subscription-period";
 import { validatePostAsUserPermission } from "../../middleware/requireAdminPostPermission";
 import { SchedulerStorageService, validateSchedulerContentType } from "./storage";
@@ -402,7 +415,7 @@ export class SchedulerService {
 
     if (links.length === 0) {
       throw new Error(
-        "No connected social platforms found for this client. Connect at least one platform from /api/social-media/platform/my-links before scheduling."
+        "No social media accounts connected. Please connect at least one social platform before scheduling a post."
       );
     }
 
@@ -2340,5 +2353,196 @@ export class SchedulerService {
         where: { id: asset.id },
       });
     }
+  }
+
+  async previewBulkSpreadsheet(actor: Actor, targetUserId: string, fileBuffer: Buffer) {
+    const userId = await this.resolveTargetUser(actor, targetUserId);
+    const user = await prisma.user.findUnique({ 
+      where: { id: userId },
+      include: { profile: true } 
+    });
+    if (!user) throw new Error("User not found");
+    if (!user.profile?.timezone) {
+      throw new Error("This client has no timezone set. Set the client's timezone before scheduling posts.");
+    }
+    const timezone = user.profile.timezone;
+
+    const workbook = new ExcelJS.Workbook();
+    // Assuming CSV if the filename has csv. Wait, we don't have filename here.
+    // ExcelJS load() can throw if it's a CSV, we can fallback to csv.read()
+    try {
+      await workbook.xlsx.load(fileBuffer as any);
+    } catch (err) {
+      // Stream interface for CSV requires readable stream, but we can pass buffer
+      await workbook.csv.read(require('stream').Readable.from(fileBuffer));
+    }
+    
+    const sheet = workbook.worksheets[0];
+    if (!sheet) throw new Error("Spreadsheet is empty.");
+
+    const headerRow = sheet.getRow(1);
+    const headers = headerRow.values as any[];
+    const rows: any[] = [];
+    
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const rowData: any = {};
+      row.eachCell((cell, colNumber) => {
+        let headerName = headers[colNumber];
+        if (typeof headerName === "object" && headerName?.richText) {
+           headerName = headerName.richText.map((rt: any) => rt.text).join("");
+        } else if (headerName) {
+           headerName = headerName.toString();
+        }
+        if (!headerName) return;
+        
+        let value = cell.value;
+        if (value && typeof value === "object") {
+          const valObj = value as any;
+          if (valObj.richText) {
+            value = valObj.richText.map((rt: any) => rt.text).join("");
+          } else if (valObj.result !== undefined) {
+            value = valObj.result;
+          }
+        }
+        rowData[headerName] = value;
+      });
+      rows.push(rowData);
+    });
+
+    const expectedImages = new Set<string>();
+    const parsedPosts: any[] = [];
+    let readyCount = 0;
+    let problemCount = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row: any = rows[i];
+      const rowKeys = Object.keys(row);
+      
+      const imageFilenameKey = rowKeys.find(k => k.trim().toLowerCase() === "image filename") || "Image Filename";
+      const captionKey = rowKeys.find(k => k.trim().toLowerCase() === "caption") || "Caption";
+      const hashtagsKey = rowKeys.find(k => k.trim().toLowerCase() === "hashtags") || "Hashtags";
+      const dateKey = rowKeys.find(k => k.trim().toLowerCase() === "suggested post date") || "Suggested Post Date";
+      const timeKey = rowKeys.find(k => k.trim().toLowerCase() === "suggested post time") || "Suggested Post Time";
+      
+      const imageFilename = (row[imageFilenameKey] || "").toString().trim();
+      const caption = (row[captionKey] || "").toString();
+      
+      let hashtagsStr = (row[hashtagsKey] || "").toString().trim();
+      const hashtags = hashtagsStr ? hashtagsStr.split(/\s+/).filter(Boolean) : [];
+      
+      let rawDate = row[dateKey];
+      let rawTime = row[timeKey];
+
+      let suggestedDate = "";
+      if (rawDate instanceof Date) {
+        suggestedDate = dayjs(rawDate).utc().format("MM/DD/YYYY");
+      } else {
+        suggestedDate = (rawDate || "").toString().trim();
+      }
+
+      let suggestedTime = "";
+      if (typeof rawTime === "number") {
+        const totalSeconds = Math.round(rawTime * 24 * 60 * 60);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const ampm = hours >= 12 ? "PM" : "AM";
+        const displayHours = hours % 12 || 12;
+        suggestedTime = `${displayHours}:${minutes.toString().padStart(2, "0")} ${ampm}`;
+      } else if (rawTime instanceof Date) {
+        suggestedTime = dayjs(rawTime).utc().format("h:mm A");
+      } else {
+        suggestedTime = (rawTime || "").toString().trim();
+      }
+
+      const rowErrors = [];
+
+      if (!imageFilename) rowErrors.push("Missing Image Filename");
+      if (!caption) rowErrors.push("Empty Caption");
+      if (!suggestedDate || !suggestedTime) {
+        rowErrors.push("Missing Date or Time");
+      }
+
+      let scheduledAt = null;
+      if (suggestedDate && suggestedTime) {
+        const combined = `${suggestedDate} ${suggestedTime}`;
+        // Try parsing using dayjs with custom format first, then fallback to standard parsing
+        let dt = dayjs.tz(combined, "M/D/YYYY h:mm A", timezone);
+        
+        if (!dt.isValid()) {
+          dt = dayjs.tz(combined, timezone);
+        }
+        
+        if (!dt.isValid()) {
+          rowErrors.push("Unreadable Date or Time (Format should be MM/DD/YYYY h:mm A)");
+        } else {
+          scheduledAt = dt.toDate();
+          if (scheduledAt <= new Date()) {
+            rowErrors.push("Date is in the past");
+          }
+        }
+      }
+
+      if (imageFilename && expectedImages.has(imageFilename.toLowerCase())) {
+        rowErrors.push("Duplicate Image Filename in sheet");
+      }
+      if (imageFilename) {
+        expectedImages.add(imageFilename.toLowerCase());
+      }
+
+      if (rowErrors.length > 0) {
+        problemCount++;
+      } else {
+        readyCount++;
+      }
+
+      parsedPosts.push({
+        rowNumber: i + 2,
+        imageFilename,
+        caption,
+        hashtags,
+        suggestedDate,
+        suggestedTime,
+        scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
+        errors: rowErrors,
+      });
+    }
+
+    return {
+      totalPosts: rows.length,
+      readyCount,
+      problemCount,
+      expectedImages: Array.from(expectedImages),
+      posts: parsedPosts,
+      timezone
+    };
+  }
+
+  async confirmBulkPosts(actor: Actor, payload: z.infer<typeof schedulerBulkUploadConfirmSchema>) {
+    const userId = await this.resolveTargetUser(actor, payload.userId);
+    const results = [];
+    const errors = [];
+    
+    for (const post of payload.posts) {
+      try {
+        const result = await this.createScheduledPost(actor, {
+          userId,
+          caption: post.caption,
+          hashtags: post.hashtags,
+          scheduledAt: post.scheduledAt,
+          platforms: payload.platforms ?? [], // Use provided platforms or default to all connected
+          uploadedAssetIds: post.assetIds,
+        });
+        results.push(result);
+      } catch (error: any) {
+        errors.push({ caption: post.caption, error: error.message || String(error) });
+      }
+    }
+    
+    return {
+      successCount: results.length,
+      errorCount: errors.length,
+      errors
+    };
   }
 }

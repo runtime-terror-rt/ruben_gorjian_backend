@@ -1,0 +1,162 @@
+{
+	"info": {
+		"_postman_id": "e4f8d9b6-8a7e-4b1a-b6d3-21c6f9a5e1c4",
+		"name": "Talexia Bulk Post Upload",
+		"description": "Collection for the Bulk Post Upload APIs in Talexia Backend",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Preview Bulk Spreadsheet",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{admin_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "userId",
+							"value": "{{target_user_id}}",
+							"type": "text"
+						},
+						{
+							"key": "file",
+							"type": "file",
+							"src": []
+						}
+					]
+				},
+				"url": {
+					"raw": "{{base_url}}/api/scheduler/bulk/preview",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"scheduler",
+						"bulk",
+						"preview"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "2. Upload Bulk Images",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{admin_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "userId",
+							"value": "{{target_user_id}}",
+							"type": "text"
+						},
+						{
+							"key": "files",
+							"type": "file",
+							"src": []
+						}
+					]
+				},
+				"url": {
+					"raw": "{{base_url}}/api/scheduler/bulk/upload-images",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"scheduler",
+						"bulk",
+						"upload-images"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "3. Confirm Bulk Posts",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{admin_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"userId\": \"{{target_user_id}}\",\n    \"posts\": [\n        {\n            \"caption\": \"This is my first bulk post!\",\n            \"hashtags\": [\"#bulk\", \"#test\"],\n            \"scheduledAt\": \"2026-08-31T18:00:00.000Z\",\n            \"assetIds\": [\"cl_some_asset_id_here\"]\n        }\n    ]\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{base_url}}/api/scheduler/bulk/confirm",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"scheduler",
+						"bulk",
+						"confirm"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:4000",
+			"type": "string"
+		},
+		{
+			"key": "admin_token",
+			"value": "YOUR_ADMIN_JWT_TOKEN",
+			"type": "string"
+		},
+		{
+			"key": "target_user_id",
+			"value": "CLIENT_USER_ID",
+			"type": "string"
+		}
+	]
+}

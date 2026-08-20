@@ -17,6 +17,8 @@ import {
   schedulerUpdateSessionSchema,
   schedulerUpdateSessionStatusSchema,
   schedulerUpdatePostSchema,
+  schedulerBulkUploadPreviewSchema,
+  schedulerBulkUploadConfirmSchema,
 } from "./validation";
 import { SchedulerStorageService } from "./storage";
 
@@ -475,6 +477,82 @@ router.post("/debug/delete-s3-object", requireAdmin, async (req, res) => {
       message: "S3 delete request failed",
       awsError: error instanceof Error ? error.message : String(error),
       storageKey: parsed.data.storageKey,
+    });
+  }
+});
+
+router.post("/bulk/preview", requireAuth, requireAdmin, upload.single("file"), async (req, res) => {
+  const rawUserId = req.body?.userId;
+  const parsed = schedulerBulkUploadPreviewSchema.safeParse({ userId: rawUserId });
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid preview request", details: formatZodError(parsed.error) });
+  }
+
+  const file = req.file;
+  if (!file) {
+    return res.status(400).json({ error: "Spreadsheet file is required" });
+  }
+
+  try {
+    const result = await schedulerService.previewBulkSpreadsheet(req.user!, parsed.data.userId, file.buffer);
+    return res.json(result);
+  } catch (error) {
+    return res.status(400).json({
+      error: error instanceof Error ? error.message : "Failed to preview spreadsheet",
+    });
+  }
+});
+
+router.post("/bulk/upload-images", requireAuth, requireAdmin, upload.array("files", 100), async (req, res) => {
+  const rawUserId = req.body?.userId;
+  if (!rawUserId) {
+    return res.status(400).json({ error: "userId is required" });
+  }
+
+  const files = ((req as any).files ?? []) as Array<{
+    originalname: string;
+    mimetype: string;
+    size: number;
+    buffer: Buffer;
+  }>;
+
+  if (files.length === 0) {
+    return res.status(400).json({ error: "No image files provided" });
+  }
+
+  try {
+    const uploaded = await schedulerService.uploadMediaFiles(req.user!, {
+      userId: rawUserId,
+      files,
+    });
+    
+    const nameToId = uploaded.media.reduce((acc: any, asset) => {
+      if (asset.originalFileName) {
+        acc[asset.originalFileName.toLowerCase()] = asset.id;
+      }
+      return acc;
+    }, {});
+
+    return res.json({ nameToId, ...uploaded });
+  } catch (error) {
+    return res.status(400).json({
+      error: error instanceof Error ? error.message : "Failed to upload bulk images",
+    });
+  }
+});
+
+router.post("/bulk/confirm", requireAuth, requireAdmin, async (req, res) => {
+  const parsed = schedulerBulkUploadConfirmSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid bulk confirm payload", details: formatZodError(parsed.error) });
+  }
+
+  try {
+    const result = await schedulerService.confirmBulkPosts(req.user!, parsed.data);
+    return res.json(result);
+  } catch (error) {
+    return res.status(400).json({
+      error: error instanceof Error ? error.message : "Failed to confirm bulk posts",
     });
   }
 });
