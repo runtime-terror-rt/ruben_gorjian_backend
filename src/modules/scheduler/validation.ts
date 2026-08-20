@@ -106,6 +106,23 @@ export const schedulerUpdateSessionStatusSchema = z.object({
   adminReason: z.string().max(500).nullable().optional(),
 });
 
+export const schedulerBulkUploadPreviewSchema = z.object({
+  userId: z.string().min(1, "User ID is required"),
+});
+
+export const schedulerBulkUploadConfirmSchema = z.object({
+  userId: z.string().min(1, "User ID is required"),
+  platforms: z.array(z.string().min(1)).min(1).optional(),
+  posts: z.array(
+    z.object({
+      caption: z.string().min(1).max(2200),
+      hashtags: z.array(z.string().min(1)).max(30).optional(),
+      scheduledAt: dateTimeString("scheduledAt"),
+      assetIds: z.array(z.string().min(1)).min(1),
+    })
+  ).min(1),
+});
+
 export function formatZodError(error: z.ZodError) {
   return {
     issues: error.issues.map((issue) => ({
