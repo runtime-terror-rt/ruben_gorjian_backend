@@ -90,7 +90,7 @@ router.post("/", requireAuth, async (req, res) => {
     caption: z.string().min(1),
     hashtags: z.array(z.string().min(1)).max(30).optional(),
     scheduledFor: z.string().transform(str => new Date(str)).optional(),
-    platforms: z.array(z.enum(["INSTAGRAM", "FACEBOOK", "LINKEDIN"])),
+    platforms: z.array(z.enum(["INSTAGRAM", "FACEBOOK", "LINKEDIN", "TIKTOK"])),
     socialAccountIds: z.array(z.string()).optional()
   });
 
@@ -133,7 +133,7 @@ router.put("/:postId", requireAuth, async (req, res) => {
     caption: z.string().min(1).optional(),
     hashtags: z.array(z.string().min(1)).max(30).optional(),
     scheduledFor: z.string().transform(str => new Date(str)).optional(),
-    platforms: z.array(z.enum(["INSTAGRAM", "FACEBOOK", "LINKEDIN"])).optional(),
+    platforms: z.array(z.enum(["INSTAGRAM", "FACEBOOK", "LINKEDIN", "TIKTOK"])).optional(),
     socialAccountIds: z.array(z.string()).optional()
   });
 

@@ -10,7 +10,7 @@ export type UploadPostJobResult = {
   raw: unknown;
 };
 
-class UploadPostApiError extends Error {
+export class UploadPostApiError extends Error {
   status?: number;
 
   constructor(message: string, status?: number) {

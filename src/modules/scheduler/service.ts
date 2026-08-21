@@ -2457,7 +2457,7 @@ export class SchedulerService {
 
       const rowErrors = [];
 
-      if (!imageFilename) rowErrors.push("Missing Image Filename");
+      // if (!imageFilename) rowErrors.push("Missing Image Filename");
       if (!caption) rowErrors.push("Empty Caption");
       if (!suggestedDate || !suggestedTime) {
         rowErrors.push("Missing Date or Time");
