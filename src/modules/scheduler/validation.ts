@@ -118,7 +118,7 @@ export const schedulerBulkUploadConfirmSchema = z.object({
       caption: z.string().min(1).max(2200),
       hashtags: z.array(z.string().min(1)).max(30).optional(),
       scheduledAt: dateTimeString("scheduledAt"),
-      assetIds: z.array(z.string().min(1)).min(1),
+      assetIds: z.array(z.string().min(1)).optional().default([]),
     })
   ).min(1),
 });

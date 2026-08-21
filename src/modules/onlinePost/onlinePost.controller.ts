@@ -284,6 +284,22 @@ export class OnlinePostController {
     }
   };
 
+  syncPlatformLinks = async (req: AuthedRequest, res: Response) => {
+    try {
+      const result = await this.onlinePostService.syncPlatformLinks(req.user);
+
+      const response = {
+        success: true,
+        message: "Links synchronized successfully.",
+        data: result,
+      };
+
+      return res.status(200).json(response);
+    } catch (error) {
+      return handleError(error, res);
+    }
+  };
+
   getAllPlatformLinks = async (req: AuthedRequest, res: Response) => {
     try {
       const { email, search, platforms, page, limit } = req.query;

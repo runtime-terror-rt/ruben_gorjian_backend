@@ -878,9 +878,7 @@ export class PostService {
           // For Instagram, use single media (first asset)
           // For Facebook, use multiple media if available
           const isInstagram = target.platform === "INSTAGRAM";
-          const mediaToUse = isInstagram && mediaUrls.length > 0
-            ? [mediaUrls[0]]
-            : mediaUrls;
+          const mediaToUse = mediaUrls;
 
           const content = {
             text: captionWithHashtags,

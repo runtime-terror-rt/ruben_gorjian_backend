@@ -93,7 +93,7 @@ router.put("/:postId/move", requireAuth, async (req, res) => {
 // Find optimal time slot
 router.post("/find-slot", requireAuth, async (req, res) => {
   const schema = z.object({
-    platforms: z.array(z.enum(["INSTAGRAM", "FACEBOOK", "LINKEDIN"])),
+    platforms: z.array(z.enum(["INSTAGRAM", "FACEBOOK", "LINKEDIN", "TIKTOK"])),
     duration: z.number().optional().default(60)
   });
 
@@ -170,7 +170,7 @@ router.post("/recurring", requireAuth, async (req, res) => {
   const schema = z.object({
     caption: z.string().min(1),
     scheduledFor: z.string().transform(str => new Date(str)),
-    platforms: z.array(z.enum(["INSTAGRAM", "FACEBOOK", "LINKEDIN"])),
+    platforms: z.array(z.enum(["INSTAGRAM", "FACEBOOK", "LINKEDIN", "TIKTOK"])),
     socialAccountIds: z.array(z.string()).min(1),
     intervalInDays: z.number().min(1),
     endDate: z.string().optional().transform(str => str ? new Date(str) : undefined),

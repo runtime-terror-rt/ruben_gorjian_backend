@@ -547,9 +547,12 @@ export class SocialMediaService {
         form.append("photos[]", url);
         form.append("urls[]", url);
       }
-      form.append("photo_url", mediaList[0]);
-      form.append("image", mediaList[0]);
-      form.append("photo", mediaList[0]);
+      
+      if (mediaList.length === 1) {
+        form.append("photo_url", mediaList[0]);
+        form.append("image", mediaList[0]);
+        form.append("photo", mediaList[0]);
+      }
 
       const result = await this.api("/upload_photos", {
         method: "POST",
@@ -945,9 +948,18 @@ export class SocialMediaService {
     const platform = this.normalizePlatform(payload.platform);
     const username = this.uploadPostUsername(user);
 
+    const prismaPlatform = this.toPrismaPlatform(platform);
+
+    const isAlreadyLinked = await this.prisma.socialPlatformLink.findFirst({
+      where: {
+        userId: user.id,
+        platform: prismaPlatform,
+      },
+    });
+
     const limitCheck = await this.validatePlatformLimit(user.id);
 
-    if (!limitCheck.allowed) {
+    if (!isAlreadyLinked && !limitCheck.allowed) {
       return {
         success: false,
         message: `Plan limit reached. Max linked platforms: ${limitCheck.maxLinkedPlatforms}`,
@@ -981,7 +993,7 @@ export class SocialMediaService {
         platforms: [platform],
         redirect_url: redirectUrl,
         show_calendar: payload.showCalendar ?? true,
-        
+        redirect_button_text: "Return to App",
       }),
     });
 
@@ -993,28 +1005,7 @@ export class SocialMediaService {
 }));
 console.log("generate-jwt response:", JSON.stringify(linkResult));
 
-    // TEMPOrary. because redirect is not happening
 
-    const connectMeta = this.extractConnectMeta(linkResult);
-
-    const prismaPlatform = this.toPrismaPlatform(platform);
-
-    await this.prisma.socialPlatformLink.upsert({
-      where: { userId_platform: { userId: user.id, platform: prismaPlatform } },
-      update: {
-        linkedAt: new Date(),
-        externalRef: connectMeta.externalRef,
-        externalProfileUrl: connectMeta.externalProfileUrl,
-      },
-      create: {
-        userId: user.id,
-        platform: prismaPlatform,
-        externalRef: connectMeta.externalRef,
-        externalProfileUrl: connectMeta.externalProfileUrl,
-        linkedAt: new Date(),
-        platformUsername: username,
-      },
-    });
 
     return {
       success: true,
@@ -1362,6 +1353,80 @@ console.log("generate-jwt response:", JSON.stringify(linkResult));
       };
     });
   }
+
+  async syncPlatformLinks(user: User) {
+    const username = this.uploadPostUsername(user);
+
+    let profileData: any;
+    try {
+      profileData = await this.api(`/uploadposts/users/${encodeURIComponent(username)}`, { method: "GET" });
+    } catch (error) {
+      const res =
+        error instanceof BadRequestException
+          ? (error.getResponse() as Record<string, any>)
+          : null;
+
+      if (Number(res?.statusCode) === 404) {
+        // Profile not found on provider means no active connections
+        await this.prisma.socialPlatformLink.deleteMany({
+          where: { userId: user.id },
+        });
+        return await this.getMyPlatformLinks(user.id);
+      }
+      throw error;
+    }
+
+    const socialAccounts =
+      profileData?.profile?.social_accounts ||
+      profileData?.social_accounts ||
+      profileData?.user?.social_accounts ||
+      {};
+
+    const activePlatforms: SocialPlatform[] = [];
+    if (socialAccounts.facebook) activePlatforms.push(SocialPlatform.FACEBOOK);
+    if (socialAccounts.instagram) activePlatforms.push(SocialPlatform.INSTAGRAM);
+    if (socialAccounts.tiktok) activePlatforms.push(SocialPlatform.TIKTOK);
+    if (socialAccounts.linkedin) activePlatforms.push(SocialPlatform.LINKEDIN);
+
+    const existingLinks = await this.prisma.socialPlatformLink.findMany({
+      where: { userId: user.id },
+    });
+    const existingPlatforms = existingLinks.map((l) => l.platform);
+
+    const platformsToDelete = existingPlatforms.filter(
+      (p) => !activePlatforms.includes(p),
+    );
+
+    const platformsToAdd = activePlatforms.filter(
+      (p) => !existingPlatforms.includes(p),
+    );
+
+    // Delete removed platforms
+    if (platformsToDelete.length > 0) {
+      await this.prisma.socialPlatformLink.deleteMany({
+        where: {
+          userId: user.id,
+          platform: { in: platformsToDelete },
+        },
+      });
+    }
+
+    // Add new platforms
+    if (platformsToAdd.length > 0) {
+      const newData = platformsToAdd.map((platform) => ({
+        userId: user.id,
+        platform,
+        platformUsername: username,
+        linkedAt: new Date(),
+      }));
+      await this.prisma.socialPlatformLink.createMany({
+        data: newData,
+      });
+    }
+
+    return await this.getMyPlatformLinks(user.id);
+  }
+
   async getAllPlatformLinks(
     filter?: { email?: string; platforms?: SocialPlatform[] },
     search?: string,
