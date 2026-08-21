@@ -373,40 +373,94 @@ router.get("/overview/upcoming-posts", async (req, res) => {
   }
 
   const now = new Date();
+  const limit = parsed.data.limit;
 
-  const items = await prisma.post.findMany({
-    where: {
-      userId,
-      status: PostStatus.SCHEDULED,
-      scheduledFor: {
-        gte: now, // only upcoming
+  const [postItems, scheduledPostItems] = await Promise.all([
+    prisma.post.findMany({
+      where: {
+        userId,
+        status: "SCHEDULED",
+        scheduledFor: { gte: now },
       },
-    },
-    orderBy: { scheduledFor: "asc" }, // nearest first
-    take: parsed.data.limit,
-    select: {
-      id: true,
-      status: true,
-      scheduledFor: true,
-      targets: {
-        select: {
-          platform: true,
-          status: true,
+      orderBy: { scheduledFor: "asc" },
+      take: limit,
+      select: {
+        id: true,
+        status: true,
+        scheduledFor: true,
+        caption: true,
+        PostAsset: {
+          include: { Asset: true },
+        },
+        targets: {
+          select: {
+            platform: true,
+            status: true,
+          },
         },
       },
-    },
+    }),
+    prisma.scheduledPost.findMany({
+      where: {
+        userId,
+        status: "PENDING",
+        scheduledAt: { gte: now },
+      },
+      orderBy: { scheduledAt: "asc" },
+      take: limit,
+      select: {
+        id: true,
+        status: true,
+        scheduledAt: true,
+        title: true,
+        mediaUrl: true,
+        platform: true,
+      },
+    }),
+  ]);
+
+  const unifiedItems = [
+    ...postItems.map((item) => {
+      const mediaUrls = item.PostAsset
+        ?.map((pa) => pa.Asset?.storageKey)
+        .filter((key) => Boolean(key))
+        .map((key) => process.env.STORAGE_BASE_URL ? `${process.env.STORAGE_BASE_URL}/${key}` : null)
+        .filter(Boolean) as string[] || [];
+        
+      return {
+        postId: item.id,
+        status: item.status,
+        scheduledFor: item.scheduledFor,
+        caption: item.caption,
+        mediaUrls,
+        targets: item.targets,
+        type: "regular",
+      };
+    }),
+    ...scheduledPostItems.map((item) => ({
+      postId: item.id,
+      status: "SCHEDULED", // PENDING in DB translates to SCHEDULED conceptually
+      scheduledFor: item.scheduledAt,
+      caption: item.title,
+      mediaUrls: item.mediaUrl ? [item.mediaUrl] : [],
+      targets: [{ platform: item.platform, status: "SCHEDULED" }],
+      type: "online-post",
+    })),
+  ];
+
+  unifiedItems.sort((a, b) => {
+    const timeA = a.scheduledFor?.getTime() || 0;
+    const timeB = b.scheduledFor?.getTime() || 0;
+    return timeA - timeB;
   });
+
+  const slicedItems = unifiedItems.slice(0, limit);
 
   return res.json({
     success: true,
     data: {
-      limit: parsed.data.limit,
-      items: items.map((item) => ({
-        postId: item.id,
-        status: item.status,
-        scheduledFor: item.scheduledFor,
-        targets: item.targets,
-      })),
+      limit,
+      items: slicedItems,
     },
   });
 });
@@ -414,25 +468,39 @@ router.get("/overview/upcoming-posts", async (req, res) => {
 router.get("/overview/post-pipeline", async (req, res) => {
   const userId = req.user!.id;
   const now = new Date();
+  
+  // Start of current week (Sunday 00:00:00)
   const startOfWeek = new Date(now);
-  startOfWeek.setDate(startOfWeek.getDate() - 7);
+  startOfWeek.setDate(now.getDate() - now.getDay());
+  startOfWeek.setHours(0, 0, 0, 0);
 
-  const [draft, scheduled, publishing, failed, postedThisWeek] = await Promise.all([
-    prisma.post.count({ where: { userId, status: PostStatus.DRAFT } }),
-    prisma.post.count({ where: { userId, status: PostStatus.SCHEDULED } }),
-    prisma.post.count({ where: { userId, status: PostStatus.PUBLISHING } }),
-    prisma.post.count({ where: { userId, status: PostStatus.FAILED } }),
-    prisma.post.count({ where: { userId, status: PostStatus.POSTED, updatedAt: { gte: startOfWeek } } }),
+  const [
+    scheduledPost,
+    failedPost,
+    postedTarget,
+    allPostThisWeek,
+    scheduledOnlinePost,
+    failedOnlinePost,
+    postedOnlinePost,
+    allOnlinePostThisWeek,
+  ] = await Promise.all([
+    prisma.post.count({ where: { userId, status: "SCHEDULED" } }),
+    prisma.post.count({ where: { userId, status: "FAILED" } }),
+    prisma.postTarget.count({ where: { post: { userId }, status: "POSTED" } }),
+    prisma.post.count({ where: { userId, createdAt: { gte: startOfWeek } } }),
+    prisma.scheduledPost.count({ where: { userId, status: "PENDING" } }),
+    prisma.scheduledPost.count({ where: { userId, status: "FAILED" } }),
+    prisma.scheduledPost.count({ where: { userId, status: "POSTED" } }),
+    prisma.scheduledPost.count({ where: { userId, createdAt: { gte: startOfWeek } } }),
   ]);
 
   return res.json({
     success: true,
     data: {
-      draft,
-      scheduled,
-      publishing,
-      failed,
-      postedThisWeek,
+      scheduled: scheduledPost + scheduledOnlinePost,
+      posted: postedTarget + postedOnlinePost,
+      failed: failedPost + failedOnlinePost,
+      postedThisWeek: allPostThisWeek + allOnlinePostThisWeek,
     },
   });
 });
