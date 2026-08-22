@@ -293,6 +293,26 @@ router.get("/overview/subscription-progress", async (req, res) => {
   const { periodStart, periodEnd } = getSubscriptionPeriod(subscription, now);
   const progress = getSubscriptionExpiryProgress(periodStart, periodEnd, now);
 
+  const [postCount, scheduledPostCount] = await Promise.all([
+    prisma.post.count({
+      where: {
+        userId,
+        createdAt: { gte: periodStart, lte: periodEnd },
+        status: { not: "DRAFT" }
+      }
+    }),
+    prisma.scheduledPost.count({
+      where: {
+        userId,
+        createdAt: { gte: periodStart, lte: periodEnd },
+      }
+    }),
+  ]);
+
+  const basePostQuota = subscription.plan?.basePostQuota ?? null;
+  const usedPosts = postCount + scheduledPostCount;
+  const remainingPosts = basePostQuota !== null ? Math.max(basePostQuota - usedPosts, 0) : null;
+
   return res.json({
     success: true,
     data: {
@@ -303,7 +323,9 @@ router.get("/overview/subscription-progress", async (req, res) => {
         addonPlatformQty: subscription.addonPlatformQty ?? 0,
         videoAddonEnabled: subscription.videoAddonEnabled ?? false,
         videoSessionHours: subscription.videoSessionHours ?? 0,
-        basePostQuota: subscription.plan?.basePostQuota ?? null,
+        basePostQuota,
+        usedPosts,
+        remainingPosts,
         platformLimit: subscription.plan ? (subscription.plan.platformLimit ?? 4) : 4,
         thisPlanPlatformLimit: (subscription.addonPlatformQty || 0) + (subscription.plan?.platformQty || 0),
         status: subscription.status,

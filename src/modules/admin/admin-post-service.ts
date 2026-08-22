@@ -4,6 +4,7 @@ import { enqueuePostPublish } from "../jobs/post-queue";
 import { validatePostAsUserPermission } from "../../middleware/requireAdminPostPermission";
 import { prisma } from "../../lib/prisma";
 import { getSubscriptionPeriod } from "../../lib/subscription-period";
+import { getActualPostsUsed } from "../../lib/quota-utils";
 
 export interface CreateAdminPostData {
   userId: string; // Target user to post as
@@ -179,15 +180,7 @@ export class AdminPostService {
     if (subscription?.plan?.basePostQuota) {
       const { periodStart, periodEnd } = getSubscriptionPeriod(subscription);
 
-      const usage = await prisma.usageMonthly.findFirst({
-        where: {
-          userId: data.userId,
-          periodStart,
-          periodEnd,
-        },
-      });
-
-      const postsUsed = usage?.postsUsed ?? 0;
+      const postsUsed = await getActualPostsUsed(data.userId, periodStart, periodEnd);
       if (subscription.plan.postLimitType === "HARD" && postsUsed >= subscription.plan.basePostQuota) {
         throw new Error(
           `User has reached monthly post limit (${subscription.plan.basePostQuota})`
@@ -627,15 +620,7 @@ export class AdminPostService {
     if (subscription?.plan?.basePostQuota) {
       const { periodStart, periodEnd } = getSubscriptionPeriod(subscription);
 
-      const usage = await prisma.usageMonthly.findFirst({
-        where: {
-          userId: post.userId,
-          periodStart,
-          periodEnd,
-        },
-      });
-
-      const postsUsed = usage?.postsUsed ?? 0;
+      const postsUsed = await getActualPostsUsed(post.userId, periodStart, periodEnd);
       if (subscription.plan.postLimitType === "HARD" && postsUsed >= subscription.plan.basePostQuota) {
         throw new Error(
           `User has reached monthly post limit (${subscription.plan.basePostQuota})`
