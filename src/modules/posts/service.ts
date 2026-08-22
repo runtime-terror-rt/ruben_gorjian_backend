@@ -5,6 +5,7 @@ import { getSubscriptionPeriod } from "../../lib/subscription-period";
 import { decidePublishingProvider } from "../social/provider-routing";
 import { UploadPostService } from "../providers/upload-post/service";
 import { prisma } from "../../lib/prisma";
+import { getActualPostsUsed } from "../../lib/quota-utils";
 import { logActivity } from "../dashboard/activity-logger";
 import { env } from "../../config/env";
 import { enqueueSchedulerEmail } from "../jobs/scheduler-email-queue";
@@ -148,15 +149,7 @@ export class PostService {
     if (subscription?.plan?.basePostQuota && shouldCountUsage) {
       const { periodStart, periodEnd } = getSubscriptionPeriod(subscription);
 
-      const usage = await prisma.usageMonthly.findFirst({
-        where: {
-          userId,
-          periodStart,
-          periodEnd,
-        },
-      });
-
-      const postsUsed = usage?.postsUsed ?? 0;
+      const postsUsed = await getActualPostsUsed(userId, periodStart, periodEnd);
       if (subscription.plan.postLimitType === "HARD" && postsUsed >= subscription.plan.basePostQuota) {
         throw new Error(`You have reached your monthly post limit (${subscription.plan.basePostQuota}). Please upgrade your plan to schedule more posts.`);
       }
@@ -588,10 +581,7 @@ export class PostService {
 
     if (scheduledNow && subscription?.plan?.basePostQuota) {
       usageWindow = getSubscriptionPeriod(subscription);
-      const usage = await prisma.usageMonthly.findFirst({
-        where: { userId, periodStart: usageWindow.periodStart, periodEnd: usageWindow.periodEnd },
-      });
-      const postsUsed = usage?.postsUsed ?? 0;
+      const postsUsed = await getActualPostsUsed(userId, usageWindow.periodStart, usageWindow.periodEnd);
 
       if (subscription.plan.postLimitType === "HARD" && postsUsed >= subscription.plan.basePostQuota) {
         throw new Error(`You have reached your monthly post limit (${subscription.plan.basePostQuota}). Please upgrade your plan to schedule more posts.`);
@@ -729,10 +719,7 @@ export class PostService {
 
     if (subscription?.plan?.basePostQuota) {
       const { periodStart, periodEnd } = getSubscriptionPeriod(subscription);
-      const usage = await prisma.usageMonthly.findFirst({
-        where: { userId, periodStart, periodEnd },
-      });
-      const postsUsed = usage?.postsUsed ?? 0;
+      const postsUsed = await getActualPostsUsed(userId, periodStart, periodEnd);
       if (subscription.plan.postLimitType === "HARD" && postsUsed >= subscription.plan.basePostQuota) {
         throw new Error(`You have reached your monthly post limit (${subscription.plan.basePostQuota}). Please upgrade your plan to schedule more posts.`);
       }
@@ -832,10 +819,7 @@ export class PostService {
 
       if (subscription?.plan?.basePostQuota) {
         const { periodStart, periodEnd } = getSubscriptionPeriod(subscription);
-        const usage = await prisma.usageMonthly.findFirst({
-          where: { userId: post.userId, periodStart, periodEnd },
-        });
-        const postsUsed = usage?.postsUsed ?? 0;
+        const postsUsed = await getActualPostsUsed(post.userId, periodStart, periodEnd);
         if (subscription.plan.postLimitType === "HARD" && postsUsed >= subscription.plan.basePostQuota) {
           throw new Error(
             `You have reached your monthly post limit (${subscription.plan.basePostQuota}). Please upgrade your plan to publish more posts.`
