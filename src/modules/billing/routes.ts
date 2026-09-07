@@ -939,23 +939,6 @@ router.post("/checkout", requireAuth, async (req, res) => {
   });
   cartSubtotalCentsParts.push(basePriceCents);
 
-  if (normalizedPlanCode === "SIGNATURE") {
-    const onboardingFeeCents = 9700;
-    lineItems.push({
-      price_data: {
-        currency: "usd",
-        unit_amount: onboardingFeeCents,
-        product_data: {
-          name: "One-time Onboarding Fee",
-          description: "Covers Brand Brief development, catalog setup, and brand voice training.",
-        },
-      },
-      quantity: 1,
-      ...taxLineConfig,
-    });
-    cartSubtotalCentsParts.push(onboardingFeeCents);
-  }
-
   if (addonPlatformQty > 0) {
     if (interval === "year" && env.STRIPE_PLATFORM_ADDON_YEARLY_PRICE_ID) {
       lineItems.push({
